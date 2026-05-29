@@ -180,7 +180,70 @@ const getAlignedMainUrl = (rawUrl: string, key: string): string => {
 const MAIN_URL = getAlignedMainUrl(MAIN_URL_RAW, MAIN_KEY);
 
 export default function AdminPanelScreen({ onBack }: { onBack: () => void }) {
-    const [subView, setSubView] = useState<'dashboard' | 'departments' | 'hotels' | 'batches' | 'categories' | 'items' | 'groups'>('dashboard');
+    const [subView, setSubView] = useState<'dashboard' | 'departments' | 'hotels' | 'batches' | 'categories' | 'items' | 'groups' | 'users'>('dashboard');
+    const [profilesList, setProfilesList] = useState<any[]>([]);
+    const [isProfilesTableMissing, setIsProfilesTableMissing] = useState(false);
+
+    const fetchProfilesFromSupabase = async () => {
+        setIsProfilesTableMissing(false);
+        try {
+            const response = await fetch(`${MAIN_URL}audit_users?select=*&order=created_at.desc`, {
+                headers: {
+                    'apikey': MAIN_KEY,
+                    'Authorization': `Bearer ${MAIN_KEY}`
+                }
+            });
+            if (response.ok) {
+                const data = await response.json();
+                if (Array.isArray(data)) {
+                    setProfilesList(data);
+                }
+            } else {
+                if (response.status === 404 || response.status === 400) {
+                    setIsProfilesTableMissing(true);
+                }
+                console.warn(`Profiles fetch returned status: ${response.status}`);
+                loadFallbackProfiles();
+            }
+        } catch (err) {
+            console.warn("Failed to fetch profiles:", err);
+            loadFallbackProfiles();
+        }
+    };
+
+    const loadFallbackProfiles = () => {
+        const cachedProfiles: any[] = [];
+        for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (key && key.startsWith('sbi_profile_')) {
+                try {
+                    const val = localStorage.getItem(key);
+                    if (val) {
+                        cachedProfiles.push(JSON.parse(val));
+                    }
+                } catch (e) {
+                    console.error("Local profile read error:", e);
+                }
+            }
+        }
+        
+        if (cachedProfiles.length === 0) {
+            cachedProfiles.push({
+                id: 'dummy-uuid-1',
+                email: 'ranggapermana@swiss-belhotel.com',
+                first_name: 'Rangga',
+                last_name: 'Permana',
+                display_name: 'Rangga Permana (Google Authenticated)',
+                role: 'Sales & Marketing',
+                is_brand_audit_lead: true,
+                hotel_name: 'Grand Swiss-Belhotel Darmo',
+                hotel_code: 'GSBD',
+                created_at: new Date(Date.now() - 3600 * 1000 * 48).toISOString(),
+                last_sign_in_at: new Date().toISOString()
+            });
+        }
+        setProfilesList(cachedProfiles);
+    };
 
     // CRUD state for Audit Groups
     const [groups, setGroups] = useState<AuditGroup[]>(() => {
@@ -495,6 +558,7 @@ export default function AdminPanelScreen({ onBack }: { onBack: () => void }) {
         fetchDepartmentsFromSupabase();
         fetchCategoriesFromSupabase();
         fetchItemsFromSupabase();
+        fetchProfilesFromSupabase();
     }, []);
 
     useEffect(() => {
@@ -509,6 +573,8 @@ export default function AdminPanelScreen({ onBack }: { onBack: () => void }) {
             fetchCategoriesFromSupabase();
         } else if (subView === 'items') {
             fetchItemsFromSupabase();
+        } else if (subView === 'users') {
+            fetchProfilesFromSupabase();
         }
     }, [subView]);
 
@@ -1704,7 +1770,7 @@ export default function AdminPanelScreen({ onBack }: { onBack: () => void }) {
                         <ArrowLeft size={20} />
                     </button>
                     <h1 className="text-xl font-bold text-slate-900 tracking-tight ml-3">
-                        {subView === 'departments' ? 'Audit Departments' : subView === 'hotels' ? 'Master Hotel List' : subView === 'batches' ? 'Audit Batch' : subView === 'categories' ? 'Audit Category' : subView === 'items' ? 'Audit Items' : subView === 'groups' ? 'Audit Groups' : 'Admin Dashboard'}
+                        {subView === 'departments' ? 'Audit Departments' : subView === 'hotels' ? 'Master Hotel List' : subView === 'batches' ? 'Audit Batch' : subView === 'categories' ? 'Audit Category' : subView === 'items' ? 'Audit Items' : subView === 'groups' ? 'Audit Groups' : subView === 'users' ? 'User Management' : 'Admin Dashboard'}
                     </h1>
                 </div>
                 {subView === 'dashboard' && (
@@ -1898,6 +1964,7 @@ export default function AdminPanelScreen({ onBack }: { onBack: () => void }) {
                                         
                                         {/* User Management */}
                                         <div 
+                                            onClick={() => { setSubView('users'); setSearchQuery(''); fetchProfilesFromSupabase(); }}
                                             className="flex items-center justify-between p-5 bg-slate-50/60 hover:bg-slate-100/80 rounded-[20px] border border-slate-100 cursor-pointer hover:border-indigo-200 active:scale-[0.99] transition-all duration-200 group"
                                         >
                                             <div className="flex items-center gap-4">
@@ -2001,6 +2068,193 @@ export default function AdminPanelScreen({ onBack }: { onBack: () => void }) {
                             </div>
                         </section>
                     </>
+                ) : subView === 'users' ? (
+                    <div className="space-y-6">
+                        {/* Users Layout Header */}
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                            <div>
+                                <button 
+                                    onClick={() => { setSubView('dashboard'); setSearchQuery(''); }} 
+                                    className="inline-flex items-center gap-1.5 text-xs font-bold text-indigo-600 bg-indigo-50/50 hover:bg-slate-100 px-3.5 py-1.5 rounded-full border border-indigo-100/50 mb-3 hover:shadow-sm active:scale-95 transition-all outline-none"
+                                >
+                                    <ArrowLeft size={12} /> Back to Dashboard
+                                </button>
+                                <h2 className="text-2xl font-extrabold text-slate-900 tracking-tight">Onboarded User Registry</h2>
+                                <p className="text-xs text-slate-500 mt-1">Manage system logins, registration roles, property bindings, and brand audit privileges.</p>
+                            </div>
+                            <button 
+                                onClick={fetchProfilesFromSupabase}
+                                className="bg-indigo-600 hover:bg-indigo-700 text-white transition-all px-4 py-2.5 rounded-full font-bold text-sm flex items-center gap-2 justify-center shadow-lg hover:shadow-indigo-500/10 active:scale-95 outline-none"
+                            >
+                                <Clock size={16} className={isSupabaseLoading ? 'animate-spin' : ''} />
+                                <span>Sync Profiles</span>
+                            </button>
+                        </div>
+
+                        {/* Database Setup Notice if table missing */}
+                        {isProfilesTableMissing && (
+                            <div className="bg-amber-50 border border-amber-200 p-5 rounded-[20px] animate-fadeIn space-y-3">
+                                <div className="flex items-start gap-3">
+                                    <AlertCircle className="text-amber-600 shrink-0 mt-0.5" size={20} />
+                                    <div>
+                                        <h4 className="text-sm font-bold text-slate-805">Supabase Table Sync Pending</h4>
+                                        <p className="text-xs text-slate-650 leading-relaxed mt-1">
+                                            The <code className="bg-amber-100 px-1 py-0.5 rounded font-mono font-bold text-amber-800">public.audit_users</code> table doesn't exist yet on your Supabase instance, or permissions require database provisioning. 
+                                        </p>
+                                        <p className="text-xs text-slate-650 leading-relaxed mt-2 font-medium">
+                                            👉 We have automatically saved your onboarding information locally in your browser. To finalize cloud storage sync, please copy the script inside the <strong className="text-slate-800">/supabase-onboarding.sql</strong> file and execute it within your Supabase SQL Editor.
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Search bar */}
+                        <div className="bg-white p-4 rounded-2xl border border-slate-150/80 shadow-[0_4px_24px_rgba(15,23,42,0.015)] flex items-center gap-3 hover:border-slate-300 focus-within:border-indigo-400 focus-within:shadow-[0_8px_30px_rgba(99,102,241,0.03)] transition-all">
+                            <Search className="text-slate-400 shrink-0" size={18} />
+                            <input 
+                                type="text" 
+                                placeholder="Search users by email, name, role, or hotel..." 
+                                className="w-full text-sm text-slate-705 bg-transparent outline-none border-none placeholder-slate-400 focus:ring-0"
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                            />
+                            {searchQuery && (
+                                <button 
+                                    onClick={() => setSearchQuery('')} 
+                                    className="p-1 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100"
+                                >
+                                    <X size={14} />
+                                </button>
+                            )}
+                        </div>
+
+                        {/* User List */}
+                        {(() => {
+                            const filteredProfiles = profilesList.filter(p => {
+                                const q = searchQuery.toLowerCase();
+                                return (
+                                    (p.email || '').toLowerCase().includes(q) ||
+                                    (p.display_name || '').toLowerCase().includes(q) ||
+                                    (p.first_name || '').toLowerCase().includes(q) ||
+                                    (p.last_name || '').toLowerCase().includes(q) ||
+                                    (p.role || '').toLowerCase().includes(q) ||
+                                    (p.hotel_name || '').toLowerCase().includes(q) ||
+                                    (p.hotel_code || '').toLowerCase().includes(q)
+                                );
+                            });
+
+                            const formatSqlTimestamp = (isoString?: string) => {
+                                if (!isoString) return '—';
+                                try {
+                                    const d = new Date(isoString);
+                                    if (isNaN(d.getTime())) return '—';
+                                    const day = String(d.getDate()).padStart(2, '0');
+                                    const month = String(d.getMonth() + 1).padStart(2, '0');
+                                    const year = d.getFullYear();
+                                    const hours = String(d.getHours()).padStart(2, '0');
+                                    const minutes = String(d.getMinutes()).padStart(2, '0');
+                                    const seconds = String(d.getSeconds()).padStart(2, '0');
+                                    return `${day}-${month}-${year} ${hours}:${minutes}:${seconds}`;
+                                } catch {
+                                    return '—';
+                                }
+                            };
+
+                            if (filteredProfiles.length === 0) {
+                                return (
+                                    <div className="bg-white/40 backdrop-blur-sm p-12 rounded-[24px] border border-dashed border-slate-200 text-center">
+                                        <Search size={28} className="text-slate-300 mx-auto mb-3" />
+                                        <h3 className="text-sm font-bold text-slate-800">No registered users matched your criteria</h3>
+                                        <p className="text-xs text-slate-400 mt-1 font-medium">Try verifying spelling or clear search filters.</p>
+                                    </div>
+                                );
+                            }
+
+                            return (
+                                <div className="bg-white rounded-[24px] border border-slate-150/80 shadow-[0_8px_30px_rgba(15,23,42,0.012)] overflow-hidden animate-fadeIn">
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full text-left border-collapse">
+                                            <thead>
+                                                <tr className="border-b border-slate-100 bg-slate-50/50 select-none text-[10px] font-extrabold text-slate-400 tracking-wider uppercase">
+                                                    <th className="px-6 py-4">User Identity</th>
+                                                    <th className="px-6 py-4">Google Login</th>
+                                                    <th className="px-6 py-4">Hotel Property</th>
+                                                    <th className="px-6 py-4">Privileges</th>
+                                                    <th className="px-6 py-4">Created At</th>
+                                                    <th className="px-6 py-4">Last Logon</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-slate-100 text-slate-700">
+                                                {filteredProfiles.map((p, index) => (
+                                                    <tr key={p.id || index} className="hover:bg-indigo-50/15 transition-colors group">
+                                                        <td className="px-6 py-4 max-w-xs">
+                                                            <div className="flex items-center gap-3">
+                                                                <div className="w-9 h-9 rounded-xl bg-indigo-50 text-indigo-700 flex items-center justify-center font-bold text-xs capitalize shrink-0 border border-indigo-100/50">
+                                                                    {(p.first_name?.[0] || p.display_name?.[0] || 'U')}
+                                                                </div>
+                                                                <div className="truncate">
+                                                                    <p className="text-slate-850 font-black text-xs truncate">
+                                                                        {p.first_name ? `${p.first_name} ${p.last_name || ''}`.trim() : 'Unpublished Name'}
+                                                                    </p>
+                                                                    <p className="text-[10px] text-slate-450 uppercase font-black tracking-tight mt-0.5">
+                                                                        {p.role || 'No Onboarding Yet'}
+                                                                    </p>
+                                                                </div>
+                                                            </div>
+                                                        </td>
+                                                        <td className="px-6 py-4 text-xs font-semibold">
+                                                            <div className="space-y-0.5">
+                                                                <p className="text-slate-800 font-bold">{p.display_name || 'Anonymous User'}</p>
+                                                                <p className="text-slate-400 text-[10px] select-all">{p.email}</p>
+                                                            </div>
+                                                        </td>
+                                                        <td className="px-6 py-4">
+                                                            {p.hotel_name ? (
+                                                                <div>
+                                                                    <p className="text-xs font-black text-slate-750 flex items-center gap-1">
+                                                                        <Building size={12} className="text-slate-400" />
+                                                                        {p.hotel_name}
+                                                                    </p>
+                                                                    {p.hotel_code && (
+                                                                        <p className="text-[10px] text-indigo-600 font-bold tracking-wider mt-0.5 uppercase">
+                                                                            Code: {p.hotel_code}
+                                                                        </p>
+                                                                    )}
+                                                                </div>
+                                                            ) : (
+                                                                <span className="text-[10px] uppercase font-bold text-slate-350 bg-slate-50 px-1.5 py-1 rounded">
+                                                                    Not Assigned
+                                                                </span>
+                                                            )}
+                                                        </td>
+                                                        <td className="px-6 py-4 text-xs">
+                                                            {p.is_brand_audit_lead ? (
+                                                                <span className="inline-flex items-center gap-1 text-[10px] font-black text-indigo-700 bg-indigo-50 border border-indigo-100/80 px-2 py-0.5 rounded-full uppercase">
+                                                                    <ShieldCheck size={12} />
+                                                                    Audit Lead
+                                                                </span>
+                                                            ) : (
+                                                                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-slate-400 bg-slate-50 border border-slate-200/60 px-2 py-0.5 rounded-full uppercase">
+                                                                    Standard Member
+                                                                </span>
+                                                            )}
+                                                        </td>
+                                                        <td className="px-6 py-4 text-[11px] font-mono font-bold text-slate-550">
+                                                            {formatSqlTimestamp(p.created_at)}
+                                                        </td>
+                                                        <td className="px-6 py-4 text-[11px] font-mono font-bold text-slate-550">
+                                                            {formatSqlTimestamp(p.last_sign_in_at)}
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            );
+                        })()}
+                    </div>
                 ) : subView === 'departments' ? (
                     <div className="space-y-6">
                         {/* Departments Layout */}

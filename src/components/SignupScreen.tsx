@@ -192,8 +192,8 @@ export default function SignupScreen({ onComplete, onLogout }: SignupScreenProps
             const mainAnonKey = import.meta.env.MAIN_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd2bnd4cmVqZ2RraXhic3poeGt3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkxNTE2ODcsImV4cCI6MjA5NDcyNzY4N30.Pvv9rgR_Vr9McwxLrYfELeSpWYLNH2NPw0nkeGD6ZXo';
 
             try {
-                // Upsert profile in Supabase profiles REST endpoint
-                const res = await fetch(`${cleanMainUrl}/rest/v1/profiles`, {
+                // Upsert profile in Supabase audit_users REST endpoint
+                const res = await fetch(`${cleanMainUrl}/rest/v1/audit_users`, {
                     method: 'POST',
                     headers: {
                         'apikey': mainAnonKey,
