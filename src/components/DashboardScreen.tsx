@@ -1,6 +1,13 @@
-import { Menu, CheckCircle, Clock, Edit3, Building, ChevronRight, PlusCircle, LayoutDashboard, History, User } from 'lucide-react';
+import { Menu, CheckCircle, Clock, Edit3, Building, ChevronRight, PlusCircle, LayoutDashboard, History, User, LogOut } from 'lucide-react';
 
-export default function DashboardScreen({ onStartAudit, onViewPending }: { onStartAudit: () => void, onViewPending: () => void }) {
+interface DashboardProps {
+  onStartAudit: () => void;
+  onViewPending: () => void;
+  userProfile?: any;
+  onLogout: () => void;
+}
+
+export default function DashboardScreen({ onStartAudit, onViewPending, userProfile, onLogout }: DashboardProps) {
   return (
     <div className="min-h-screen pb-24 md:pb-0 pt-20 md:pt-16 bg-transparent">
       <header className="fixed top-0 z-40 w-full flex justify-between items-center px-4 py-3 bg-white/80 backdrop-blur-md border-b border-slate-200">
@@ -8,8 +15,25 @@ export default function DashboardScreen({ onStartAudit, onViewPending }: { onSta
             <button className="p-2 hover:bg-slate-100 rounded-full text-slate-600"><Menu size={20}/></button>
             <img src="https://i.ibb.co.com/WNB70XBz/sbi-logo.png" alt="Swiss-Belhotel Logo" className="h-10" />
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
+            <div className="text-right hidden sm:block">
+                <p className="text-slate-850 text-xs font-extrabold leading-none">
+                    {userProfile?.first_name ? `${userProfile.first_name} ${userProfile.last_name || ''}`.trim() : 'Property User'}
+                </p>
+                <p className="text-slate-400 text-[9px] uppercase tracking-wider font-bold mt-1">
+                    {userProfile?.role || 'Team Member'}
+                </p>
+            </div>
             <img src="https://lh3.googleusercontent.com/aida-public/AB6AXuBITBWNBBtIG0rf-g2rSnXVh9VGHDvsAjvLTDjrE23xz1hJrCplqnz6Xn1zrgcgHMUmCMQ3IdgZhZbEuTf1ImpPe7qG_G1XAXu0U8ILiKm-G1yTVcT14BEf-0i6SdQv_STVs2afp2q-qyq_bFuTRUnJiG650ZgShhYGSpaReJ7UOabaT-pWAFjHSmW0zh7U8NDb86GS9JamBquf3kiqH527l8DSi5MchVDfG3Ynr9tQMnoQnBwmDHiGBzXeeSny3uJYmL-hopwk60g" alt="Profile" className="w-8 h-8 rounded-full" />
+            
+            <button 
+                onClick={onLogout}
+                className="p-1 px-2.5 text-slate-500 hover:text-red-650 hover:bg-slate-100/80 rounded-lg transition-all font-bold text-xs flex items-center gap-1.5"
+                title="Sign Out"
+            >
+                <LogOut size={15} />
+                <span className="hidden md:inline">Sign Out</span>
+            </button>
         </div>
       </header>
 
@@ -17,8 +41,24 @@ export default function DashboardScreen({ onStartAudit, onViewPending }: { onSta
         <section className="mb-8">
             <div className="flex justify-between items-end">
                 <div>
-                    <p className="text-indigo-600 text-[10px] tracking-widest uppercase font-bold">Swiss-Belhotel International</p>
-                    <h2 className="text-2xl font-bold mt-1 text-slate-900">Welcome, Property Team</h2>
+                    <p className="text-indigo-600 text-[10px] tracking-widest uppercase font-bold">
+                        {userProfile?.hotel_name || 'Swiss-Belhotel International'} 
+                        {userProfile?.hotel_code ? ` (${userProfile.hotel_code})` : ''}
+                    </p>
+                    <h2 className="text-2xl font-bold mt-1 text-slate-900">
+                        Welcome, {userProfile?.first_name ? `${userProfile.first_name} ${userProfile.last_name || ''}`.trim() : 'Property Team'}
+                    </h2>
+                    {userProfile?.role && (
+                        <p className="text-slate-500 text-[11px] font-bold mt-1 flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block animate-pulse" />
+                            {userProfile.role}
+                            {userProfile.is_brand_audit_lead && (
+                                <span className="ml-1.5 px-1.5 py-0.5 bg-indigo-105 text-indigo-700 text-[9px] font-extrabold uppercase rounded">
+                                    Audit Lead
+                                </span>
+                            )}
+                        </p>
+                    )}
                 </div>
                 <button onClick={onStartAudit} className="bg-indigo-600 text-white px-6 py-2.5 rounded-full text-sm font-semibold flex items-center gap-2 hover:bg-slate-900 transition-all">
                     <PlusCircle size={18} /> New Audit

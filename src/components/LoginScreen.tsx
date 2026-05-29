@@ -9,7 +9,7 @@ export default function LoginScreen({ onLogin, onAdminAccess }: { onLogin: () =>
       const handleMessage = async (event: MessageEvent) => {
           // Verify that message is from trusted origins
           const origin = event.origin;
-          if (!origin.endsWith('.run.app') && !origin.includes('localhost') && !origin.includes('supabase.co')) {
+          if (!origin.endsWith('.run.app') && !origin.endsWith('.vercel.app') && !origin.includes('localhost') && !origin.includes('supabase.co')) {
               return;
           }
 
