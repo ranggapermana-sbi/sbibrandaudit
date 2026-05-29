@@ -2,8 +2,8 @@ import { Menu, CheckCircle, Clock, Edit3, Building, ChevronRight, PlusCircle, La
 
 export default function DashboardScreen({ onStartAudit, onViewPending }: { onStartAudit: () => void, onViewPending: () => void }) {
   return (
-    <div className="min-h-screen pb-24 md:pb-0 pt-20 md:pt-16">
-      <header className="fixed top-0 z-40 w-full flex justify-between items-center px-4 py-3 bg-white border-b border-slate-200">
+    <div className="min-h-screen pb-24 md:pb-0 pt-20 md:pt-16 bg-transparent">
+      <header className="fixed top-0 z-40 w-full flex justify-between items-center px-4 py-3 bg-white/80 backdrop-blur-md border-b border-slate-200">
         <div className="flex items-center gap-3">
             <button className="p-2 hover:bg-slate-100 rounded-full text-slate-600"><Menu size={20}/></button>
             <img src="https://i.ibb.co.com/WNB70XBz/sbi-logo.png" alt="Swiss-Belhotel Logo" className="h-10" />

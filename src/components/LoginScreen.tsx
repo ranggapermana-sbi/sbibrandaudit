@@ -24,7 +24,7 @@ export default function LoginScreen({ onLogin, onAdminAccess }: { onLogin: () =>
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-slate-50/50">
+    <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-transparent">
       <main className="w-full max-w-[420px] bg-white border border-slate-100 p-8 sm:p-10 rounded-[32px] shadow-[0_16px_48px_rgba(15,23,42,0.04)] text-center transition-all duration-300 hover:shadow-[0_20px_56px_rgba(15,23,42,0.06)]">
         <header className="mb-8">
             <div className="mb-6 flex justify-center transform hover:scale-105 transition-transform duration-300">

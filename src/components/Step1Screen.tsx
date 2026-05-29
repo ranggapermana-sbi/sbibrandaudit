@@ -2,8 +2,8 @@ import { ArrowLeft, ChevronDown } from 'lucide-react';
 
 export default function Step1Screen({ onNext }: { onNext: () => void }) {
     return (
-        <div className="min-h-screen bg-white">
-            <header className="fixed top-0 w-full bg-white border-b flex items-center p-4 gap-4">
+        <div className="min-h-screen bg-transparent">
+            <header className="fixed top-0 w-full bg-white/70 backdrop-blur-md border-b flex items-center p-4 gap-4 z-50">
                 <button className="p-2 hover:bg-gray-100 rounded-full"><div className="w-8 h-8 rounded-full bg-gray-200"></div></button>
                 <img src="https://i.ibb.co.com/WNB70XBz/sbi-logo.png" alt="Swiss-Belhotel Logo" className="h-10" />
             </header>
@@ -50,7 +50,7 @@ export default function Step1Screen({ onNext }: { onNext: () => void }) {
                     </div>
                 </div>
 
-                <div className="fixed bottom-0 left-0 w-full p-4 bg-white border-t flex justify-end pb-safe">
+                <div className="fixed bottom-0 left-0 w-full p-4 bg-white/70 backdrop-blur-md border-t flex justify-end pb-safe z-50">
                     <button onClick={onNext} className="bg-indigo-600 text-white px-10 py-4 rounded-full font-bold w-full sm:w-auto">Next</button>
                 </div>
             </main>

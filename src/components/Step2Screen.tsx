@@ -1,7 +1,7 @@
 export default function Step2Screen() {
     return (
-        <div className="min-h-screen bg-white">
-            <header className="fixed top-0 w-full bg-white border-b p-4 text-center font-bold flex justify-center"><img src="https://i.ibb.co.com/WNB70XBz/sbi-logo.png" alt="Swiss-Belhotel Logo" className="h-10" /></header>
+        <div className="min-h-screen bg-transparent">
+            <header className="fixed top-0 w-full bg-white/70 backdrop-blur-md border-b p-4 text-center font-bold flex justify-center z-50"><img src="https://i.ibb.co.com/WNB70XBz/sbi-logo.png" alt="Swiss-Belhotel Logo" className="h-10" /></header>
             <main className="max-w-2xl mx-auto pt-20 p-4 space-y-6">
                 {[1, 2, 3].map((i) => (
                     <div key={i} className="border border-slate-200 p-5 rounded-2xl shadow-sm space-y-4">

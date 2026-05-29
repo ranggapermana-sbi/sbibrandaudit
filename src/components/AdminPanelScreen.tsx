@@ -1414,7 +1414,7 @@ export default function AdminPanelScreen({ onBack }: { onBack: () => void }) {
     );
 
     return (
-        <div className="min-h-screen bg-slate-50/50 pt-20 pb-12 transition-all duration-300">
+        <div className="min-h-screen bg-transparent pt-20 pb-12 transition-all duration-300">
             {/* Header */}
             <header className="fixed top-0 z-40 w-full flex items-center justify-between px-6 py-4 bg-white/85 backdrop-blur-md border-b border-slate-100/80 shadow-sm">
                 <div className="flex items-center">

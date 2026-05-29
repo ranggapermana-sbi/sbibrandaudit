@@ -10,8 +10,8 @@ const tasks = [
 
 export default function BrandingPropertyIdentificationScreen({ onBack }: { onBack: () => void }) {
     return (
-        <div className="min-h-screen pt-20 pb-8">
-            <header className="fixed top-0 z-40 w-full flex items-center px-4 py-3 bg-white border-b border-slate-200">
+        <div className="min-h-screen pt-20 pb-8 bg-transparent">
+            <header className="fixed top-0 z-40 w-full flex items-center px-4 py-3 bg-white/85 backdrop-blur-md border-b border-slate-200">
                 <button onClick={onBack} className="p-2 hover:bg-slate-100 rounded-full text-slate-600"><ChevronRight className="rotate-180" /></button>
                 <h1 className="text-lg font-bold text-slate-900 tracking-tight ml-4">Branding & Property</h1>
             </header>
