@@ -1,0 +1,54 @@
+@import "tailwindcss";
+
+@theme {
+  --radius-xs: 10px;
+  --radius-sm: 10px;
+  --radius-md: 10px;
+  --radius-lg: 10px;
+  --radius-xl: 10px;
+  --radius-2xl: 10px;
+  --radius-3xl: 10px;
+  --radius-4xl: 10px;
+  --radius: 10px;
+}
+
+/* Force standard rounded utility classes of any size to exactly 10px */
+.rounded,
+.rounded-sm,
+.rounded-md,
+.rounded-lg,
+.rounded-xl,
+.rounded-2xl,
+.rounded-3xl,
+.rounded-4xl,
+.rounded-full {
+  border-radius: 10px !important;
+}
+
+/* Force arbitrary custom corner classes (like rounded-[24px], rounded-[32px]) to exactly 10px */
+[class*="rounded-\["],
+[class*="rounded-23xl"] {
+  border-radius: 10px !important;
+}
+
+/* Ensure all form controls, textareas, and input fields have 10px corner roundness */
+input,
+select,
+textarea {
+  border-radius: 10px !important;
+}
+
+/* Ensure buttons have 10px corner roundness */
+button {
+  border-radius: 10px !important;
+}
+
+/* Ensure small indicator dots and active concentric green lights remain circular */
+.w-1\.5.h-1\.5, .w-3.h-3, .w-4.h-4 {
+  border-radius: 9999px !important;
+}
+
+body {
+  @apply bg-fixed bg-cover bg-center bg-no-repeat;
+  background-image: url('https://i.ibb.co.com/35JV1jss/Reflect-Logogram.png'), linear-gradient(135deg, #fff1f2 0%, #fee2e2 100%);
+}
