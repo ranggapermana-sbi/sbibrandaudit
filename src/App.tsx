@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import type { AppScreen } from './types';
 import LoginScreen from './components/LoginScreen';
 import DashboardScreen from './components/DashboardScreen';
@@ -12,9 +12,31 @@ import Step2Screen from './components/Step2Screen';
 import PendingCategoriesScreen from './components/PendingCategoriesScreen';
 import BrandingPropertyIdentificationScreen from './components/BrandingPropertyIdentificationScreen';
 import AdminPanelScreen from './components/AdminPanelScreen';
+import { supabase } from './lib/supabase';
 
 export default function App() {
   const [currentScreen, setCurrentScreen] = useState<AppScreen>('login');
+
+  useEffect(() => {
+    // Check initial active session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) {
+        setCurrentScreen('dashboard');
+      }
+    });
+
+    // Listen for auth state transitions dynamically
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session) {
+        setCurrentScreen('dashboard');
+      } else {
+        // Only kick to login screen if they aren't on adminPanel (as adminPanel features independent access)
+        setCurrentScreen(prev => prev === 'adminPanel' ? 'adminPanel' : (session ? 'dashboard' : 'login'));
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
 
   return (
     <div className="min-h-screen text-slate-900">

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, CheckCircle, Clock, Building, BarChart3, ChevronRight, Plus, Trash2, Edit, Search, X, AlertCircle, MapPin, Settings2, Calendar, Star, Briefcase, ClipboardList, FileCheck, Layers, Package, Camera, ImageIcon, FileText, Hash, Type, CheckSquare, Users, ShieldCheck, Percent } from 'lucide-react';
+import { ArrowLeft, CheckCircle, Clock, Building, BarChart3, ChevronRight, Plus, Trash2, Edit, Search, X, AlertCircle, MapPin, Settings2, Calendar, Star, Briefcase, ClipboardList, FileCheck, Layers, Package, Camera, ImageIcon, FileText, Hash, Type, CheckSquare, Users, ShieldCheck, Percent, GripVertical, ChevronUp, ChevronDown } from 'lucide-react';
 
 interface Department {
     id: string;
@@ -39,9 +39,23 @@ interface AuditItem {
     itemDescription?: string;
     departmentId: string;
     categoryId: string;
-    inputType: 'camera' | 'image' | 'document' | 'numeric' | 'text' | 'checkbox';
+    inputType: 'camera' | 'image' | 'document' | 'numeric' | 'text' | 'checkbox' | 'score';
+    points?: number;
     description?: string;
 }
+
+interface AuditGroup {
+    id: string;
+    name: string;
+    description?: string;
+    categoryIds?: string[];
+    itemIds: string[];
+}
+
+const DEFAULT_GROUPS: AuditGroup[] = [
+    { id: '1', name: 'Front Office Excellence Group', description: 'Standard criteria checking reception and guest greeting compliance.', itemIds: ['1', '2'] },
+    { id: '2', name: 'Safety & Hygiene Standard Group', description: 'Master check list for public spaces and hygiene protocols.', itemIds: ['3', '4'] },
+];
 
 const DEFAULT_BATCHES: AuditBatch[] = [
     { id: '1', name: 'Batch 1', status: 'Active', hotelIds: ['1', '2'] },
@@ -166,7 +180,24 @@ const getAlignedMainUrl = (rawUrl: string, key: string): string => {
 const MAIN_URL = getAlignedMainUrl(MAIN_URL_RAW, MAIN_KEY);
 
 export default function AdminPanelScreen({ onBack }: { onBack: () => void }) {
-    const [subView, setSubView] = useState<'dashboard' | 'departments' | 'hotels' | 'batches' | 'categories' | 'items'>('dashboard');
+    const [subView, setSubView] = useState<'dashboard' | 'departments' | 'hotels' | 'batches' | 'categories' | 'items' | 'groups'>('dashboard');
+
+    // CRUD state for Audit Groups
+    const [groups, setGroups] = useState<AuditGroup[]>(() => {
+        const saved = localStorage.getItem('sbi_audit_groups_v2');
+        if (saved) {
+            try {
+                return JSON.parse(saved);
+            } catch (e) {
+                console.error("Error parsing groups", e);
+            }
+        }
+        return DEFAULT_GROUPS;
+    });
+
+    useEffect(() => {
+        localStorage.setItem('sbi_audit_groups_v2', JSON.stringify(groups));
+    }, [groups]);
 
     // CRUD state for Categories
     const [catList, setCatList] = useState<AuditCategory[]>([]);
@@ -230,6 +261,7 @@ export default function AdminPanelScreen({ onBack }: { onBack: () => void }) {
                 departmentId: String(item.department_id),
                 categoryId: String(item.category_id),
                 inputType: item.input_type as AuditItem['inputType'],
+                points: item.points !== undefined && item.points !== null ? Number(item.points) : (item.point !== undefined && item.point !== null ? Number(item.point) : 5),
                 description: item.description
             }));
             
@@ -597,8 +629,245 @@ export default function AdminPanelScreen({ onBack }: { onBack: () => void }) {
     const [itemInputType, setItemInputType] = useState<AuditItem['inputType']>('text');
     const [itemInstruction, setItemInstruction] = useState('');
     const [itemItemDescription, setItemItemDescription] = useState('');
+    const [itemPoints, setItemPoints] = useState<number>(5);
     const [itemError, setItemError] = useState('');
     const [confirmItemDeleteId, setConfirmItemDeleteId] = useState<string | null>(null);
+
+    // Audit Group Dialog states
+    const [isGroupFormOpen, setIsGroupFormOpen] = useState(false);
+    const [editingGroup, setEditingGroup] = useState<AuditGroup | null>(null);
+    const [groupName, setGroupName] = useState('');
+    const [groupDescription, setGroupDescription] = useState('');
+    const [groupCategoryIds, setGroupCategoryIds] = useState<string[]>([]);
+    const [groupItemIds, setGroupItemIds] = useState<string[]>([]);
+    const [confirmGroupDeleteId, setConfirmGroupDeleteId] = useState<string | null>(null);
+    const [groupError, setGroupError] = useState('');
+    const [dialogSearchQuery, setDialogSearchQuery] = useState('');
+    const [expandedCategoryIds, setExpandedCategoryIds] = useState<string[]>([]);
+
+    // Category Drag-and-drop state parameters
+    const [draggedCatId, setDraggedCatId] = useState<string | null>(null);
+    const [draggedCatSource, setDraggedCatSource] = useState<'available' | 'assigned' | null>(null);
+    const [draggedCatIndex, setDraggedCatIndex] = useState<number | null>(null);
+    const [isDragOverAssigned, setIsDragOverAssigned] = useState(false);
+
+    const handleOpenAddGroup = () => {
+        setEditingGroup(null);
+        setGroupName('');
+        setGroupDescription('');
+        setGroupCategoryIds([]);
+        setGroupItemIds([]);
+        setGroupError('');
+        setDialogSearchQuery('');
+        setExpandedCategoryIds([]);
+        setIsGroupFormOpen(true);
+    };
+
+    const handleOpenEditGroup = (group: AuditGroup) => {
+        setEditingGroup(group);
+        setGroupName(group.name);
+        setGroupDescription(group.description || '');
+        
+        let initialCatIds = group.categoryIds || [];
+        if (initialCatIds.length === 0 && group.itemIds && group.itemIds.length > 0) {
+            const derived = group.itemIds
+                .map(id => items.find(i => i.id === id)?.categoryId)
+                .filter((catId): catId is string => !!catId);
+            initialCatIds = Array.from(new Set(derived));
+        }
+
+        setGroupCategoryIds(initialCatIds);
+        setGroupItemIds(group.itemIds || []);
+        setGroupError('');
+        setDialogSearchQuery('');
+        setExpandedCategoryIds(initialCatIds);
+        setIsGroupFormOpen(true);
+    };
+
+    const handleDeleteGroup = (id: string) => {
+        setGroups(prev => prev.filter(g => g.id !== id));
+        setToastMessage("Audit Group deleted successfully!");
+        setConfirmGroupDeleteId(null);
+    };
+
+    const handleSaveGroup = (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!groupName.trim()) {
+            setGroupError("Group name is required.");
+            return;
+        }
+
+        const groupData = {
+            name: groupName.trim(),
+            description: groupDescription.trim(),
+            categoryIds: groupCategoryIds,
+            itemIds: groupItemIds
+        };
+
+        if (editingGroup) {
+            setGroups(prev => prev.map(g => g.id === editingGroup.id ? { ...g, ...groupData } : g));
+            setToastMessage("Audit Group updated successfully!");
+        } else {
+            const newId = String(Date.now());
+            setGroups(prev => [...prev, { id: newId, ...groupData }]);
+            setToastMessage("Audit Group created successfully!");
+        }
+
+        setIsGroupFormOpen(false);
+    };
+
+    // Category Drag and Drop helper functions
+    const handleDragStartAvailableCat = (e: React.DragEvent, catId: string) => {
+        setDraggedCatId(catId);
+        setDraggedCatSource('available');
+        e.dataTransfer.effectAllowed = 'move';
+    };
+
+    const handleDragStartAssignedCat = (e: React.DragEvent, catId: string, index: number) => {
+        setDraggedCatId(catId);
+        setDraggedCatSource('assigned');
+        setDraggedCatIndex(index);
+        e.dataTransfer.effectAllowed = 'move';
+    };
+
+    const handleDropOnAvailableCatZone = (e: React.DragEvent) => {
+        e.preventDefault();
+        if (draggedCatSource === 'assigned' && draggedCatId) {
+            handleQuickRemoveCat(draggedCatId);
+        }
+        setDraggedCatId(null);
+        setDraggedCatSource(null);
+        setDraggedCatIndex(null);
+    };
+
+    const handleDropOnAssignedCatZone = (e: React.DragEvent) => {
+        e.preventDefault();
+        setIsDragOverAssigned(false);
+        if (!draggedCatId) return;
+
+        if (draggedCatSource === 'available') {
+            if (!groupCategoryIds.includes(draggedCatId)) {
+                setGroupCategoryIds(prev => [...prev, draggedCatId]);
+                if (!expandedCategoryIds.includes(draggedCatId)) {
+                    setExpandedCategoryIds(prev => [...prev, draggedCatId]);
+                }
+                const catItems = items.filter(it => it.categoryId === draggedCatId).map(it => it.id);
+                setGroupItemIds(prev => {
+                    const next = [...prev];
+                    catItems.forEach(id => {
+                        if (!next.includes(id)) next.push(id);
+                    });
+                    return next;
+                });
+            }
+        }
+        setDraggedCatId(null);
+        setDraggedCatSource(null);
+        setDraggedCatIndex(null);
+    };
+
+    const handleDropOnAssignedCatItem = (e: React.DragEvent, targetIndex: number) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDragOverAssigned(false);
+        if (!draggedCatId) return;
+
+        if (draggedCatSource === 'assigned' && draggedCatIndex !== null) {
+            const newIds = [...groupCategoryIds];
+            const [removed] = newIds.splice(draggedCatIndex, 1);
+            newIds.splice(targetIndex, 0, removed);
+            setGroupCategoryIds(newIds);
+        } else if (draggedCatSource === 'available') {
+            if (!groupCategoryIds.includes(draggedCatId)) {
+                const newIds = [...groupCategoryIds];
+                newIds.splice(targetIndex, 0, draggedCatId);
+                setGroupCategoryIds(newIds);
+                if (!expandedCategoryIds.includes(draggedCatId)) {
+                    setExpandedCategoryIds(prev => [...prev, draggedCatId]);
+                }
+                const catItems = items.filter(it => it.categoryId === draggedCatId).map(it => it.id);
+                setGroupItemIds(prev => {
+                    const next = [...prev];
+                    catItems.forEach(id => {
+                        if (!next.includes(id)) next.push(id);
+                    });
+                    return next;
+                });
+            }
+        }
+
+        setDraggedCatId(null);
+        setDraggedCatSource(null);
+        setDraggedCatIndex(null);
+    };
+
+    const handleQuickAddCat = (catId: string) => {
+        if (!groupCategoryIds.includes(catId)) {
+            setGroupCategoryIds(prev => [...prev, catId]);
+            if (!expandedCategoryIds.includes(catId)) {
+                setExpandedCategoryIds(prev => [...prev, catId]);
+            }
+            const catItems = items.filter(it => it.categoryId === catId).map(it => it.id);
+            setGroupItemIds(prev => {
+                const next = [...prev];
+                catItems.forEach(id => {
+                    if (!next.includes(id)) next.push(id);
+                });
+                return next;
+            });
+        }
+    };
+
+    const handleQuickRemoveCat = (catId: string) => {
+        setGroupCategoryIds(prev => prev.filter(id => id !== catId));
+        const catItemIds = items.filter(it => it.categoryId === catId).map(it => it.id);
+        setGroupItemIds(prev => prev.filter(id => !catItemIds.includes(id)));
+    };
+
+    const handleMoveCatUp = (index: number) => {
+        if (index === 0) return;
+        const newIds = [...groupCategoryIds];
+        const temp = newIds[index];
+        newIds[index] = newIds[index - 1];
+        newIds[index - 1] = temp;
+        setGroupCategoryIds(newIds);
+    };
+
+    const handleMoveCatDown = (index: number) => {
+        if (index === groupCategoryIds.length - 1) return;
+        const newIds = [...groupCategoryIds];
+        const temp = newIds[index];
+        newIds[index] = newIds[index + 1];
+        newIds[index + 1] = temp;
+        setGroupCategoryIds(newIds);
+    };
+
+    const toggleExpandCategory = (catId: string) => {
+        setExpandedCategoryIds(prev => 
+            prev.includes(catId) ? prev.filter(id => id !== catId) : [...prev, catId]
+        );
+    };
+
+    const handleToggleItemCheckbox = (itemId: string) => {
+        setGroupItemIds(prev => 
+            prev.includes(itemId) ? prev.filter(id => id !== itemId) : [...prev, itemId]
+        );
+    };
+
+    const handleToggleCategoryAllItems = (catId: string, value: boolean) => {
+        const catItemIds = items.filter(it => it.categoryId === catId).map(it => it.id);
+        if (value) {
+            setGroupItemIds(prev => {
+                const next = [...prev];
+                catItemIds.forEach(id => {
+                    if (!next.includes(id)) next.push(id);
+                });
+                return next;
+            });
+        } else {
+            setGroupItemIds(prev => prev.filter(id => !catItemIds.includes(id)));
+        }
+    };
 
     // Toast auto-clear
     useEffect(() => {
@@ -710,6 +979,7 @@ export default function AdminPanelScreen({ onBack }: { onBack: () => void }) {
         setItemDepartmentId('');
         setItemCategoryId('');
         setItemInputType('text');
+        setItemPoints(5);
         setItemInstruction('');
         setItemItemDescription('');
         setItemError('');
@@ -722,6 +992,7 @@ export default function AdminPanelScreen({ onBack }: { onBack: () => void }) {
         setItemDepartmentId(item.departmentId);
         setItemCategoryId(item.categoryId);
         setItemInputType(item.inputType);
+        setItemPoints(item.points ?? 5);
         setItemInstruction(item.description || '');
         setItemItemDescription(item.itemDescription || '');
         setItemError('');
@@ -742,6 +1013,7 @@ export default function AdminPanelScreen({ onBack }: { onBack: () => void }) {
                 department_id: itemDepartmentId,
                 category_id: itemCategoryId,
                 input_type: itemInputType,
+                points: itemPoints,
                 description: itemInstruction.trim() || null,
                 item_description: itemItemDescription.trim() || null
             };
@@ -758,7 +1030,7 @@ export default function AdminPanelScreen({ onBack }: { onBack: () => void }) {
                 });
                 if (!response.ok) throw new Error('Failed to update item');
                 
-                setItems(prev => prev.map(i => i.id === editingItem.id ? { ...i, ...itemData, departmentId: itemDepartmentId, categoryId: itemCategoryId, inputType: itemInputType } : i));
+                setItems(prev => prev.map(i => i.id === editingItem.id ? { ...i, ...itemData, departmentId: itemDepartmentId, categoryId: itemCategoryId, inputType: itemInputType, points: itemPoints } : i));
                 setToastMessage('Item updated successfully in Database!');
             } else {
                 const response = await fetch(`${MAIN_URL}audit_items`, {
@@ -774,7 +1046,7 @@ export default function AdminPanelScreen({ onBack }: { onBack: () => void }) {
                 if (!response.ok) throw new Error('Failed to create item');
                 const data = await response.json();
                 
-                setItems(prev => [...prev, { id: String(data[0].id), ...itemData, departmentId: itemDepartmentId, categoryId: itemCategoryId, inputType: itemInputType }]);
+                setItems(prev => [...prev, { id: String(data[0].id), ...itemData, departmentId: itemDepartmentId, categoryId: itemCategoryId, inputType: itemInputType, points: itemPoints }]);
                 setToastMessage('New item added to Database!');
             }
 
@@ -783,6 +1055,7 @@ export default function AdminPanelScreen({ onBack }: { onBack: () => void }) {
             setItemDepartmentId('');
             setItemCategoryId('');
             setItemInputType('text');
+            setItemPoints(5);
             setItemInstruction('');
             setItemItemDescription('');
             setItemError('');
@@ -1413,6 +1686,11 @@ export default function AdminPanelScreen({ onBack }: { onBack: () => void }) {
         (i.description && i.description.toLowerCase().includes(searchQuery.toLowerCase()))
     );
 
+    const filteredGroups = groups.filter(g => 
+        g.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (g.description || '').toLowerCase().includes(searchQuery.toLowerCase())
+    );
+
     return (
         <div className="min-h-screen bg-transparent pt-20 pb-12 transition-all duration-300">
             {/* Header */}
@@ -1426,7 +1704,7 @@ export default function AdminPanelScreen({ onBack }: { onBack: () => void }) {
                         <ArrowLeft size={20} />
                     </button>
                     <h1 className="text-xl font-bold text-slate-900 tracking-tight ml-3">
-                        {subView === 'departments' ? 'Audit Departments' : subView === 'hotels' ? 'Master Hotel List' : subView === 'batches' ? 'Audit Batch' : subView === 'categories' ? 'Audit Category' : subView === 'items' ? 'Audit Items' : 'Admin Dashboard'}
+                        {subView === 'departments' ? 'Audit Departments' : subView === 'hotels' ? 'Master Hotel List' : subView === 'batches' ? 'Audit Batch' : subView === 'categories' ? 'Audit Category' : subView === 'items' ? 'Audit Items' : subView === 'groups' ? 'Audit Groups' : 'Admin Dashboard'}
                     </h1>
                 </div>
                 {subView === 'dashboard' && (
@@ -1571,17 +1849,19 @@ export default function AdminPanelScreen({ onBack }: { onBack: () => void }) {
 
                                         {/* Audit Group Action Grid */}
                                         <div 
-                                            className="flex items-center justify-between p-5 bg-slate-50/40 rounded-[20px] border border-slate-150/50 opacity-60 cursor-not-allowed group"
+                                            onClick={() => { setSubView('groups'); setSearchQuery(''); }}
+                                            className="flex items-center justify-between p-5 bg-slate-50/60 hover:bg-slate-100/80 rounded-[20px] border border-slate-100 cursor-pointer hover:border-indigo-200 active:scale-[0.99] transition-all duration-200 group"
                                         >
                                             <div className="flex items-center gap-4">
-                                                <div className="w-11 h-11 rounded-2xl bg-slate-200/80 flex items-center justify-center text-slate-500 shrink-0">
+                                                <div className="w-11 h-11 rounded-2xl bg-indigo-50 text-indigo-700 flex items-center justify-center shrink-0 transition-transform duration-300 group-hover:scale-105">
                                                     <Layers size={22} />
                                                 </div>
                                                 <div>
-                                                    <p className="text-sm font-bold text-slate-600 tracking-tight">Audit Group</p>
-                                                    <p className="text-xs text-slate-400 mt-0.5">Coming Soon</p>
+                                                    <p className="text-sm font-bold text-slate-800 tracking-tight">Audit Group</p>
+                                                    <p className="text-xs text-slate-400 mt-0.5">{groups.length} configured groups</p>
                                                 </div>
                                             </div>
+                                            <ChevronRight className="text-slate-300 group-hover:text-indigo-600 group-hover:translate-x-1 transition-all" size={18} />
                                         </div>
 
                                         {/* Audit Batch Action Grid */}
@@ -2107,6 +2387,122 @@ export default function AdminPanelScreen({ onBack }: { onBack: () => void }) {
                             </div>
                         )}
                     </div>
+                ) : subView === 'groups' ? (
+                    <div className="space-y-6">
+                        {/* Audit Groups Layout */}
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                            <div>
+                                <button 
+                                    onClick={() => { setSubView('dashboard'); setSearchQuery(''); }} 
+                                    className="inline-flex items-center gap-1.5 text-xs font-bold text-indigo-600 bg-indigo-50/50 hover:bg-slate-100 px-3.5 py-1.5 rounded-full border border-indigo-100/50 mb-3 hover:shadow-sm active:scale-95 transition-all outline-none"
+                                >
+                                    <ArrowLeft size={12} /> Back to Dashboard
+                                </button>
+                                <h2 className="text-2xl font-extrabold text-slate-900 tracking-tight">Audit Checklist Groups</h2>
+                                <p className="text-xs text-slate-500 mt-1">Group checklist items together and manage assignments in a drag-and-drop workspace.</p>
+                            </div>
+                            <button 
+                                onClick={handleOpenAddGroup} 
+                                className="bg-indigo-600 hover:bg-indigo-700 text-white transition-all px-4 py-2.5 rounded-full font-bold text-sm flex items-center gap-2 justify-center shadow-lg hover:shadow-indigo-500/10 active:scale-95 outline-none"
+                            >
+                                <Plus size={16} />
+                                <span>Create Group</span>
+                            </button>
+                        </div>
+
+                        {/* Search Bar */}
+                        <div className="bg-white p-4 rounded-2xl border border-slate-150/80 shadow-[0_4px_24px_rgba(15,23,42,0.015)] flex items-center gap-3 hover:border-slate-300 focus-within:border-indigo-400 focus-within:shadow-[0_8px_30px_rgba(99,102,241,0.03)] transition-all">
+                            <Search className="text-slate-400 shrink-0" size={18} />
+                            <input 
+                                type="text" 
+                                placeholder="Search audit groups by name or description..." 
+                                className="w-full text-sm text-slate-700 bg-transparent outline-none border-none placeholder-slate-400 focus:ring-0"
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                            />
+                            {searchQuery && (
+                                <button 
+                                    onClick={() => setSearchQuery('')} 
+                                    className="p-1 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100"
+                                >
+                                    <X size={14} />
+                                </button>
+                            )}
+                        </div>
+
+                        {/* Groups table list */}
+                        {filteredGroups.length === 0 ? (
+                            <div className="bg-white/40 backdrop-blur-sm p-12 rounded-[24px] border border-dashed border-slate-200 text-center">
+                                <Search size={28} className="text-slate-300 mx-auto mb-3" />
+                                <h3 className="text-sm font-bold text-slate-800">No audit groups found</h3>
+                                <p className="text-xs text-slate-400 mt-1">Create a new group to arrange checklist items together.</p>
+                            </div>
+                        ) : (
+                            <div className="bg-white rounded-[24px] border border-slate-150/80 shadow-[0_8px_30px_rgba(15,23,42,0.012)] overflow-hidden animate-fadeIn">
+                                <div className="overflow-x-auto">
+                                    <table className="w-full text-left border-collapse">
+                                        <thead>
+                                            <tr className="border-b border-slate-100 bg-slate-50/50 select-none text-[10px] font-extrabold text-slate-400 tracking-wider uppercase">
+                                                <th className="px-6 py-4.5">Group Title</th>
+                                                <th className="px-6 py-4.5">Description</th>
+                                                <th className="px-6 py-4.5 text-center">Checklist Items Count</th>
+                                                <th className="px-6 py-4.5 text-right">Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-slate-100">
+                                            {filteredGroups.map((group) => (
+                                                <tr key={group.id} className="hover:bg-slate-50/20 transition-colors">
+                                                    <td className="px-6 py-4 font-bold text-sm text-slate-800 whitespace-nowrap">{group.name}</td>
+                                                    <td className="px-6 py-4 text-xs text-slate-500 font-semibold max-w-[320px] truncate">{group.description || <span className="italic text-slate-300">No description provided</span>}</td>
+                                                    <td className="px-6 py-4 text-center">
+                                                        <span className="text-xs font-extrabold text-slate-700 bg-slate-100/80 px-2.5 py-1 rounded-full border border-slate-200">
+                                                            {group.itemIds ? group.itemIds.length : 0} items
+                                                        </span>
+                                                    </td>
+                                                    <td className="px-6 py-4 whitespace-nowrap text-right text-xs">
+                                                        {confirmGroupDeleteId === group.id ? (
+                                                            <div className="inline-flex items-center gap-2 bg-red-50/85 px-3 py-1.5 rounded-xl border border-red-100 text-left animate-fadeIn">
+                                                                <span className="text-[10px] text-red-600 font-bold whitespace-nowrap">Are you sure?</span>
+                                                                <button 
+                                                                    onClick={() => handleDeleteGroup(group.id)}
+                                                                    className="bg-red-600 hover:bg-red-700 text-white px-2.5 py-1 rounded-lg text-[10px] font-bold tracking-wide transition-all"
+                                                                >
+                                                                    Yes, delete
+                                                                </button>
+                                                                <button 
+                                                                    onClick={() => setConfirmGroupDeleteId(null)}
+                                                                    className="bg-slate-200 hover:bg-slate-300 text-slate-700 px-2.5 py-1 rounded-lg text-[10px] font-bold tracking-wide transition-all"
+                                                                >
+                                                                    Cancel
+                                                                </button>
+                                                            </div>
+                                                        ) : (
+                                                            <div className="inline-flex gap-2 justify-end w-full">
+                                                                <button 
+                                                                    onClick={() => handleOpenEditGroup(group)}
+                                                                    className="px-3 py-1.5 text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 border border-slate-200 hover:border-indigo-100 rounded-xl transition-all font-bold flex items-center gap-1.5 active:scale-95"
+                                                                >
+                                                                    <Edit size={13} />
+                                                                    <span>Edit</span>
+                                                                </button>
+                                                                <button 
+                                                                    onClick={() => setConfirmGroupDeleteId(group.id)}
+                                                                    className="px-3 py-1.5 text-slate-600 hover:text-red-800 hover:bg-red-50 border border-slate-200 hover:border-red-100 rounded-xl transition-all font-bold flex items-center gap-1.5 active:scale-95"
+                                                                >
+                                                                    <Trash2 size={13} />
+                                                                    <span>Delete</span>
+                                                                </button>
+                                                            </div>
+                                                        )}
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        )}
+                    </div>
                 ) : subView === 'items' ? (
                     <div className="space-y-6">
                         {/* Audit Items Layout */}
@@ -2136,6 +2532,8 @@ export default function AdminPanelScreen({ onBack }: { onBack: () => void }) {
                                              <tr className="border-b border-slate-100 bg-slate-50/50 select-none text-[10px] font-extrabold text-slate-400 tracking-wider uppercase">
                                                  <th className="px-6 py-4.5">Item Name</th>
                                                  <th className="px-6 py-4.5">Department / Category</th>
+                                                 <th className="px-6 py-4.5">Input Type</th>
+                                                 <th className="px-6 py-4.5 text-center">Point</th>
                                                  <th className="px-6 py-4.5 text-right">Actions</th>
                                              </tr>
                                          </thead>
@@ -2145,6 +2543,16 @@ export default function AdminPanelScreen({ onBack }: { onBack: () => void }) {
                                                     <td className="px-6 py-4 font-bold text-sm text-slate-800">{item.name}</td>
                                                     <td className="px-6 py-4 text-xs text-slate-500 font-semibold">
                                                         {departments.find(d => d.id === item.departmentId)?.name} / {catList.find(c => c.id === item.categoryId)?.name}
+                                                    </td>
+                                                    <td className="px-6 py-4 text-xs font-bold text-indigo-650 uppercase">
+                                                        <span className="bg-indigo-50/80 px-2.5 py-1 rounded-full text-[10px] border border-indigo-100/30">
+                                                            {item.inputType}
+                                                        </span>
+                                                    </td>
+                                                    <td className="px-6 py-4 text-xs font-bold text-slate-700 text-center">
+                                                        <span className="bg-emerald-50 text-emerald-700 border border-emerald-100 px-2.5 py-1 rounded-md text-xs font-extrabold">
+                                                            {item.points ?? 5} pts
+                                                        </span>
                                                     </td>
                                                     <td className="px-6 py-4 whitespace-nowrap text-right text-xs">
                                                         {confirmItemDeleteId === item.id ? (
@@ -3036,18 +3444,27 @@ export default function AdminPanelScreen({ onBack }: { onBack: () => void }) {
                                         required
                                     >
                                         <option value="">-- Select Cat --</option>
-                                        {catList.map((cat) => (
-                                            <option key={cat.id} value={cat.id}>
-                                                {cat.name}
-                                            </option>
-                                        ))}
+                                        {[...catList]
+                                            .sort((a, b) => {
+                                                const idA = Number(a.id);
+                                                const idB = Number(b.id);
+                                                if (!isNaN(idA) && !isNaN(idB)) {
+                                                    return idA - idB;
+                                                }
+                                                return a.id.localeCompare(b.id);
+                                            })
+                                            .map((cat) => (
+                                                <option key={cat.id} value={cat.id}>
+                                                    {cat.name}
+                                                </option>
+                                            ))}
                                     </select>
                                 </div>
                             </div>
 
                             <div>
                                 <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Input Type</label>
-                                <div className="grid grid-cols-3 gap-2">
+                                <div className="grid grid-cols-4 gap-2">
                                     {[
                                         { id: 'camera', label: 'Camera', icon: Camera },
                                         { id: 'image', label: 'Image', icon: ImageIcon },
@@ -3055,6 +3472,7 @@ export default function AdminPanelScreen({ onBack }: { onBack: () => void }) {
                                         { id: 'numeric', label: 'Numeric', icon: Hash },
                                         { id: 'text', label: 'Text', icon: Type },
                                         { id: 'checkbox', label: 'Checkbox', icon: CheckSquare },
+                                        { id: 'score', label: 'Score', icon: Star },
                                     ].map((type) => (
                                         <button
                                             type="button"
@@ -3071,6 +3489,20 @@ export default function AdminPanelScreen({ onBack }: { onBack: () => void }) {
                                         </button>
                                     ))}
                                 </div>
+                            </div>
+
+                            <div>
+                                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Point (Weight)</label>
+                                <input 
+                                    type="number" 
+                                    min="0"
+                                    max="1000"
+                                    placeholder="e.g. 5"
+                                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all focus:ring-1 focus:ring-indigo-100"
+                                    value={itemPoints}
+                                    onChange={(e) => setItemPoints(Number(e.target.value))}
+                                    required
+                                />
                             </div>
 
                             <div>
@@ -3097,6 +3529,317 @@ export default function AdminPanelScreen({ onBack }: { onBack: () => void }) {
                                     className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-600 py-3 rounded-full font-bold text-sm transition-all active:scale-95 outline-none"
                                 >
                                     Cancel
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {/* Audit Group Form Dialog */}
+            {isGroupFormOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-fadeIn">
+                    <div className="bg-white w-full max-w-4xl p-6 sm:p-8 rounded-[28px] border border-slate-200 shadow-2xl relative animate-scaleUp max-h-[90vh] flex flex-col overflow-hidden">
+                        <button 
+                            type="button"
+                            onClick={() => setIsGroupFormOpen(false)}
+                            className="absolute top-5 right-5 p-2 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100 transition-all outline-none"
+                        >
+                            <X size={18} />
+                        </button>
+
+                        <div className="mb-4">
+                            <h3 className="text-xl font-bold text-slate-900">
+                                {editingGroup ? 'Edit Audit Checklist Group' : 'Create New Audit Checklist Group'}
+                            </h3>
+                            <p className="text-xs text-slate-500 font-medium mt-1">
+                                Configure the group information and build your checklist by dragging entire Audit Categories, then check/uncheck individual checklist items.
+                            </p>
+                        </div>
+
+                        <form onSubmit={handleSaveGroup} className="flex-1 flex flex-col overflow-hidden gap-5">
+                            {groupError && (
+                                <div className="bg-red-50 border border-red-100 p-3 rounded-xl flex items-center gap-2 text-xs text-red-600 font-bold">
+                                    <AlertCircle size={15} />
+                                    <span>{groupError}</span>
+                                </div>
+                            )}
+
+                            {/* Group Information Fields */}
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 col-span-full">
+                                <div className="md:col-span-1">
+                                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Group Title</label>
+                                    <input 
+                                        type="text" 
+                                        placeholder="e.g. Front Office SOP Group"
+                                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all focus:ring-1 focus:ring-indigo-100"
+                                        value={groupName}
+                                        onChange={(e) => setGroupName(e.target.value)}
+                                        required
+                                    />
+                                </div>
+                                <div className="md:col-span-2">
+                                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Group Description</label>
+                                    <input 
+                                        type="text" 
+                                        placeholder="Brief summary of the checklist grouped criteria..."
+                                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all focus:ring-1 focus:ring-indigo-100"
+                                        value={groupDescription}
+                                        onChange={(e) => setGroupDescription(e.target.value)}
+                                    />
+                                </div>
+                            </div>
+
+                            {/* Drag and Drop Workspace */}
+                            <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-2 gap-6 pb-2">
+                                {/* Left Panel: Available Master Categories */}
+                                <div className="flex flex-col bg-slate-50/60 rounded-2xl border border-slate-150 p-4 min-h-0"
+                                     onDragOver={(e) => e.preventDefault()}
+                                     onDrop={handleDropOnAvailableCatZone}>
+                                    <div className="flex items-center justify-between gap-2 mb-3 shrink-0">
+                                        <h4 className="text-xs font-extrabold text-slate-700 uppercase tracking-widest">Available Audit Categories ({catList.filter(cat => !groupCategoryIds.includes(cat.id)).length})</h4>
+                                        <span className="text-[10px] text-indigo-600 bg-indigo-50 px-2.5 py-0.5 rounded-full font-bold">Drag card to assign</span>
+                                    </div>
+                                    
+                                    {/* Dialog Search box */}
+                                    <div className="bg-white px-3 py-2 rounded-xl border border-slate-200 flex items-center gap-2 mb-3 focus-within:border-indigo-300 transition-all select-none shrink-0">
+                                        <Search className="text-slate-400 shrink-0" size={14} />
+                                        <input
+                                            type="text"
+                                            placeholder="Look up categories..."
+                                            className="w-full text-xs text-slate-700 bg-transparent outline-none border-none placeholder-slate-400 p-0 focus:ring-0"
+                                            value={dialogSearchQuery}
+                                            onChange={(e) => setDialogSearchQuery(e.target.value)}
+                                        />
+                                        {dialogSearchQuery && (
+                                            <button type="button" onClick={() => setDialogSearchQuery('')} className="p-0.5 text-slate-300 hover:text-slate-500">
+                                                <X size={12} />
+                                            </button>
+                                        )}
+                                    </div>
+
+                                    {/* Draggable available list */}
+                                    <div className="flex-grow overflow-y-auto space-y-2 pr-1 scrollbar-thin">
+                                        {catList.filter(cat => !groupCategoryIds.includes(cat.id) && (
+                                            cat.name.toLowerCase().includes(dialogSearchQuery.toLowerCase())
+                                        )).length === 0 ? (
+                                            <div className="h-full flex flex-col items-center justify-center p-8 text-center text-slate-400 border border-dashed border-slate-200 rounded-xl bg-white/50">
+                                                <Search size={22} className="text-slate-300 mb-1.5" />
+                                                <p className="text-xs font-bold text-slate-700">No categories found</p>
+                                                <p className="text-[10px] text-slate-400 mt-0.5">All categories assigned or none match query</p>
+                                            </div>
+                                        ) : (
+                                            catList.filter(cat => !groupCategoryIds.includes(cat.id) && (
+                                                cat.name.toLowerCase().includes(dialogSearchQuery.toLowerCase())
+                                            )).map((cat) => {
+                                                const catItemsCount = items.filter(i => i.categoryId === cat.id).length;
+                                                return (
+                                                    <div 
+                                                        key={`available-cat-${cat.id}`}
+                                                        draggable
+                                                        onDragStart={(e) => handleDragStartAvailableCat(e, cat.id)}
+                                                        className="bg-white p-3 rounded-xl border border-slate-200 hover:border-indigo-200 cursor-grab active:cursor-grabbing hover:shadow-sm transition-all flex items-center justify-between gap-2.5 group select-none relative"
+                                                    >
+                                                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                                                            <div className="w-5 h-5 rounded hover:bg-slate-100 text-slate-400 shrink-0 cursor-grab active:cursor-grabbing flex items-center justify-center pointer-events-none">
+                                                                <GripVertical size={13} />
+                                                            </div>
+                                                            <div className="min-w-0 pr-1 pointer-events-none flex-1">
+                                                                <p className="text-xs font-bold text-slate-800 leading-tight block truncate pr-2" title={cat.name}>{cat.name}</p>
+                                                                <p className="text-[10px] text-slate-400 mt-0.5 font-medium">{catItemsCount} checklist items</p>
+                                                            </div>
+                                                        </div>
+                                                        <button 
+                                                            type="button"
+                                                            onClick={() => handleQuickAddCat(cat.id)}
+                                                            className="p-1.5 text-indigo-600 hover:text-white bg-indigo-50 hover:bg-indigo-600 border border-indigo-100 rounded-lg transition-all shadow-sm flex items-center justify-center outline-none shrink-0"
+                                                            title="Add Category"
+                                                        >
+                                                            <Plus size={12} />
+                                                        </button>
+                                                    </div>
+                                                );
+                                            })
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* Right Panel: Assigned checkbox checklist dropzone */}
+                                <div className={`flex flex-col rounded-2xl border-2 p-4 min-h-0 transition-all ${
+                                         isDragOverAssigned 
+                                             ? 'bg-indigo-50/50 border-dashed border-indigo-500 scale-[1.002]' 
+                                             : 'bg-indigo-50/10 border-indigo-100/50 border'
+                                     }`}
+                                     onDragOver={(e) => { e.preventDefault(); setIsDragOverAssigned(true); }}
+                                     onDragLeave={() => setIsDragOverAssigned(false)}
+                                     onDrop={handleDropOnAssignedCatZone}>
+                                    <div className="flex items-center justify-between gap-2 mb-3 shrink-0">
+                                        <div className="flex items-center gap-1.5">
+                                            <h4 className="text-xs font-extrabold text-indigo-900 uppercase tracking-widest">Assigned Categories ({groupCategoryIds.length})</h4>
+                                            <span className="text-[10px] bg-indigo-100 text-indigo-700 rounded-md px-1.5 py-0.5 font-extrabold">{groupItemIds.length} items checked</span>
+                                        </div>
+                                        <span className="text-[10px] text-indigo-500 font-bold bg-indigo-100/50 px-2 py-0.5 rounded-full">Drop cards here</span>
+                                    </div>
+
+                                    {/* Draggable assigned category elements */}
+                                    <div className="flex-grow overflow-y-auto space-y-3 pr-1 scrollbar-thin">
+                                        {groupCategoryIds.length === 0 ? (
+                                            <div className="h-full flex flex-col items-center justify-center p-8 text-center text-slate-400 border border-dashed border-slate-250 rounded-xl bg-white/50 select-none">
+                                                <Layers size={26} className="text-slate-300 mb-1.5 animate-bounce" />
+                                                <p className="text-xs font-bold text-slate-700">No categories assigned yet</p>
+                                                <p className="text-[10px] text-slate-400 mt-0.5">Drag an Audit Category from the left and drop it here. You can then expand it to select/deselect specific items!</p>
+                                            </div>
+                                        ) : (
+                                            groupCategoryIds.map((catId, index) => {
+                                                const catObj = catList.find(c => c.id === catId);
+                                                if (!catObj) return null;
+                                                
+                                                const categoryItems = items.filter(i => i.categoryId === catId);
+                                                const selectedCatItemsCount = categoryItems.filter(i => groupItemIds.includes(i.id)).length;
+                                                const isExpanded = expandedCategoryIds.includes(catId);
+                                                const isAllChecked = categoryItems.length > 0 && categoryItems.every(i => groupItemIds.includes(i.id));
+                                                const isSomeChecked = categoryItems.length > 0 && categoryItems.some(i => groupItemIds.includes(i.id)) && !isAllChecked;
+
+                                                return (
+                                                    <div 
+                                                        key={`assigned-cat-${catId}-${index}`}
+                                                        draggable
+                                                        onDragStart={(e) => handleDragStartAssignedCat(e, catId, index)}
+                                                        onDragOver={(e) => e.preventDefault()}
+                                                        onDrop={(e) => handleDropOnAssignedCatItem(e, index)}
+                                                        className="bg-white rounded-xl border border-indigo-100 hover:border-indigo-250 shadow-sm hover:shadow transition-all overflow-hidden flex flex-col"
+                                                    >
+                                                        {/* Category Card Header */}
+                                                        <div className="px-3 py-2.5 bg-slate-50/50 flex items-center justify-between gap-1.5 border-b border-indigo-50/30">
+                                                            <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                                                                <div className="w-5 h-5 rounded text-slate-400 shrink-0 cursor-grab active:cursor-grabbing flex items-center justify-center hover:bg-slate-100">
+                                                                    <GripVertical size={13} />
+                                                                </div>
+                                                                
+                                                                <input 
+                                                                    type="checkbox"
+                                                                    checked={isAllChecked}
+                                                                    ref={el => {
+                                                                        if (el) el.indeterminate = isSomeChecked;
+                                                                    }}
+                                                                    onChange={(e) => handleToggleCategoryAllItems(catId, e.target.checked)}
+                                                                    className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300 cursor-pointer shrink-0"
+                                                                    title="Select/Deselect All items in Category"
+                                                                />
+
+                                                                <div className="min-w-0 pr-1 cursor-pointer flex-1" onClick={() => toggleExpandCategory(catId)}>
+                                                                    <p className="text-xs font-bold text-slate-800 leading-snug truncate hover:text-indigo-600 transition-colors" title={catObj.name}>
+                                                                        {catObj.name}
+                                                                    </p>
+                                                                    <p className="text-[10px] text-indigo-600 font-extrabold mt-0.5">
+                                                                        {selectedCatItemsCount} of {categoryItems.length} items checked
+                                                                    </p>
+                                                                </div>
+                                                            </div>
+
+                                                            {/* Action buttons */}
+                                                            <div className="flex items-center gap-1 shrink-0">
+                                                                <button 
+                                                                    type="button"
+                                                                    onClick={() => handleMoveCatUp(index)}
+                                                                    disabled={index === 0}
+                                                                    className={`p-1 rounded hover:bg-slate-100 ${index === 0 ? 'text-slate-200' : 'text-slate-500 hover:text-slate-800'}`}
+                                                                    title="Move Up"
+                                                                >
+                                                                    <ChevronUp size={14} />
+                                                                </button>
+                                                                <button 
+                                                                    type="button"
+                                                                    onClick={() => handleMoveCatDown(index)}
+                                                                    disabled={index === groupCategoryIds.length - 1}
+                                                                    className={`p-1 rounded hover:bg-slate-100 ${index === groupCategoryIds.length - 1 ? 'text-slate-200' : 'text-slate-500 hover:text-slate-800'}`}
+                                                                    title="Move Down"
+                                                                >
+                                                                    <ChevronDown size={14} />
+                                                                </button>
+
+                                                                {/* Expansion Control */}
+                                                                <button 
+                                                                    type="button"
+                                                                    onClick={() => toggleExpandCategory(catId)}
+                                                                    className="p-1 hover:bg-indigo-50 text-slate-500 rounded transition-all"
+                                                                    title={isExpanded ? "Collapse" : "Expand"}
+                                                                >
+                                                                    {isExpanded ? (
+                                                                        <ChevronUp size={15} className="text-indigo-600 font-bold" />
+                                                                    ) : (
+                                                                        <ChevronDown size={15} />
+                                                                    )}
+                                                                </button>
+
+                                                                <button 
+                                                                    type="button"
+                                                                    onClick={() => handleQuickRemoveCat(catId)}
+                                                                    className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                                                                    title="Remove category"
+                                                                >
+                                                                    <Trash2 size={13} />
+                                                                </button>
+                                                            </div>
+                                                        </div>
+
+                                                        {/* Expandable Item Checkbox List */}
+                                                        {isExpanded && (
+                                                            <div className="p-3 bg-white border-t border-slate-50 space-y-1.5 max-h-52 overflow-y-auto scrollbar-thin divide-y divide-slate-100/40 animate-fadeIn">
+                                                                {categoryItems.length === 0 ? (
+                                                                    <p className="text-[10px] italic text-slate-400 py-1">No checklist items configured for this category.</p>
+                                                                ) : (
+                                                                    categoryItems.map((item) => {
+                                                                        const isChecked = groupItemIds.includes(item.id);
+                                                                        return (
+                                                                            <label 
+                                                                                key={item.id}
+                                                                                className="flex items-start gap-2 py-1.5 cursor-pointer group hover:bg-slate-50/50 rounded transition-colors"
+                                                                            >
+                                                                                <input 
+                                                                                    type="checkbox"
+                                                                                    checked={isChecked}
+                                                                                    onChange={() => handleToggleItemCheckbox(item.id)}
+                                                                                    className="w-3.5 h-3.5 rounded text-indigo-600 focus:ring-indigo-450 border-slate-300 mt-0.5 cursor-pointer shrink-0"
+                                                                                />
+                                                                                <div className="flex-1 min-w-0 ml-1">
+                                                                                    <p className="text-xs text-slate-700 font-semibold leading-normal group-hover:text-indigo-600 transition-colors whitespace-normal break-words">
+                                                                                        {item.name}
+                                                                                    </p>
+                                                                                    {item.description && (
+                                                                                        <p className="text-[10px] text-slate-400 mt-0.5 block truncate whitespace-normal line-clamp-1 leading-tight">
+                                                                                            {item.description}
+                                                                                        </p>
+                                                                                    )}
+                                                                                </div>
+                                                                            </label>
+                                                                        );
+                                                                    })
+                                                                )}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Footer Submit Buttons */}
+                            <div className="flex gap-3 justify-end pt-4 border-t border-slate-100 shrink-0">
+                                <button 
+                                    type="button"
+                                    onClick={() => setIsGroupFormOpen(false)}
+                                    className="px-6 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-full font-bold text-sm transition-all active:scale-95 outline-none"
+                                >
+                                    Cancel
+                                </button>
+                                <button 
+                                    type="submit"
+                                    className="px-8 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full font-bold text-sm transition-all shadow-lg hover:shadow-indigo-500/10 active:scale-95 outline-none"
+                                >
+                                    {editingGroup ? 'Save Changes' : 'Create Group'}
                                 </button>
                             </div>
                         </form>
