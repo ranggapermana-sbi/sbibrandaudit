@@ -88,17 +88,21 @@ export default function SignupScreen({ onComplete, onLogout }: SignupScreenProps
                 if (response.ok) {
                     const data = await response.json();
                     if (Array.isArray(data) && data.length > 0) {
-                        // Map Supabase layout
-                        const mapped: Hotel[] = data.map((item: any) => ({
-                            id: String(item.id),
-                            name: item.name,
-                            location: item.location || item.city_country || 'Indonesia',
-                            code: item.code || '',
-                            brandClass: item.brandClass || item.brand_class || 'Swiss-Belhotel',
-                            region: item.region || 'Asia Pacific',
-                            country: item.country || 'Indonesia',
-                            stars: item.stars ? Number(item.stars) : 4
-                        }));
+                        // Map Supabase layout and guard against JavaScript `String(undefined)` returning "undefined"
+                        const mapped: Hotel[] = data.map((item: any) => {
+                            const rawId = item.id !== undefined && item.id !== null ? String(item.id) : '';
+                            const fallbackId = item.hotel_id !== undefined && item.hotel_id !== null ? String(item.hotel_id) : '';
+                            return {
+                                id: rawId || fallbackId,
+                                name: item.name || item.hotel_name || '',
+                                location: item.location || item.city_country || 'Indonesia',
+                                code: item.code || '',
+                                brandClass: item.brandClass || item.brand_class || 'Swiss-Belhotel',
+                                region: item.region || 'Asia Pacific',
+                                country: item.country || 'Indonesia',
+                                stars: item.stars ? Number(item.stars) : 4
+                            };
+                        });
                         setHotels(mapped);
                     } else {
                         setHotels(FALLBACK_HOTELS);
@@ -175,9 +179,9 @@ export default function SignupScreen({ onComplete, onLogout }: SignupScreenProps
                 email: userEmail,
                 first_name: firstName.trim(),
                 last_name: lastName.trim(),
-                hotel_id: selectedHotel?.id,
-                hotel_name: selectedHotel?.name,
-                hotel_code: selectedHotel?.code,
+                hotel_id: selectedHotel?.id && selectedHotel.id !== 'undefined' ? selectedHotel.id : null,
+                hotel_name: selectedHotel?.name || null,
+                hotel_code: selectedHotel?.code || null,
                 role: role,
                 is_brand_audit_lead: isAuditLead,
                 updated_at: new Date().toISOString()
@@ -193,7 +197,7 @@ export default function SignupScreen({ onComplete, onLogout }: SignupScreenProps
 
             try {
                 // Upsert profile in Supabase audit_users REST endpoint
-                const res = await fetch(`${cleanMainUrl}/rest/v1/audit_users`, {
+                const res = await fetch(`${cleanMainUrl}/rest/v1/audit_users?on_conflict=id`, {
                     method: 'POST',
                     headers: {
                         'apikey': mainAnonKey,
@@ -456,7 +460,7 @@ export default function SignupScreen({ onComplete, onLogout }: SignupScreenProps
                             <button
                                 type="button"
                                 onClick={() => setIsAuditLead(!isAuditLead)}
-                                className={`w-12 h-6 flex items-center rounded-full p-0.5 transition-colors duration-250 cursor-pointer shrink-0 ${isAuditLead ? 'bg-indigo-650' : 'bg-slate-200'}`}
+                                className={`w-12 h-6 flex items-center rounded-full p-0.5 transition-colors duration-250 cursor-pointer shrink-0 ${isAuditLead ? 'bg-emerald-600' : 'bg-slate-200'}`}
                             >
                                 <div className={`bg-white w-5 h-5 rounded-full shadow-md transform transition-transform duration-250 ${isAuditLead ? 'translate-x-6' : 'translate-x-0'}`} />
                             </button>

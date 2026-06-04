@@ -36,10 +36,13 @@ export default function App() {
     if (cachedProfile) {
       try {
         const parsed = JSON.parse(cachedProfile);
-        setUserProfile(parsed);
-        setCurrentScreen('dashboard');
-        setIsLoadingSession(false);
-        return;
+        // Ensure onboarding is completed locally before routing to dashboard
+        if (parsed && parsed.first_name && parsed.role && parsed.hotel_id) {
+          setUserProfile(parsed);
+          setCurrentScreen('dashboard');
+          setIsLoadingSession(false);
+          return;
+        }
       } catch (e) {
         console.error("Local profile parse error", e);
       }
@@ -61,11 +64,14 @@ export default function App() {
         const data = await response.json();
         if (Array.isArray(data) && data.length > 0) {
           const prof = data[0];
-          setUserProfile(prof);
-          localStorage.setItem(`sbi_profile_${userId}`, JSON.stringify(prof));
-          setCurrentScreen('dashboard');
-          setIsLoadingSession(false);
-          return;
+          // Check if mandatory onboarding fields are fully populated
+          if (prof && prof.first_name && prof.role && prof.hotel_id) {
+            setUserProfile(prof);
+            localStorage.setItem(`sbi_profile_${userId}`, JSON.stringify(prof));
+            setCurrentScreen('dashboard');
+            setIsLoadingSession(false);
+            return;
+          }
         }
       }
     } catch (err) {
@@ -159,7 +165,16 @@ export default function App() {
       {currentScreen === 'step2' && <Step2Screen />}
       {currentScreen === 'pendingCategories' && <PendingCategoriesScreen onBack={() => setCurrentScreen('dashboard')} onNavigate={(screen) => setCurrentScreen(screen)} />}
       {currentScreen === 'brandingPropertyIdentification' && <BrandingPropertyIdentificationScreen onBack={() => setCurrentScreen('pendingCategories')} />}
-      {currentScreen === 'adminPanel' && <AdminPanelScreen onBack={() => setCurrentScreen('login')} />}
+      {currentScreen === 'adminPanel' && (userProfile?.access_level === 'auditee' ? (
+        <DashboardScreen 
+          onStartAudit={() => setCurrentScreen('step1')} 
+          onViewPending={() => setCurrentScreen('pendingCategories')} 
+          userProfile={userProfile}
+          onLogout={handleLogout}
+        />
+      ) : (
+        <AdminPanelScreen userProfile={userProfile} onBack={() => setCurrentScreen('login')} />
+      ))}
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, CheckCircle, Clock, Building, BarChart3, ChevronRight, Plus, Trash2, Edit, Search, X, AlertCircle, MapPin, Settings2, Calendar, Star, Briefcase, ClipboardList, FileCheck, Layers, Package, Camera, ImageIcon, FileText, Hash, Type, CheckSquare, Users, ShieldCheck, Percent, GripVertical, ChevronUp, ChevronDown } from 'lucide-react';
+import { ArrowLeft, CheckCircle, Clock, Building, BarChart3, ChevronRight, Plus, Trash2, Edit, Search, X, AlertCircle, MapPin, Settings2, Calendar, Star, Briefcase, ClipboardList, FileCheck, Layers, Package, Camera, ImageIcon, FileText, Hash, Type, CheckSquare, Users, ShieldCheck, Percent, GripVertical, ChevronUp, ChevronDown, Eye, User } from 'lucide-react';
 
 interface Department {
     id: string;
@@ -57,6 +57,13 @@ const DEFAULT_GROUPS: AuditGroup[] = [
     { id: '2', name: 'Safety & Hygiene Standard Group', description: 'Master check list for public spaces and hygiene protocols.', itemIds: ['3', '4'] },
 ];
 
+const getRoleStyles = (accessLevel: string) => {
+    const r = accessLevel?.toLowerCase() || 'auditee';
+    if (r === 'admin') return { bg: 'bg-indigo-50/40', text: 'text-indigo-700', icon: <ShieldCheck size={14}/> };
+    if (r === 'auditor') return { bg: 'bg-emerald-50/40', text: 'text-emerald-700', icon: <Eye size={14}/> };
+    return { bg: 'bg-amber-50/40', text: 'text-amber-700', icon: <User size={14}/> };
+};
+
 const DEFAULT_BATCHES: AuditBatch[] = [
     { id: '1', name: 'Batch 1', status: 'Active', hotelIds: ['1', '2'] },
     { id: '2', name: 'Batch 2', status: 'Completed', hotelIds: ['3'] },
@@ -79,8 +86,7 @@ const DEFAULT_CATEGORIES: AuditCategory[] = [
 
 const stats = [
     { title: 'Total Submissions', value: '142', icon: BarChart3, color: 'text-indigo-600' },
-    { title: 'Pending Review', value: '18', icon: Clock, color: 'text-amber-600' },
-    { title: 'Active Properties', value: '24', icon: Building, color: 'text-emerald-600' },
+    { title: 'Active Properties', value: '100', icon: Building, color: 'text-emerald-600' },
 ];
 
 const recentSubmissions = [
@@ -179,8 +185,25 @@ const getAlignedMainUrl = (rawUrl: string, key: string): string => {
 
 const MAIN_URL = getAlignedMainUrl(MAIN_URL_RAW, MAIN_KEY);
 
-export default function AdminPanelScreen({ onBack }: { onBack: () => void }) {
+export default function AdminPanelScreen({ userProfile, onBack }: { userProfile: any, onBack: () => void }) {
     const [subView, setSubView] = useState<'dashboard' | 'departments' | 'hotels' | 'batches' | 'categories' | 'items' | 'groups' | 'users'>('dashboard');
+    
+    const canAccessSubView = (view: string) => {
+        if (userProfile?.access_level === 'admin') return true;
+        if (userProfile?.access_level === 'auditor') {
+            // Auditor: 'Manage Master Data' (departments, categories, items, groups, batches), 'Audit Report' (dashboard), 'Recent Submissions' (dashboard)
+            return ['dashboard', 'departments', 'categories', 'items', 'groups', 'batches', 'hotels'].includes(view);
+        }
+        return false;
+    };
+
+    const handleSetSubView = (view: typeof subView) => {
+        if (canAccessSubView(view)) {
+            setSubView(view);
+        } else {
+            console.warn("Access denied for this section");
+        }
+    };
     const [profilesList, setProfilesList] = useState<any[]>([]);
     const [isProfilesTableMissing, setIsProfilesTableMissing] = useState(false);
 
@@ -208,6 +231,29 @@ export default function AdminPanelScreen({ onBack }: { onBack: () => void }) {
         } catch (err) {
             console.warn("Failed to fetch profiles:", err);
             loadFallbackProfiles();
+        }
+    };
+
+    const updateAccessLevel = async (userId: string, newAccessLevel: string) => {
+        try {
+            const response = await fetch(`${MAIN_URL}audit_users?id=eq.${userId}`, {
+                method: 'PATCH',
+                headers: {
+                    'apikey': MAIN_KEY,
+                    'Authorization': `Bearer ${MAIN_KEY}`,
+                    'Content-Type': 'application/json',
+                    'Prefer': 'return=representation'
+                },
+                body: JSON.stringify({ access_level: newAccessLevel })
+            });
+
+            if (response.ok) {
+                fetchProfilesFromSupabase();
+            } else {
+                console.error("Failed to update access level");
+            }
+        } catch (e) {
+            console.error("Error updating access level", e);
         }
     };
 
@@ -1847,7 +1893,7 @@ export default function AdminPanelScreen({ onBack }: { onBack: () => void }) {
                                         
                                         {/* Master Hotel List Action Grid */}
                                         <div 
-                                            onClick={() => { setSubView('hotels'); setSearchQuery(''); }}
+                                            onClick={() => { handleSetSubView('hotels'); setSearchQuery(''); }}
                                             className="flex items-center justify-between p-5 bg-slate-50/60 hover:bg-slate-100/80 rounded-[20px] border border-slate-100 cursor-pointer hover:border-indigo-200 active:scale-[0.99] transition-all duration-200 group"
                                         >
                                             <div className="flex items-center gap-4">
@@ -1864,7 +1910,7 @@ export default function AdminPanelScreen({ onBack }: { onBack: () => void }) {
 
                                         {/* Departments Action Grid */}
                                         <div 
-                                            onClick={() => { setSubView('departments'); setSearchQuery(''); }}
+                                            onClick={() => { handleSetSubView('departments'); setSearchQuery(''); }}
                                             className="flex items-center justify-between p-5 bg-slate-50/60 hover:bg-slate-100/80 rounded-[20px] border border-slate-100 cursor-pointer hover:border-indigo-200 active:scale-[0.99] transition-all duration-200 group"
                                         >
                                             <div className="flex items-center gap-4">
@@ -1881,7 +1927,7 @@ export default function AdminPanelScreen({ onBack }: { onBack: () => void }) {
 
                                         {/* Categories Action Grid */}
                                         <div 
-                                            onClick={() => { setSubView('categories'); setSearchQuery(''); }}
+                                            onClick={() => { handleSetSubView('categories'); setSearchQuery(''); }}
                                             className="flex items-center justify-between p-5 bg-slate-50/60 hover:bg-slate-100/80 rounded-[20px] border border-slate-100 cursor-pointer hover:border-indigo-200 active:scale-[0.99] transition-all duration-200 group"
                                         >
                                             <div className="flex items-center gap-4">
@@ -1898,7 +1944,7 @@ export default function AdminPanelScreen({ onBack }: { onBack: () => void }) {
 
                                         {/* Audit Item Action Grid */}
                                         <div 
-                                            onClick={() => setSubView('items')}
+                                            onClick={() => handleSetSubView('items')}
                                             className="flex items-center justify-between p-5 bg-slate-50/60 hover:bg-slate-100/80 rounded-[20px] border border-slate-100 cursor-pointer hover:border-indigo-200 active:scale-[0.99] transition-all duration-200 group"
                                         >
                                             <div className="flex items-center gap-4">
@@ -1915,7 +1961,7 @@ export default function AdminPanelScreen({ onBack }: { onBack: () => void }) {
 
                                         {/* Audit Group Action Grid */}
                                         <div 
-                                            onClick={() => { setSubView('groups'); setSearchQuery(''); }}
+                                            onClick={() => { handleSetSubView('groups'); setSearchQuery(''); }}
                                             className="flex items-center justify-between p-5 bg-slate-50/60 hover:bg-slate-100/80 rounded-[20px] border border-slate-100 cursor-pointer hover:border-indigo-200 active:scale-[0.99] transition-all duration-200 group"
                                         >
                                             <div className="flex items-center gap-4">
@@ -1932,7 +1978,7 @@ export default function AdminPanelScreen({ onBack }: { onBack: () => void }) {
 
                                         {/* Audit Batch Action Grid */}
                                         <div 
-                                            onClick={() => { setSubView('batches'); setSearchQuery(''); }}
+                                            onClick={() => { handleSetSubView('batches'); setSearchQuery(''); }}
                                             className="flex items-center justify-between p-5 bg-slate-50/60 hover:bg-slate-100/80 rounded-[20px] border border-slate-100 cursor-pointer hover:border-indigo-200 active:scale-[0.99] transition-all duration-200 group"
                                         >
                                             <div className="flex items-center gap-4">
@@ -1964,7 +2010,7 @@ export default function AdminPanelScreen({ onBack }: { onBack: () => void }) {
                                         
                                         {/* User Management */}
                                         <div 
-                                            onClick={() => { setSubView('users'); setSearchQuery(''); fetchProfilesFromSupabase(); }}
+                                            onClick={() => { handleSetSubView('users'); setSearchQuery(''); fetchProfilesFromSupabase(); }}
                                             className="flex items-center justify-between p-5 bg-slate-50/60 hover:bg-slate-100/80 rounded-[20px] border border-slate-100 cursor-pointer hover:border-indigo-200 active:scale-[0.99] transition-all duration-200 group"
                                         >
                                             <div className="flex items-center gap-4">
@@ -2149,13 +2195,13 @@ export default function AdminPanelScreen({ onBack }: { onBack: () => void }) {
                                 try {
                                     const d = new Date(isoString);
                                     if (isNaN(d.getTime())) return '—';
-                                    const day = String(d.getDate()).padStart(2, '0');
-                                    const month = String(d.getMonth() + 1).padStart(2, '0');
-                                    const year = d.getFullYear();
-                                    const hours = String(d.getHours()).padStart(2, '0');
-                                    const minutes = String(d.getMinutes()).padStart(2, '0');
-                                    const seconds = String(d.getSeconds()).padStart(2, '0');
-                                    return `${day}-${month}-${year} ${hours}:${minutes}:${seconds}`;
+                                    const day = String(d.getUTCDate()).padStart(2, '0');
+                                    const month = String(d.getUTCMonth() + 1).padStart(2, '0');
+                                    const year = d.getUTCFullYear();
+                                    const hours = String(d.getUTCHours()).padStart(2, '0');
+                                    const minutes = String(d.getUTCMinutes()).padStart(2, '0');
+                                    const seconds = String(d.getUTCSeconds()).padStart(2, '0');
+                                    return `${day}-${month}-${year} ${hours}:${minutes}:${seconds} (UTC)`;
                                 } catch {
                                     return '—';
                                 }
@@ -2177,77 +2223,43 @@ export default function AdminPanelScreen({ onBack }: { onBack: () => void }) {
                                         <table className="w-full text-left border-collapse">
                                             <thead>
                                                 <tr className="border-b border-slate-100 bg-slate-50/50 select-none text-[10px] font-extrabold text-slate-400 tracking-wider uppercase">
-                                                    <th className="px-6 py-4">User Identity</th>
-                                                    <th className="px-6 py-4">Google Login</th>
-                                                    <th className="px-6 py-4">Hotel Property</th>
-                                                    <th className="px-6 py-4">Privileges</th>
+                                                    <th className="px-6 py-4">Display Name</th>
+                                                    <th className="px-6 py-4">Email</th>
+                                                    <th className="px-6 py-4">Hotel Code</th>
+                                                    <th className="px-6 py-4">Role</th>
+                                                    <th className="px-6 py-4">Access Level</th>
                                                     <th className="px-6 py-4">Created At</th>
-                                                    <th className="px-6 py-4">Last Logon</th>
                                                 </tr>
                                             </thead>
                                             <tbody className="divide-y divide-slate-100 text-slate-700">
-                                                {filteredProfiles.map((p, index) => (
-                                                    <tr key={p.id || index} className="hover:bg-indigo-50/15 transition-colors group">
-                                                        <td className="px-6 py-4 max-w-xs">
-                                                            <div className="flex items-center gap-3">
-                                                                <div className="w-9 h-9 rounded-xl bg-indigo-50 text-indigo-700 flex items-center justify-center font-bold text-xs capitalize shrink-0 border border-indigo-100/50">
-                                                                    {(p.first_name?.[0] || p.display_name?.[0] || 'U')}
-                                                                </div>
-                                                                <div className="truncate">
-                                                                    <p className="text-slate-850 font-black text-xs truncate">
-                                                                        {p.first_name ? `${p.first_name} ${p.last_name || ''}`.trim() : 'Unpublished Name'}
-                                                                    </p>
-                                                                    <p className="text-[10px] text-slate-450 uppercase font-black tracking-tight mt-0.5">
-                                                                        {p.role || 'No Onboarding Yet'}
-                                                                    </p>
-                                                                </div>
-                                                            </div>
-                                                        </td>
-                                                        <td className="px-6 py-4 text-xs font-semibold">
-                                                            <div className="space-y-0.5">
-                                                                <p className="text-slate-800 font-bold">{p.display_name || 'Anonymous User'}</p>
-                                                                <p className="text-slate-400 text-[10px] select-all">{p.email}</p>
-                                                            </div>
-                                                        </td>
-                                                        <td className="px-6 py-4">
-                                                            {p.hotel_name ? (
-                                                                <div>
-                                                                    <p className="text-xs font-black text-slate-750 flex items-center gap-1">
-                                                                        <Building size={12} className="text-slate-400" />
-                                                                        {p.hotel_name}
-                                                                    </p>
-                                                                    {p.hotel_code && (
-                                                                        <p className="text-[10px] text-indigo-600 font-bold tracking-wider mt-0.5 uppercase">
-                                                                            Code: {p.hotel_code}
-                                                                        </p>
-                                                                    )}
-                                                                </div>
-                                                            ) : (
-                                                                <span className="text-[10px] uppercase font-bold text-slate-350 bg-slate-50 px-1.5 py-1 rounded">
-                                                                    Not Assigned
-                                                                </span>
-                                                            )}
-                                                        </td>
-                                                        <td className="px-6 py-4 text-xs">
-                                                            {p.is_brand_audit_lead ? (
-                                                                <span className="inline-flex items-center gap-1 text-[10px] font-black text-indigo-700 bg-indigo-50 border border-indigo-100/80 px-2 py-0.5 rounded-full uppercase">
-                                                                    <ShieldCheck size={12} />
-                                                                    Audit Lead
-                                                                </span>
-                                                            ) : (
-                                                                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-slate-400 bg-slate-50 border border-slate-200/60 px-2 py-0.5 rounded-full uppercase">
-                                                                    Standard Member
-                                                                </span>
-                                                            )}
-                                                        </td>
-                                                        <td className="px-6 py-4 text-[11px] font-mono font-bold text-slate-550">
-                                                            {formatSqlTimestamp(p.created_at)}
-                                                        </td>
-                                                        <td className="px-6 py-4 text-[11px] font-mono font-bold text-slate-550">
-                                                            {formatSqlTimestamp(p.last_sign_in_at)}
-                                                        </td>
-                                                    </tr>
-                                                ))}
+                                                {filteredProfiles.map((p, index) => {
+                                                    const roleStyles = getRoleStyles(p.access_level);
+                                                    return (
+                                                        <tr key={p.id || index} className={`${roleStyles.bg} hover:opacity-90 transition-colors group`}>
+                                                            <td className="px-6 py-4 text-xs font-semibold text-slate-800 flex items-center gap-2">
+                                                                <span className={roleStyles.text}>{roleStyles.icon}</span>
+                                                                {p.display_name || '—'}
+                                                            </td>
+                                                            <td className="px-6 py-4 text-xs text-slate-600">{p.email || '—'}</td>
+                                                            <td className="px-6 py-4 text-xs font-mono text-indigo-600 font-bold">{p.hotel_code || '—'}</td>
+                                                            <td className="px-6 py-4 text-xs text-slate-600">{p.role || '—'}</td>
+                                                            <td className="px-6 py-4 text-xs text-slate-600">
+                                                                <select 
+                                                                    value={p.access_level || 'auditee'} 
+                                                                    onChange={(e) => updateAccessLevel(p.id, e.target.value)}
+                                                                    className="text-xs font-semibold text-slate-700 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 outline-none focus:border-indigo-500 cursor-pointer"
+                                                                >
+                                                                    <option value="admin">Admin</option>
+                                                                    <option value="auditor">Auditor</option>
+                                                                    <option value="auditee">Auditee</option>
+                                                                </select>
+                                                            </td>
+                                                            <td className="px-6 py-4 text-[11px] font-mono font-bold text-slate-550">
+                                                                {formatSqlTimestamp(p.created_at)}
+                                                            </td>
+                                                        </tr>
+                                                    );
+                                                })}
                                             </tbody>
                                         </table>
                                     </div>
