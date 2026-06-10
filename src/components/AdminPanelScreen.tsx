@@ -185,8 +185,47 @@ const getAlignedMainUrl = (rawUrl: string, key: string): string => {
 
 const MAIN_URL = getAlignedMainUrl(MAIN_URL_RAW, MAIN_KEY);
 
-export default function AdminPanelScreen({ userProfile, onBack }: { userProfile: any, onBack: () => void }) {
-    const [subView, setSubView] = useState<'dashboard' | 'departments' | 'hotels' | 'batches' | 'categories' | 'items' | 'groups' | 'users'>('dashboard');
+export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { userProfile: any, onBack: () => void, onLogout: () => void }) {
+    const [subView, setSubView] = useState<'dashboard' | 'departments' | 'hotels' | 'batches' | 'categories' | 'items' | 'groups' | 'users' | 'access'>('dashboard');
+    const [auditorAccess, setAuditorAccess] = useState<Record<string, boolean>>({});
+
+    useEffect(() => {
+        const fetchAccess = async () => {
+            try {
+                const response = await fetch(`${MAIN_URL}access_rights?access_level=eq.auditor`, {
+                    headers: {
+                        'apikey': MAIN_KEY,
+                        'Authorization': `Bearer ${MAIN_KEY}`
+                    }
+                });
+                console.log("Fetch access rights response:", response.status, response.statusText);
+                if (response.ok) {
+                    const data = await response.json();
+                    const newAccess: Record<string, boolean> = {};
+                    data.forEach((r: any) => {
+                        // Reverse mapping for display
+                        const reverseMap: Record<string, string> = {
+                            'dashboard': 'Dashboard',
+                            'hotels': 'Hotels',
+                            'departments': 'Departments',
+                            'categories': 'Categories',
+                            'items': 'Items',
+                            'groups': 'Groups',
+                            'batches': 'Batches',
+                            'users': 'User Management',
+                            'access': 'Access Rights'
+                        };
+                        const view = reverseMap[r.subview] || r.subview;
+                        newAccess[view] = true;
+                    });
+                    setAuditorAccess(newAccess);
+                }
+            } catch (e) {
+                console.error("Failed to fetch initial access rights:", e);
+            }
+        };
+        fetchAccess();
+    }, []);
     
     const canAccessSubView = (view: string) => {
         if (userProfile?.access_level === 'admin') return true;
@@ -202,6 +241,67 @@ export default function AdminPanelScreen({ userProfile, onBack }: { userProfile:
             setSubView(view);
         } else {
             console.warn("Access denied for this section");
+        }
+    };
+    
+    const handleToggleAuditorAccess = (view: string) => {
+        setAuditorAccess(prev => ({ ...prev, [view]: !prev[view] }));
+    };
+
+    const handleSaveAccess = async () => {
+        setIsSupabaseLoading(true);
+        try {
+            // Use upsert-like logic directly without pre-deleting to avoid race conditions or unnecessary deletes
+            
+            // Prepare new entries based on normalized keys
+            const subviewMap: Record<string, string> = {
+                'Dashboard': 'dashboard',
+                'Audit Report & Inspection': 'dashboard', 
+                'Recent Submissions': 'dashboard',
+                'Hotels': 'hotels',
+                'Departments': 'departments',
+                'Categories': 'categories',
+                'Items': 'items',
+                'Groups': 'groups',
+                'Batches': 'batches',
+                'User Management': 'users',
+                'Access Rights': 'access',
+            };
+
+            const enabledViews = Object.entries(auditorAccess)
+                .filter(([_, value]) => value)
+                .map(([view]) => (subviewMap[view] || view.toLowerCase()));
+            
+            const uniqueSubviews = Array.from(new Set(enabledViews));
+
+            const newEntries = uniqueSubviews.map(subview => ({
+                access_level: 'auditor',
+                subview
+            }));
+
+            // Insert new entries
+            if (newEntries.length > 0) {
+                const insResponse = await fetch(`${MAIN_URL}access_rights`, {
+                    method: 'POST',
+                    headers: {
+                        'apikey': MAIN_KEY,
+                        'Authorization': `Bearer ${MAIN_KEY}`,
+                        'Content-Type': 'application/json',
+                        'Prefer': 'return=minimal, resolution=merge-duplicates'
+                    },
+                    body: JSON.stringify(newEntries)
+                });
+                if (!insResponse.ok) {
+                    const err = await insResponse.text();
+                    throw new Error(`Failed to insert new access rules: ${err}`);
+                }
+            }
+            setToastMessage("Access rules updated successfully!");
+        } catch (e) {
+            console.error("Error saving access rules:", e);
+            setToastMessage(`Failed to save access rules: ${e.message}`);
+        } finally {
+            setIsSupabaseLoading(false);
         }
     };
     const [profilesList, setProfilesList] = useState<any[]>([]);
@@ -1821,7 +1921,7 @@ export default function AdminPanelScreen({ userProfile, onBack }: { userProfile:
                 </div>
                 {subView === 'dashboard' && (
                     <button 
-                        onClick={onBack} 
+                        onClick={onLogout} 
                         className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-full font-bold active:scale-95 transition-all outline-none"
                     >
                         Exit Admin
@@ -2027,6 +2127,7 @@ export default function AdminPanelScreen({ userProfile, onBack }: { userProfile:
 
                                         {/* Access Right Management */}
                                         <div 
+                                            onClick={() => handleSetSubView('access')}
                                             className="flex items-center justify-between p-5 bg-slate-50/60 hover:bg-slate-100/80 rounded-[20px] border border-slate-100 cursor-pointer hover:border-indigo-200 active:scale-[0.99] transition-all duration-200 group"
                                         >
                                             <div className="flex items-center gap-4">
@@ -2266,6 +2367,79 @@ export default function AdminPanelScreen({ userProfile, onBack }: { userProfile:
                                 </div>
                             );
                         })()}
+                    </div>
+                ) : subView === 'access' ? (
+                    <div className="space-y-6">
+                        {/* Access Right Management Layout */}
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                            <div>
+                                <button 
+                                    onClick={() => { setSubView('dashboard'); setSearchQuery(''); }} 
+                                    className="inline-flex items-center gap-1.5 text-xs font-bold text-indigo-600 bg-indigo-50/50 hover:bg-indigo-55/80 px-3.5 py-1.5 rounded-full border border-indigo-100/50 mb-3 hover:shadow-sm active:scale-95 transition-all outline-none"
+                                >
+                                    <ArrowLeft size={12} /> Back to Dashboard
+                                </button>
+                                <h2 className="text-2xl font-extrabold text-slate-900 tracking-tight">Access Right Management</h2>
+                                <p className="text-xs text-slate-500 mt-1">Configure section accessibility by user levels.</p>
+                            </div>
+                        </div>
+                        <div className="bg-white p-6 rounded-[24px] border border-slate-150/80 shadow-[0_8px_30px_rgba(15,23,42,0.012)]">
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-left text-sm text-slate-600">
+                                    <thead className="text-xs uppercase bg-slate-50 text-slate-700">
+                                        <tr>
+                                            <th className="px-6 py-3">Section</th>
+                                            <th className="px-6 py-3">Auditor</th>
+                                            <th className="px-6 py-3">Auditee</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100">
+                                        {[
+                                            { parent: 'Dashboard', children: [] },
+                                            { parent: 'Audit & Reporting', children: ['Audit Report & Inspection', 'Recent Submissions'] },
+                                            { parent: 'Manage Master Data', children: ['Hotels', 'Departments', 'Categories', 'Items', 'Groups', 'Batches'] },
+                                            { parent: 'Access Right Management', children: ['User Management', 'Access Rights'] }
+                                        ].map((group) => (
+                                            <React.Fragment key={group.parent}>
+                                                <tr className="bg-slate-50">
+                                                    <td className="px-6 py-3 font-bold text-slate-900">{group.parent}</td>
+                                                    <td className="px-6 py-3"></td>
+                                                    <td className="px-6 py-3"></td>
+                                                </tr>
+                                                {(group.children.length > 0 ? group.children : [group.parent]).map((view) => (
+                                                    <tr key={view} className="hover:bg-slate-50">
+                                                        <td className="px-6 py-4 pl-12 text-slate-700">{view}</td>
+                                                        <td className="px-6 py-4">
+                                                            <input 
+                                                                type="checkbox" 
+                                                                checked={!!auditorAccess[view]}
+                                                                onChange={() => handleToggleAuditorAccess(view)}
+                                                                className="w-4 h-4 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500"
+                                                            />
+                                                        </td>
+                                                        <td className="px-6 py-4">
+                                                            <input 
+                                                                type="checkbox" 
+                                                                disabled
+                                                                className="w-4 h-4 text-slate-400 border-slate-300 rounded cursor-not-allowed"
+                                                            />
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </React.Fragment>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div className="flex justify-end mt-6">
+                                <button
+                                    onClick={handleSaveAccess}
+                                    className="px-6 py-2 bg-indigo-600 text-white text-sm font-bold rounded-full hover:bg-indigo-700 active:scale-95 transition-all shadow-sm"
+                                >
+                                    Save Access Rules
+                                </button>
+                            </div>
+                        </div>
                     </div>
                 ) : subView === 'departments' ? (
                     <div className="space-y-6">

@@ -37,9 +37,13 @@ export default function App() {
       try {
         const parsed = JSON.parse(cachedProfile);
         // Ensure onboarding is completed locally before routing to dashboard
-        if (parsed && parsed.first_name && parsed.role && parsed.hotel_id) {
+        if (parsed && (parsed.access_level === 'admin' || (parsed.first_name && parsed.role && parsed.hotel_id))) {
           setUserProfile(parsed);
-          setCurrentScreen('dashboard');
+          if (parsed.access_level === 'admin' || parsed.access_level === 'auditor') {
+            setCurrentScreen('adminPanel');
+          } else {
+            setCurrentScreen('dashboard');
+          }
           setIsLoadingSession(false);
           return;
         }
@@ -65,10 +69,14 @@ export default function App() {
         if (Array.isArray(data) && data.length > 0) {
           const prof = data[0];
           // Check if mandatory onboarding fields are fully populated
-          if (prof && prof.first_name && prof.role && prof.hotel_id) {
+          if (prof && (prof.access_level === 'admin' || (prof.first_name && prof.role && prof.hotel_id))) {
             setUserProfile(prof);
             localStorage.setItem(`sbi_profile_${userId}`, JSON.stringify(prof));
-            setCurrentScreen('dashboard');
+            if (prof.access_level === 'admin' || prof.access_level === 'auditor') {
+              setCurrentScreen('adminPanel');
+            } else {
+              setCurrentScreen('dashboard');
+            }
             setIsLoadingSession(false);
             return;
           }
@@ -173,7 +181,7 @@ export default function App() {
           onLogout={handleLogout}
         />
       ) : (
-        <AdminPanelScreen userProfile={userProfile} onBack={() => setCurrentScreen('login')} />
+        <AdminPanelScreen userProfile={userProfile} onBack={() => setCurrentScreen('dashboard')} onLogout={handleLogout} />
       ))}
     </div>
   );
