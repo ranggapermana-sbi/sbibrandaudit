@@ -146,7 +146,6 @@ export default function App() {
               checkProfileOnboarding(session);
             });
           }} 
-          onAdminAccess={() => setCurrentScreen('adminPanel')} 
         />
       )}
       
