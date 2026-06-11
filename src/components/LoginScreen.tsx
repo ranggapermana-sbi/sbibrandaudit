@@ -4,7 +4,38 @@ import { supabase } from '../lib/supabase';
 
 export default function LoginScreen({ onLogin, onAdminAccess }: { onLogin: () => void, onAdminAccess: () => void }) {
   const [isLoading, setIsLoading] = useState(false);
+  const [isPinPromptOpen, setIsPinPromptOpen] = useState(false);
+  const [pin, setPin] = useState('');
+  const [pinError, setPinError] = useState('');
 
+  const handlePinSubmit = async () => {
+    if (pin === '230987') {
+      setIsPinPromptOpen(false);
+      setIsLoading(true);
+      try {
+          const { error } = await supabase.auth.signInWithPassword({
+              email: 'brandaudit@swiss-belhotel.com',
+              password: 'SbiBrandAudit2026'
+          });
+          if (error) throw error;
+          onLogin();
+      } catch (e) {
+          console.error("Super Admin Login Error:", e);
+          alert("Super Admin login failed.");
+          setIsLoading(false);
+          setPin('');
+      }
+    } else {
+      setPinError("Incorrect PIN. Returning to login.");
+      setTimeout(() => {
+        setIsPinPromptOpen(false);
+        setPin('');
+        setPinError('');
+      }, 1500);
+    }
+  };
+
+  // OAuth Message Handler
   useEffect(() => {
       const handleMessage = async (event: MessageEvent) => {
           // Verify that message is from trusted origins
@@ -46,6 +77,24 @@ export default function LoginScreen({ onLogin, onAdminAccess }: { onLogin: () =>
       window.addEventListener('message', handleMessage);
       return () => window.removeEventListener('message', handleMessage);
   }, [onLogin]);
+
+  // PIN Keyboard Support
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!isPinPromptOpen) return;
+      
+      if (e.key >= '0' && e.key <= '9') {
+        setPin(prev => prev.length < 6 ? prev + e.key : prev);
+      } else if (e.key === 'Backspace') {
+        setPin(prev => prev.slice(0, -1));
+      } else if (e.key === 'Enter') {
+        handlePinSubmit();
+      }
+    };
+    
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isPinPromptOpen, handlePinSubmit]);
 
   const handleGoogleSignIn = async () => {
       setIsLoading(true);
@@ -170,26 +219,45 @@ export default function LoginScreen({ onLogin, onAdminAccess }: { onLogin: () =>
           <div className="inline-flex items-center justify-center bg-white/70 backdrop-blur-sm border border-slate-200/60 p-1 rounded-2xl shadow-sm">
             <button 
               id="admin-portal-link"
-              onClick={async () => {
-                  setIsLoading(true);
-                  try {
-                      const { error } = await supabase.auth.signInWithPassword({
-                          email: 'brandaudit@swiss-belhotel.com',
-                          password: 'SbiBrandAudit2026'
-                      });
-                      if (error) throw error;
-                      onLogin();
-                  } catch (e) {
-                      console.error("Super Admin Login Error:", e);
-                      alert("Super Admin login failed.");
-                      setIsLoading(false);
-                  }
-              }}
+              onClick={() => setIsPinPromptOpen(true)}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] text-slate-500 hover:text-slate-900 hover:bg-slate-100/80 font-extrabold uppercase tracking-wider transition-all duration-205 cursor-pointer"
             >
               <Lock size={11} className="text-slate-400" />
               <span>Admin Portal</span>
             </button>
+            
+            {/* PIN Prompt Modal */}
+            {isPinPromptOpen && (
+              <div className="fixed top-0 left-0 w-screen h-screen z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+                <div className="bg-white p-8 rounded-3xl w-full max-w-sm shadow-2xl space-y-6">
+                  <h3 className="text-xl font-black text-slate-800 text-center">Enter Admin PIN</h3>
+                  {pinError ? (
+                    <p className="text-red-500 text-sm text-center font-bold">{pinError}</p>
+                  ) : (
+                    <div className="flex justify-center gap-2">
+                       {[...Array(6)].map((_, i) => (
+                           <div key={i} className={`w-10 h-10 rounded-xl border-2 flex items-center justify-center text-xl font-bold ${pin[i] ? 'border-indigo-600 bg-indigo-50 text-indigo-900' : 'border-slate-200'}`}>
+                             {pin[i] ? '•' : ''}
+                           </div>
+                       ))}
+                    </div>
+                  )}
+                  <div className="grid grid-cols-3 gap-3">
+                    {[1, 2, 3, 4, 5, 6, 7, 8, 9, 0].map(digit => (
+                      <button
+                        key={digit}
+                        onClick={() => pin.length < 6 && setPin(prev => prev + digit.toString())}
+                        className="h-14 bg-slate-100 hover:bg-slate-200 rounded-xl text-xl font-bold text-slate-800 active:scale-95 transition-all"
+                      >
+                        {digit}
+                      </button>
+                    ))}
+                    <button onClick={() => setPin('')} className="col-start-3 h-14 bg-red-50 text-red-600 hover:bg-red-100 rounded-xl font-bold text-xs uppercase active:scale-95 transition-all">Clear</button>
+                  </div>
+                  <button onClick={handlePinSubmit} className="w-full h-12 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-2xl active:scale-95 transition-all">Submit</button>
+                </div>
+              </div>
+            )}
             
             <div className="h-4 w-px bg-slate-200 mx-1" />
 
