@@ -21,7 +21,27 @@ export default function App() {
   const [userProfile, setUserProfile] = useState<any>(null);
   const [isLoadingSession, setIsLoadingSession] = useState(true);
 
+  const checkSuperAdmin = (session: any) => {
+    if (session.user.email === 'brandaudit@swiss-belhotel.com') {
+      const prof = {
+        id: session.user.id,
+        email: session.user.email,
+        access_level: 'admin',
+        first_name: 'Super',
+        role: 'Super Admin'
+      };
+      setUserProfile(prof);
+      localStorage.setItem(`sbi_profile_${session.user.id}`, JSON.stringify(prof));
+      setCurrentScreen('adminPanel');
+      setIsLoadingSession(false);
+      return true;
+    }
+    return false;
+  };
+
   const checkProfileOnboarding = async (session: any) => {
+    if (checkSuperAdmin(session)) return;
+
     if (!session) {
       setUserProfile(null);
       setCurrentScreen('login');
@@ -37,9 +57,9 @@ export default function App() {
       try {
         const parsed = JSON.parse(cachedProfile);
         // Ensure onboarding is completed locally before routing to dashboard
-        if (parsed && (parsed.access_level === 'admin' || (parsed.first_name && parsed.role && parsed.hotel_id))) {
+        if (parsed && (parsed.email === 'brandaudit@swiss-belhotel.com' || parsed.access_level === 'admin' || (parsed.first_name && parsed.role && parsed.hotel_id))) {
           setUserProfile(parsed);
-          if (parsed.access_level === 'admin' || parsed.access_level === 'auditor') {
+          if (parsed.email === 'brandaudit@swiss-belhotel.com' || parsed.access_level === 'admin' || parsed.access_level === 'auditor') {
             setCurrentScreen('adminPanel');
           } else {
             setCurrentScreen('dashboard');
@@ -146,6 +166,7 @@ export default function App() {
               checkProfileOnboarding(session);
             });
           }} 
+          onAdminAccess={() => setCurrentScreen('adminPanel')} 
         />
       )}
       

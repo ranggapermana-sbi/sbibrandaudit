@@ -2,7 +2,7 @@ import { Lock, Mail, ShieldCheck, ArrowRight, Sparkles, Building2 } from 'lucide
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 
-export default function LoginScreen({ onLogin }: { onLogin: () => void }) {
+export default function LoginScreen({ onLogin, onAdminAccess }: { onLogin: () => void, onAdminAccess: () => void }) {
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
@@ -77,24 +77,6 @@ export default function LoginScreen({ onLogin }: { onLogin: () => void }) {
           console.error("Failed to fetch Supabase login URL:", err);
           setIsLoading(false);
       }
-  };
-
-  const handleAdminAccess = async () => {
-    setIsLoading(true);
-    try {
-        const { error } = await supabase.auth.signInWithPassword({
-            email: 'brandaudit@swiss-belhotel.com',
-            password: 'SbiBrandAudit2026'
-        });
-        if (error) {
-            alert("Admin login failed: " + error.message);
-            console.error("Admin login error:", error);
-            setIsLoading(false);
-        }
-    } catch (e) {
-        console.error("Admin login exception:", e);
-        setIsLoading(false);
-    }
   };
 
   const handleContactSupport = () => {
@@ -188,7 +170,21 @@ export default function LoginScreen({ onLogin }: { onLogin: () => void }) {
           <div className="inline-flex items-center justify-center bg-white/70 backdrop-blur-sm border border-slate-200/60 p-1 rounded-2xl shadow-sm">
             <button 
               id="admin-portal-link"
-              onClick={handleAdminAccess} 
+              onClick={async () => {
+                  setIsLoading(true);
+                  try {
+                      const { error } = await supabase.auth.signInWithPassword({
+                          email: 'brandaudit@swiss-belhotel.com',
+                          password: 'SbiBrandAudit2026'
+                      });
+                      if (error) throw error;
+                      onLogin();
+                  } catch (e) {
+                      console.error("Super Admin Login Error:", e);
+                      alert("Super Admin login failed.");
+                      setIsLoading(false);
+                  }
+              }}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] text-slate-500 hover:text-slate-900 hover:bg-slate-100/80 font-extrabold uppercase tracking-wider transition-all duration-205 cursor-pointer"
             >
               <Lock size={11} className="text-slate-400" />
