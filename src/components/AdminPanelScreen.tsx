@@ -41,11 +41,13 @@ interface AuditItem {
     itemDescription?: string;
     departmentId: string;
     categoryId: string;
-    inputType: 'camera' | 'image' | 'document' | 'numeric' | 'text' | 'checkbox' | 'score';
+    inputType: 'camera' | 'image' | 'document' | 'numeric' | 'text' | 'checkbox';
     points?: number;
     description?: string;
     sort_order?: number;
     filled_by_hotel?: boolean;
+    result?: number;
+    min_value?: number;
 }
 
 interface AuditGroup {
@@ -200,7 +202,7 @@ const getAlignedMainUrl = (rawUrl: string, key: string): string => {
 const MAIN_URL = getAlignedMainUrl(MAIN_URL_RAW, MAIN_KEY);
 
 export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { userProfile: any, onBack: () => void, onLogout: () => void }) {
-    const [subView, setSubView] = useState<'dashboard' | 'departments' | 'hotels' | 'batches' | 'categories' | 'items' | 'groups' | 'users' | 'access'>('dashboard');
+    const [subView, setSubView] = useState<'dashboard' | 'departments' | 'hotels' | 'batches' | 'categories' | 'items' | 'groups' | 'users' | 'access' | 'inspection'>('dashboard');
     const [auditorAccess, setAuditorAccess] = useState<Record<string, boolean>>({});
 
     useEffect(() => {
@@ -872,7 +874,8 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 points: item.points !== undefined && item.points !== null ? Number(item.points) : (item.point !== undefined && item.point !== null ? Number(item.point) : 5),
                 description: item.description,
                 sort_order: item.sort_order !== undefined && item.sort_order !== null ? Number(item.sort_order) : undefined,
-                filled_by_hotel: item.filled_by_hotel !== undefined && item.filled_by_hotel !== null ? Boolean(item.filled_by_hotel) : true
+                filled_by_hotel: item.filled_by_hotel !== undefined && item.filled_by_hotel !== null ? Boolean(item.filled_by_hotel) : true,
+                min_value: item.min_value !== undefined && item.min_value !== null ? Number(item.min_value) : undefined
             }));
             
             // Build initial itemOrder from fetched sort_order values
@@ -1335,6 +1338,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     const [itemItemDescription, setItemItemDescription] = useState('');
     const [itemPoints, setItemPoints] = useState<number>(5);
     const [itemFilledByHotel, setItemFilledByHotel] = useState<boolean>(true);
+    const [itemMinValue, setItemMinValue] = useState<number | ''>('');
     const [itemError, setItemError] = useState('');
     const [confirmItemDeleteId, setConfirmItemDeleteId] = useState<string | null>(null);
 
@@ -1363,6 +1367,36 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     const [userFormIsBrandAuditLead, setUserFormIsBrandAuditLead] = useState(false);
     const [userFormError, setUserFormError] = useState('');
     const [confirmUserDeleteId, setConfirmUserDeleteId] = useState<string | null>(null);
+
+    // Auditor scoring & inspection states
+    const [selectedInspectionHotelId, setSelectedInspectionHotelId] = useState<string>('');
+    const [selectedInspectionCategoryId, setSelectedInspectionCategoryId] = useState<string>('');
+    const [inspectionScores, setInspectionScores] = useState<Record<string, number>>(() => {
+        const stored = localStorage.getItem('sbi_inspection_scores');
+        return stored ? JSON.parse(stored) : {};
+    });
+    const [inspectionComments, setInspectionComments] = useState<Record<string, string>>(() => {
+        const stored = localStorage.getItem('sbi_inspection_comments');
+        return stored ? JSON.parse(stored) : {};
+    });
+
+    const saveInspectionScore = (hotelId: string, itemId: string, score: number) => {
+        const updated = {
+            ...inspectionScores,
+            [`${hotelId}_${itemId}`]: score
+        };
+        setInspectionScores(updated);
+        localStorage.setItem('sbi_inspection_scores', JSON.stringify(updated));
+    };
+
+    const saveInspectionComment = (hotelId: string, itemId: string, comment: string) => {
+        const updated = {
+            ...inspectionComments,
+            [`${hotelId}_${itemId}`]: comment
+        };
+        setInspectionComments(updated);
+        localStorage.setItem('sbi_inspection_comments', JSON.stringify(updated));
+    };
 
     // Category Drag-and-drop state parameters
     const [draggedCatId, setDraggedCatId] = useState<string | null>(null);
@@ -1700,6 +1734,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         setItemInputType('text');
         setItemPoints(5);
         setItemFilledByHotel(true);
+        setItemMinValue('');
         setItemInstruction('');
         setItemItemDescription('');
         setItemError('');
@@ -1714,6 +1749,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         setItemInputType(item.inputType);
         setItemPoints(item.points ?? 5);
         setItemFilledByHotel(item.filled_by_hotel ?? true);
+        setItemMinValue(item.min_value ?? '');
         setItemInstruction(item.description || '');
         setItemItemDescription(item.itemDescription || '');
         setItemError('');
@@ -1736,6 +1772,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 input_type: itemInputType,
                 points: itemPoints,
                 filled_by_hotel: itemFilledByHotel,
+                min_value: itemInputType === 'numeric' && itemMinValue !== '' ? Number(itemMinValue) : null,
                 description: itemInstruction.trim() || null,
                 item_description: itemItemDescription.trim() || null
             };
@@ -1752,7 +1789,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 });
                 if (!response.ok) throw new Error('Failed to update item');
                 
-                setItems(prev => prev.map(i => i.id === editingItem.id ? { ...i, ...itemData, departmentId: itemDepartmentId, categoryId: itemCategoryId, inputType: itemInputType, points: itemPoints, filled_by_hotel: itemFilledByHotel } : i));
+                setItems(prev => prev.map(i => i.id === editingItem.id ? { ...i, ...itemData, departmentId: itemDepartmentId, categoryId: itemCategoryId, inputType: itemInputType, points: itemPoints, filled_by_hotel: itemFilledByHotel, min_value: itemInputType === 'numeric' && itemMinValue !== '' ? Number(itemMinValue) : undefined } : i));
                 setToastMessage('Item updated successfully in Database!');
             } else {
                 const response = await fetch(`${MAIN_URL}audit_items`, {
@@ -1768,7 +1805,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 if (!response.ok) throw new Error('Failed to create item');
                 const data = await response.json();
                 
-                setItems(prev => [...prev, { id: String(data[0].id), ...itemData, departmentId: itemDepartmentId, categoryId: itemCategoryId, inputType: itemInputType, points: itemPoints, filled_by_hotel: itemFilledByHotel }]);
+                setItems(prev => [...prev, { id: String(data[0].id), ...itemData, departmentId: itemDepartmentId, categoryId: itemCategoryId, inputType: itemInputType, points: itemPoints, filled_by_hotel: itemFilledByHotel, min_value: itemInputType === 'numeric' && itemMinValue !== '' ? Number(itemMinValue) : undefined }]);
                 setToastMessage('New item added to Database!');
             }
 
@@ -1778,6 +1815,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             setItemCategoryId('');
             setItemInputType('text');
             setItemPoints(5);
+            setItemMinValue('');
             setItemInstruction('');
             setItemItemDescription('');
             setItemError('');
@@ -2468,7 +2506,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                         <ArrowLeft size={20} />
                     </button>
                     <h1 className="text-xl font-bold text-slate-900 tracking-tight ml-3">
-                        {subView === 'departments' ? 'Audit Departments' : subView === 'hotels' ? 'Master Hotel List' : subView === 'batches' ? 'Audit Batch' : subView === 'categories' ? 'Audit Category' : subView === 'items' ? 'Audit Items' : subView === 'groups' ? 'Audit Groups' : subView === 'users' ? 'User Management' : 'Admin Dashboard'}
+                        {subView === 'departments' ? 'Audit Departments' : subView === 'hotels' ? 'Master Hotel List' : subView === 'batches' ? 'Audit Batch' : subView === 'categories' ? 'Audit Category' : subView === 'items' ? 'Audit Items' : subView === 'groups' ? 'Audit Groups' : subView === 'users' ? 'User Management' : subView === 'inspection' ? 'Audit Inspection' : 'Admin Dashboard'}
                     </h1>
                 </div>
                 <div className="flex items-center gap-3">
@@ -2746,17 +2784,19 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
 
                                         {/* Audit Inspection */}
                                         <div 
-                                            className="flex items-center justify-between p-5 bg-slate-50/40 rounded-[20px] border border-slate-150/50 transition-all opacity-75"
+                                            onClick={() => { setSubView('inspection'); setSelectedInspectionHotelId(''); setSelectedInspectionCategoryId(''); setSearchQuery(''); }}
+                                            className="flex items-center justify-between p-5 bg-white hover:bg-slate-50/80 rounded-[20px] border border-slate-150/80 cursor-pointer hover:border-indigo-200 active:scale-[0.99] transition-all duration-200 group shadow-[0_4px_24px_rgba(15,23,42,0.01)] hover:shadow-[0_8px_32px_rgba(15,23,42,0.02)]"
                                         >
                                             <div className="flex items-center gap-4">
-                                                <div className="w-11 h-11 rounded-2xl bg-slate-100/70 text-slate-400 flex items-center justify-center shrink-0">
+                                                <div className="w-11 h-11 rounded-2xl bg-indigo-50 text-indigo-700 flex items-center justify-center shrink-0 transition-transform duration-300 group-hover:scale-105">
                                                     <Search size={22} />
                                                 </div>
                                                 <div>
-                                                    <p className="text-sm font-bold text-slate-600 tracking-tight">Audit Inspection</p>
-                                                    <p className="text-xs text-slate-400 mt-0.5">Perform audit inspection</p>
+                                                    <p className="text-sm font-bold text-slate-800 tracking-tight">Audit Inspection</p>
+                                                    <p className="text-xs text-slate-400 mt-0.5">Perform audit inspection on Auditor-Only items</p>
                                                 </div>
                                             </div>
+                                            <ChevronRight className="text-slate-300 group-hover:text-indigo-600 group-hover:translate-x-1 transition-all" size={18} />
                                         </div>
                                     </div>
                                 </div>
@@ -3754,6 +3794,359 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                      </table>
                         </div>
                     </div>
+                ) : subView === 'inspection' ? (
+                    <div className="space-y-6 animate-fadeIn">
+                        {/* Audit Inspection Subview */}
+                        {/* BACK BUTTON & HEADER */}
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                            <div>
+                                <button 
+                                    onClick={() => { setSubView('dashboard'); setSearchQuery(''); }} 
+                                    className="inline-flex items-center gap-1.5 text-xs font-bold text-indigo-600 bg-indigo-50/50 hover:bg-indigo-55/80 px-3.5 py-1.5 rounded-full border border-indigo-100/50 mb-3 hover:shadow-sm active:scale-95 transition-all outline-none"
+                                >
+                                    <ArrowLeft size={12} /> Back to Dashboard
+                                </button>
+                                <h2 className="text-2xl font-extrabold text-slate-900 tracking-tight">Perform Audit Inspection</h2>
+                                <p className="text-xs text-slate-500 mt-1">
+                                    Fill in quality, criteria, and compliance scores for items designated as Auditor-Only (Filled by Hotel is FALSE).
+                                </p>
+                            </div>
+                        </div>
+
+                        {/* STEP 1: SELECT HOTEL */}
+                        {!selectedInspectionHotelId ? (
+                            <div className="space-y-4">
+                                <div className="bg-white p-6 rounded-[28px] border border-slate-150/80 shadow-[0_12px_40px_rgba(15,23,42,0.015)]">
+                                    <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider mb-4">
+                                        Select a Property to Begin Inspection
+                                    </h3>
+                                    
+                                    {/* Search Bar for Inspection */}
+                                    <div className="relative mb-6">
+                                        <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                                            <Search size={18} />
+                                        </div>
+                                        <input
+                                            type="text"
+                                            placeholder="Search registered hotel properties by name or code..."
+                                            value={searchQuery}
+                                            onChange={(e) => setSearchQuery(e.target.value)}
+                                            className="w-full pl-10 pr-4 py-3 bg-slate-50/50 hover:bg-slate-50 focus:bg-white border border-slate-200 focus:border-indigo-350 rounded-2xl text-slate-800 text-sm outline-none transition-all placeholder:text-slate-400"
+                                        />
+                                        {searchQuery && (
+                                            <button 
+                                                onClick={() => setSearchQuery('')}
+                                                className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600"
+                                            >
+                                                <X size={16} />
+                                            </button>
+                                        )}
+                                    </div>
+
+                                    {/* Hotels List */}
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        {hotels
+                                            .filter(h => !searchQuery || h.name.toLowerCase().includes(searchQuery.toLowerCase()) || (h.code && h.code.toLowerCase().includes(searchQuery.toLowerCase())))
+                                            .map(hotel => {
+                                                // Calculate overall scored auditor items for this hotel
+                                                const auditorItems = items.filter(i => i.filled_by_hotel === false);
+                                                const totalAuditorItems = auditorItems.length;
+                                                const scoredAuditorItems = auditorItems.filter(i => inspectionScores[`${hotel.id}_${i.id}`] !== undefined).length;
+                                                const completionPercent = totalAuditorItems > 0 ? Math.round((scoredAuditorItems / totalAuditorItems) * 100) : 0;
+
+                                                return (
+                                                    <div 
+                                                        key={hotel.id}
+                                                        onClick={() => { setSelectedInspectionHotelId(hotel.id); setSearchQuery(''); }}
+                                                        className="group p-5 bg-slate-50/40 hover:bg-indigo-50/20 rounded-2xl border border-slate-150/60 hover:border-indigo-200 cursor-pointer active:scale-[0.99] transition-all duration-200 flex flex-col justify-between gap-4"
+                                                    >
+                                                        <div className="flex items-start justify-between gap-3">
+                                                            <div>
+                                                                <span className="text-[9px] font-extrabold px-2 py-0.5 bg-indigo-50 text-indigo-700 border border-indigo-100/40 rounded uppercase tracking-wider">
+                                                                    {hotel.code || 'NO-CODE'}
+                                                                </span>
+                                                                <h4 className="font-extrabold text-slate-850 tracking-tight text-sm mt-1.5 group-hover:text-indigo-750 transition-colors">
+                                                                    {hotel.name}
+                                                                </h4>
+                                                                <p className="text-[10px] font-bold text-slate-405 mt-0.5 uppercase tracking-wide">
+                                                                    {hotel.location || 'Not Specified'} • {hotel.brand || 'Swiss-Belhotel'}
+                                                                </p>
+                                                            </div>
+                                                            <ChevronRight className="text-slate-300 group-hover:text-indigo-600 group-hover:translate-x-1 transition-all mt-1" size={18} />
+                                                        </div>
+
+                                                        {/* Stats progress */}
+                                                        <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-slate-400">
+                                                            <div className="flex items-center gap-1.5">
+                                                                <FileCheck size={14} className={completionPercent === 100 ? 'text-emerald-500' : 'text-slate-400'} />
+                                                                <span>Inspection Progress:</span>
+                                                            </div>
+                                                            <span className={completionPercent === 100 ? 'text-emerald-600' : 'text-slate-700'}>
+                                                                {scoredAuditorItems} / {totalAuditorItems} criteria ({completionPercent}%)
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })
+                                        }
+                                        {hotels.filter(h => !searchQuery || h.name.toLowerCase().includes(searchQuery.toLowerCase()) || (h.code && h.code.toLowerCase().includes(searchQuery.toLowerCase()))).length === 0 && (
+                                            <div className="col-span-full py-8 text-center text-slate-400 font-bold text-xs">
+                                                No properties matched your search.
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        ) : (
+                            /* STEP 2: ACTIVE INSPECTION FOR SELECTED HOTEL */
+                            (() => {
+                                const hotel = hotels.find(h => h.id === selectedInspectionHotelId);
+                                if (!hotel) return null;
+
+                                const auditorItems = items.filter(i => i.filled_by_hotel === false);
+                                const scoredAuditorItems = auditorItems.filter(i => inspectionScores[`${hotel.id}_${i.id}`] !== undefined);
+                                const totalPointsScored = scoredAuditorItems.reduce((sum, i) => sum + Number(inspectionScores[`${hotel.id}_${i.id}`] || 0), 0);
+                                const totalPointsMax = auditorItems.reduce((sum, i) => sum + (i.points ?? 5), 0);
+
+                                // Filter categories that actually have auditor items
+                                const categoriesWithAuditorItems = catList.filter(cat => 
+                                    auditorItems.some(item => item.categoryId === cat.id)
+                                );
+
+                                // Group items by selected category or show all
+                                const activeCategoryId = selectedInspectionCategoryId || (categoriesWithAuditorItems[0]?.id || '');
+                                const filteredAuditorItems = auditorItems.filter(item => item.categoryId === activeCategoryId);
+
+                                return (
+                                    <div className="space-y-6 animate-fadeIn">
+                                        {/* Hotel Header Card */}
+                                        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 text-white shadow-xl relative overflow-hidden">
+                                            <div className="absolute right-0 top-0 w-32 h-32 bg-indigo-500/10 rounded-full blur-3xl" />
+                                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                                                <div>
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="text-[9px] font-extrabold uppercase tracking-widest px-2.5 py-1 bg-indigo-500/20 text-indigo-200 rounded-full border border-indigo-400/15">
+                                                            {hotel.code || 'Active Hotel'}
+                                                        </span>
+                                                        <span className="text-[10px] font-extrabold uppercase tracking-widest bg-amber-500/20 text-amber-300 border border-amber-400/10 px-2 py-0.5 rounded">
+                                                            Audit Inspection mode
+                                                        </span>
+                                                    </div>
+                                                    <h3 className="text-xl font-extrabold tracking-tight mt-2.5 text-slate-50">{hotel.name}</h3>
+                                                    <p className="text-xs text-slate-400 font-semibold mt-1 uppercase tracking-wide">
+                                                        {hotel.brand || 'Swiss-Belhotel'} • {hotel.location || 'Global'}
+                                                    </p>
+                                                </div>
+                                                <button
+                                                    onClick={() => { setSelectedInspectionHotelId(''); setSelectedInspectionCategoryId(''); }}
+                                                    className="px-4 py-2 bg-slate-800 hover:bg-slate-750 text-slate-200 hover:text-white rounded-full font-bold text-xs transition-all border border-slate-700/80 self-start sm:self-auto active:scale-95 outline-none"
+                                                >
+                                                    Change Property
+                                                </button>
+                                            </div>
+
+                                            {/* Completion Progress Bar */}
+                                            <div className="mt-6 pt-5 border-t border-slate-800 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                                <div>
+                                                    <div className="flex items-center justify-between text-xs font-bold mb-1.5 text-slate-350">
+                                                        <span>Auditor Criteria Progress</span>
+                                                        <span className="text-indigo-300 font-extrabold">
+                                                            {scoredAuditorItems.length} / {auditorItems.length} scored
+                                                        </span>
+                                                    </div>
+                                                    <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
+                                                        <div 
+                                                            className="bg-indigo-500 h-full rounded-full transition-all duration-500"
+                                                            style={{ width: `${auditorItems.length > 0 ? (scoredAuditorItems.length / auditorItems.length) * 100 : 0}%` }}
+                                                        />
+                                                    </div>
+                                                </div>
+                                                <div className="flex items-center justify-end sm:text-right">
+                                                    <div>
+                                                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Total Scored Points</p>
+                                                        <p className="text-lg font-extrabold text-emerald-400 tracking-tight mt-0.5">
+                                                            {totalPointsScored} <span className="text-xs text-slate-400 font-bold">/ {totalPointsMax} max pts</span>
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* Categories horizontal tabs selection */}
+                                        {categoriesWithAuditorItems.length > 0 ? (
+                                            <div className="bg-white p-3.5 rounded-2xl border border-slate-150/80 shadow-sm flex items-center gap-1.5 overflow-x-auto scrollbar-none">
+                                                {categoriesWithAuditorItems.map(cat => {
+                                                    const isActive = activeCategoryId === cat.id;
+                                                    const catItems = auditorItems.filter(i => i.categoryId === cat.id);
+                                                    const scoredCatItems = catItems.filter(i => inspectionScores[`${hotel.id}_${i.id}`] !== undefined).length;
+
+                                                    return (
+                                                        <button
+                                                            key={cat.id}
+                                                            onClick={() => setSelectedInspectionCategoryId(cat.id)}
+                                                            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap outline-none shrink-0 ${
+                                                                isActive 
+                                                                    ? 'bg-indigo-600 text-white shadow-md shadow-indigo-500/10'
+                                                                    : 'bg-slate-50 hover:bg-slate-100 text-slate-600'
+                                                            }`}
+                                                        >
+                                                            {cat.name} 
+                                                            <span className={`ml-1.5 text-[10px] font-extrabold px-1.5 py-0.5 rounded ${
+                                                                isActive ? 'bg-indigo-700/80 text-white' : 'bg-slate-200/80 text-slate-500'
+                                                            }`}>
+                                                                {scoredCatItems}/{catItems.length}
+                                                            </span>
+                                                        </button>
+                                                    );
+                                                })}
+                                            </div>
+                                        ) : (
+                                            <div className="bg-amber-50 border border-amber-100/60 p-6 rounded-2xl text-amber-805 text-xs text-center font-bold">
+                                                No checklist items with "Filled by Hotel" set to FALSE (Auditor-Only criteria) are available in the master database. Please go back and configure your criteria first.
+                                            </div>
+                                        )}
+
+                                        {/* Audit Items Scoring Card List */}
+                                        {categoriesWithAuditorItems.length > 0 && (
+                                            <div className="space-y-4">
+                                                {filteredAuditorItems.length === 0 ? (
+                                                    <div className="bg-white p-12 text-center rounded-2xl border border-slate-150">
+                                                        <ClipboardList size={32} className="text-slate-300 mx-auto mb-2" />
+                                                        <p className="text-slate-400 font-bold text-xs">No Auditor-Only criteria items under this category.</p>
+                                                    </div>
+                                                ) : (
+                                                    filteredAuditorItems.map(item => {
+                                                        const scoreKey = `${hotel.id}_${item.id}`;
+                                                        const currentScore = inspectionScores[scoreKey];
+                                                        const currentComment = inspectionComments[scoreKey] || '';
+                                                        const maxPoints = item.points ?? 5;
+
+                                                        return (
+                                                            <div key={item.id} className="bg-white p-5 sm:p-6 rounded-[22px] border border-slate-200 hover:border-slate-300 shadow-sm transition-all flex flex-col md:flex-row gap-5">
+                                                                {/* Column 1: Info */}
+                                                                <div className="flex-1 space-y-2">
+                                                                    <div className="flex items-center gap-2 flex-wrap">
+                                                                        <span className="text-[10px] font-extrabold uppercase tracking-widest bg-indigo-50 text-indigo-700 border border-indigo-100/30 px-2.5 py-0.5 rounded-md whitespace-nowrap">
+                                                                            {maxPoints} Max Points
+                                                                        </span>
+                                                                        {currentScore !== undefined ? (
+                                                                            <span className="text-[10px] font-extrabold bg-emerald-50 text-emerald-700 border border-emerald-100 px-2 py-0.5 rounded-md flex items-center gap-1">
+                                                                                <CheckCircle size={10} />
+                                                                                Scored
+                                                                            </span>
+                                                                        ) : (
+                                                                            <span className="text-[10px] font-extrabold bg-amber-50 text-amber-700 border border-amber-100 px-2 py-0.5 rounded-md flex items-center gap-1 animate-pulse">
+                                                                                <Clock size={10} />
+                                                                                Pending Auditor Score
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
+                                                                    <h4 className="text-sm sm:text-base font-extrabold text-slate-850 leading-relaxed pr-2">
+                                                                        {item.name}
+                                                                    </h4>
+                                                                    {item.description && (
+                                                                        <p className="text-xs text-slate-400 font-medium">
+                                                                            {item.description}
+                                                                        </p>
+                                                                    )}
+
+                                                                    {/* Observations Text Input */}
+                                                                    <div className="pt-3">
+                                                                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                                                                            Auditor Observations & Notes
+                                                                        </label>
+                                                                        <input
+                                                                            type="text"
+                                                                            value={currentComment}
+                                                                            onChange={(e) => saveInspectionComment(hotel.id, item.id, e.target.value)}
+                                                                            placeholder="Type compliance observations or reason for score..."
+                                                                            className="w-full bg-slate-50/50 hover:bg-slate-50 focus:bg-white border border-slate-200 focus:border-indigo-300 rounded-xl px-3.5 py-2 text-slate-700 text-xs outline-none transition-all"
+                                                                        />
+                                                                    </div>
+                                                                </div>
+
+                                                                {/* Column 2: Score Selector */}
+                                                                <div className="md:w-60 md:shrink-0 flex flex-col justify-center border-t md:border-t-0 md:border-l border-slate-100 pt-4 md:pt-0 md:pl-5 space-y-3">
+                                                                    <div className="text-center md:text-left">
+                                                                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                                                                            Assign Score
+                                                                        </span>
+                                                                        <p className="text-xl font-extrabold text-slate-850 mt-0.5">
+                                                                            {currentScore !== undefined ? currentScore : '—'}{' '}
+                                                                            <span className="text-xs text-slate-400 font-bold">/ {maxPoints} pts</span>
+                                                                        </p>
+                                                                    </div>
+
+                                                                    {/* Score Button Presets */}
+                                                                    <div className="flex flex-wrap gap-1.5 justify-center md:justify-start">
+                                                                        {Array.from({ length: maxPoints + 1 }).map((_, idx) => {
+                                                                            const scoreVal = idx;
+                                                                            const isSelected = currentScore === scoreVal;
+
+                                                                            return (
+                                                                                <button
+                                                                                    key={idx}
+                                                                                    onClick={() => saveInspectionScore(hotel.id, item.id, scoreVal)}
+                                                                                    className={`w-9 h-9 rounded-xl font-extrabold text-xs transition-all flex items-center justify-center border active:scale-95 outline-none ${
+                                                                                        isSelected
+                                                                                            ? 'bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-500/10 scale-105'
+                                                                                            : 'bg-slate-50 border-slate-200 hover:bg-slate-100 hover:border-slate-300 text-slate-700'
+                                                                                    }`}
+                                                                                >
+                                                                                    {scoreVal}
+                                                                                </button>
+                                                                            );
+                                                                        })}
+                                                                    </div>
+
+                                                                    {/* Quick Pass/Fail buttons for speed */}
+                                                                    <div className="flex gap-2">
+                                                                        <button
+                                                                            onClick={() => saveInspectionScore(hotel.id, item.id, maxPoints)}
+                                                                            className="flex-1 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-150 rounded-lg text-[10px] font-bold transition-all active:scale-95"
+                                                                        >
+                                                                            Pass (Max)
+                                                                        </button>
+                                                                        <button
+                                                                            onClick={() => saveInspectionScore(hotel.id, item.id, 0)}
+                                                                            className="flex-1 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 border border-red-150 rounded-lg text-[10px] font-bold transition-all active:scale-95"
+                                                                        >
+                                                                            Fail (0)
+                                                                        </button>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    })
+                                                )}
+
+                                                {/* Submit / Finish Actions */}
+                                                <div className="bg-white p-5 rounded-2xl border border-slate-150/80 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                                                    <div>
+                                                        <h4 className="font-extrabold text-slate-800 text-sm">Completed All Items in this Category?</h4>
+                                                        <p className="text-xs text-slate-400 font-medium">Verify your scoring before proceeding. Scores are automatically autosaved.</p>
+                                                    </div>
+                                                    <button
+                                                        onClick={() => {
+                                                            setToastMessage("Inspection scores saved successfully!");
+                                                            setTimeout(() => setToastMessage(null), 3000);
+                                                            // Go back to step 1
+                                                            setSelectedInspectionHotelId('');
+                                                            setSelectedInspectionCategoryId('');
+                                                        }}
+                                                        className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full font-bold text-xs uppercase tracking-wider transition-all shadow-md active:scale-95 outline-none flex items-center justify-center gap-1.5"
+                                                    >
+                                                        <CheckCircle size={14} />
+                                                        Finalize & Save Property
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })()
+                        )}
+                    </div>
                 ) : (
                     <div className="space-y-6">
                         {/* Hotels Layout */}
@@ -4629,8 +5022,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                         { id: 'document', label: 'Document', icon: FileText },
                                         { id: 'numeric', label: 'Numeric', icon: Hash },
                                         { id: 'text', label: 'Text', icon: Type },
-                                        { id: 'checkbox', label: 'Checkbox', icon: CheckSquare },
-                                        { id: 'score', label: 'Score', icon: Star },
+                                        { id: 'checkbox', label: 'Checkbox', icon: CheckSquare }
                                     ].map((type) => (
                                         <button
                                             type="button"
@@ -4648,6 +5040,23 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                     ))}
                                 </div>
                             </div>
+
+                            {itemInputType === 'numeric' && (
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Minimum Value</label>
+                                    <input 
+                                        type="number" 
+                                        placeholder="e.g. 10"
+                                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all focus:ring-1 focus:ring-indigo-100"
+                                        value={itemMinValue}
+                                        onChange={(e) => setItemMinValue(e.target.value === '' ? '' : Number(e.target.value))}
+                                        required
+                                    />
+                                    <p className="text-[10px] text-slate-500 mt-1">
+                                        The audit will require the inputted number to be at least this minimum value.
+                                    </p>
+                                </div>
+                            )}
 
                             <div>
                                 <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Point (Weight)</label>
