@@ -31,6 +31,7 @@ interface AuditCategory {
     totalTasks: number;
     completed: number;
     departmentId?: string;
+    sort_order?: number;
 }
 
 interface AuditItem {
@@ -454,8 +455,26 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 name: item.name,
                 totalTasks: item.total_tasks || 5, // Map to DB column
                 completed: item.completed || 0,
-                departmentId: item.department_id ? String(item.department_id) : undefined
+                departmentId: item.department_id ? String(item.department_id) : undefined,
+                sort_order: item.sort_order !== undefined && item.sort_order !== null ? Number(item.sort_order) : undefined
             }));
+            
+            // Build initial categoryOrder from fetched sort_order values
+            const initialCategoryOrder: Record<string, string[]> = { ...categoryOrder };
+            const deptsWithCats = Array.from(new Set(mapped.map(c => c.departmentId || 'unassigned')));
+            deptsWithCats.forEach(deptId => {
+                const deptCats = mapped.filter(c => (c.departmentId || 'unassigned') === deptId);
+                if (deptCats.some(c => c.sort_order !== undefined)) {
+                    const sorted = [...deptCats].sort((a, b) => {
+                        const sA = a.sort_order ?? 999999;
+                        const sB = b.sort_order ?? 999999;
+                        if (sA !== sB) return sA - sB;
+                        return a.name.localeCompare(b.name);
+                    });
+                    initialCategoryOrder[deptId] = sorted.map(c => c.id);
+                }
+            });
+            setCategoryOrder(initialCategoryOrder);
             
             setCatList(mapped);
             setSupabaseConnected(true);
@@ -472,12 +491,21 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     const [items, setItems] = useState<AuditItem[]>([]);
     const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({});
     const [itemOrder, setItemOrder] = useState<Record<string, string[]>>({});
+    const [expandedDepartments, setExpandedDepartments] = useState<Record<string, boolean>>({});
+    const [categoryOrder, setCategoryOrder] = useState<Record<string, string[]>>({});
 
     useEffect(() => {
         const savedOrder = localStorage.getItem('sbi_item_orders');
         if (savedOrder) {
             try {
                 setItemOrder(JSON.parse(savedOrder));
+            } catch (e) {}
+        }
+        
+        const savedCatOrder = localStorage.getItem('sbi_category_orders');
+        if (savedCatOrder) {
+            try {
+                setCategoryOrder(JSON.parse(savedCatOrder));
             } catch (e) {}
         }
     }, []);
@@ -487,8 +515,89 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         localStorage.setItem('sbi_item_orders', JSON.stringify(newOrder));
     };
 
+    const saveCategoryOrder = (newOrder: Record<string, string[]>) => {
+        setCategoryOrder(newOrder);
+        localStorage.setItem('sbi_category_orders', JSON.stringify(newOrder));
+    };
+
     const toggleCategoryExpansion = (categoryId: string) => {
         setExpandedCategories(prev => ({ ...prev, [categoryId]: !prev[categoryId] }));
+    };
+
+    const toggleDepartmentExpansion = (deptId: string) => {
+        setExpandedDepartments(prev => ({ ...prev, [deptId]: !prev[deptId] }));
+    };
+
+    const handleMoveCategory = async (category: AuditCategory, direction: 'up' | 'down') => {
+        const deptId = category.departmentId || 'unassigned';
+        const currentDeptCats = catList.filter(c => (c.departmentId || 'unassigned') === deptId);
+        
+        const orderArray = categoryOrder[deptId] || [];
+        const sortedDeptCats = [...currentDeptCats].sort((a, b) => {
+            const idxA = orderArray.indexOf(a.id);
+            const idxB = orderArray.indexOf(b.id);
+            if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+            if (idxA !== -1) return -1;
+            if (idxB !== -1) return 1;
+            if (a.sort_order !== undefined && b.sort_order !== undefined) return a.sort_order - b.sort_order;
+            return a.name.localeCompare(b.name);
+        });
+
+        const currentIndex = sortedDeptCats.findIndex(c => c.id === category.id);
+        if (currentIndex === -1) return;
+
+        let targetIndex = -1;
+        if (direction === 'up' && currentIndex > 0) {
+            targetIndex = currentIndex - 1;
+        } else if (direction === 'down' && currentIndex < sortedDeptCats.length - 1) {
+            targetIndex = currentIndex + 1;
+        }
+
+        if (targetIndex !== -1) {
+            const targetCat = sortedDeptCats[targetIndex];
+            
+            // Swap categories in local array representation
+            const newDeptCatsIds = sortedDeptCats.map(c => c.id);
+            newDeptCatsIds[currentIndex] = targetCat.id;
+            newDeptCatsIds[targetIndex] = category.id;
+            
+            // Update local state first for instant feedback
+            saveCategoryOrder({ ...categoryOrder, [deptId]: newDeptCatsIds });
+
+            // Assign numeric sort_orders and save to Supabase
+            try {
+                const updates = newDeptCatsIds.map((id, index) => {
+                    return fetch(`${MAIN_URL}audit_categories?id=eq.${id}`, {
+                        method: 'PATCH',
+                        headers: {
+                            'apikey': MAIN_KEY,
+                            'Authorization': `Bearer ${MAIN_KEY}`,
+                            'Content-Type': 'application/json',
+                            'Prefer': 'return=minimal'
+                        },
+                        body: JSON.stringify({ sort_order: index + 1 })
+                    });
+                });
+                
+                await Promise.all(updates);
+                
+                // Update local catList state
+                setCatList(prevCats => {
+                    return prevCats.map(c => {
+                        const idx = newDeptCatsIds.indexOf(c.id);
+                        if (idx !== -1) {
+                            return { ...c, sort_order: idx + 1 };
+                        }
+                        return c;
+                    });
+                });
+                
+                setToastMessage('Category order updated in Database successfully!');
+            } catch (err: any) {
+                console.error("Error updating sort_order for category in database:", err);
+                setToastMessage('Saved category order locally (Run SQL script in Supabase to sync to database)');
+            }
+        }
     };
 
     const handleMoveItem = async (item: AuditItem, direction: 'up' | 'down') => {
@@ -2051,6 +2160,27 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         };
     }).sort((a, b) => a.category.name.localeCompare(b.category.name));
 
+    const groupedCategories = Array.from(new Set(filteredCategories.map(c => c.departmentId || 'unassigned'))).map(deptId => {
+        const dept = departments.find(d => d.id === deptId);
+        const deptCats = filteredCategories.filter(c => (c.departmentId || 'unassigned') === deptId);
+        
+        const orderArray = categoryOrder[deptId] || [];
+        deptCats.sort((a, b) => {
+            const idxA = orderArray.indexOf(a.id);
+            const idxB = orderArray.indexOf(b.id);
+            if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+            if (idxA !== -1) return -1;
+            if (idxB !== -1) return 1;
+            if (a.sort_order !== undefined && b.sort_order !== undefined) return a.sort_order - b.sort_order;
+            return a.name.localeCompare(b.name);
+        });
+
+        return {
+            department: dept || { id: deptId, name: 'General / Unassigned', head: 'N/A' },
+            categories: deptCats
+        };
+    }).sort((a, b) => a.department.name.localeCompare(b.department.name));
+
     const filteredGroups = groups.filter(g => 
         g.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         (g.description || '').toLowerCase().includes(searchQuery.toLowerCase())
@@ -2913,67 +3043,101 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                         <thead>
                                             <tr className="border-b border-slate-100 bg-slate-50/50 select-none text-[10px] font-extrabold text-slate-400 tracking-wider uppercase">
                                                 <th className="px-6 py-4.5">Category Group Name</th>
+                                                <th className="px-6 py-4.5">Department</th>
                                                 <th className="px-6 py-4.5 text-right">Actions</th>
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-slate-100">
-                                            {filteredCategories.map((cat) => (
-                                                <tr key={cat.id} className="hover:bg-slate-50/20 transition-colors">
-                                                    <td className="px-6 py-4 whitespace-nowrap">
-                                                        <div className="flex items-center gap-3">
-                                                            <div className="w-9 h-9 rounded-xl bg-indigo-50/80 text-indigo-700 flex items-center justify-center font-black text-xs uppercase shadow-sm shrink-0">
-                                                                C
-                                                            </div>
-                                                            <div className="flex flex-col min-w-0">
-                                                                <span className="text-sm font-bold text-slate-800 max-w-xs xl:max-w-md truncate block" title={cat.name}>
-                                                                    {cat.name}
-                                                                </span>
-                                                                {cat.departmentId && departments.find(d => d.id === cat.departmentId) && (
-                                                                    <span className="text-xs text-slate-500 font-semibold mt-0.5 truncate max-w-xs xl:max-w-md">
-                                                                        {departments.find(d => d.id === cat.departmentId)?.name}
+                                            {groupedCategories.map((group) => {
+                                                const isExpanded = expandedDepartments[group.department.id] !== false;
+                                                return (
+                                                    <React.Fragment key={group.department.id}>
+                                                        <tr 
+                                                            className="bg-indigo-50/30 cursor-pointer hover:bg-indigo-50/60 transition-colors"
+                                                            onClick={() => toggleDepartmentExpansion(group.department.id)}
+                                                        >
+                                                            <td colSpan={3} className="px-6 py-3 font-bold text-sm text-indigo-900">
+                                                                <div className="flex items-center gap-2">
+                                                                    {isExpanded ? <ChevronDown size={16} className="text-indigo-500" /> : <ChevronRight size={16} className="text-indigo-400" />}
+                                                                    <span>{group.department.name}</span>
+                                                                    <span className="bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full text-[10px] ml-2">
+                                                                        {group.categories.length} categories
                                                                     </span>
-                                                                )}
-                                                            </div>
-                                                        </div>
-                                                    </td>
-                                                    <td className="px-6 py-4 whitespace-nowrap text-right text-xs">
-                                                        {confirmCatDeleteId === cat.id ? (
-                                                            <div className="inline-flex items-center gap-2 bg-red-50/85 px-3 py-1.5 rounded-xl border border-red-105 text-left animate-fadeIn">
-                                                                <span className="text-[10px] text-red-600 font-bold whitespace-nowrap">Are you sure?</span>
-                                                                <button 
-                                                                    onClick={() => handleDeleteCat(cat.id)}
-                                                                    className="bg-red-600 hover:bg-red-700 text-white px-2.5 py-1 rounded-lg text-[10px] font-bold tracking-wide transition-all"
-                                                                >
-                                                                    Yes, delete
-                                                                </button>
-                                                                <button 
-                                                                    onClick={() => setConfirmCatDeleteId(null)}
-                                                                    className="bg-slate-200 hover:bg-slate-300 text-slate-700 px-2.5 py-1 rounded-lg text-[10px] font-bold tracking-wide transition-all"
-                                                                >
-                                                                    Cancel
-                                                                </button>
-                                                            </div>
-                                                        ) : (
-                                                            <div className="inline-flex gap-2 justify-end w-full">
-                                                                <button 
-                                                                    onClick={() => handleOpenEditCat(cat)}
-                                                                    className="px-3 py-1.5 text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 border border-slate-200 hover:border-indigo-100 rounded-xl transition-all font-bold flex items-center gap-1.5 active:scale-95"
-                                                                >
-                                                                    <Edit size={13} />
-                                                                    <span>Edit</span>
-                                                                </button>
-                                                                <button 
-                                                                    onClick={() => setConfirmCatDeleteId(cat.id)}
-                                                                    className="px-3 py-1.5 text-slate-600 hover:text-red-800 hover:bg-red-50 border border-slate-200 hover:border-red-100 rounded-xl transition-all font-bold flex items-center gap-1.5 active:scale-95"
-                                                                >
-                                                                    <Trash2 size={13} />
-                                                                    <span>Delete</span>
-                                                                </button>
-                                                            </div>
-                                                        )}
-                                                    </td>
-                                                </tr>
-                                            ))}
+                                                                </div>
+                                                            </td>
+                                                        </tr>
+                                                        {isExpanded && group.categories.map((cat, index) => (
+                                                            <tr key={cat.id} className="hover:bg-slate-50/20 transition-colors">
+                                                                <td className="px-6 py-4 whitespace-nowrap">
+                                                                    <div className="flex items-center gap-3">
+                                                                        <div className="flex flex-col gap-0.5 text-slate-300">
+                                                                            <button 
+                                                                                onClick={(e) => { e.stopPropagation(); handleMoveCategory(cat, 'up'); }}
+                                                                                disabled={index === 0}
+                                                                                className="hover:text-indigo-600 disabled:opacity-30 disabled:hover:text-slate-300 transition-colors p-0.5"
+                                                                            >
+                                                                                <ChevronUp size={14} />
+                                                                            </button>
+                                                                            <button 
+                                                                                onClick={(e) => { e.stopPropagation(); handleMoveCategory(cat, 'down'); }}
+                                                                                disabled={index === group.categories.length - 1}
+                                                                                className="hover:text-indigo-600 disabled:opacity-30 disabled:hover:text-slate-300 transition-colors p-0.5"
+                                                                            >
+                                                                                <ChevronDown size={14} />
+                                                                            </button>
+                                                                        </div>
+                                                                        <div className="w-9 h-9 rounded-xl bg-indigo-50/80 text-indigo-700 flex items-center justify-center font-black text-xs uppercase shadow-sm shrink-0">
+                                                                            C
+                                                                        </div>
+                                                                        <span className="text-sm font-bold text-slate-800 max-w-xs xl:max-w-md truncate block" title={cat.name}>
+                                                                            {cat.name}
+                                                                        </span>
+                                                                    </div>
+                                                                </td>
+                                                                <td className="px-6 py-4 text-xs font-semibold text-slate-500">
+                                                                    {group.department.name}
+                                                                </td>
+                                                                <td className="px-6 py-4 whitespace-nowrap text-right text-xs">
+                                                                    {confirmCatDeleteId === cat.id ? (
+                                                                        <div className="inline-flex items-center gap-2 bg-red-50/85 px-3 py-1.5 rounded-xl border border-red-105 text-left animate-fadeIn">
+                                                                            <span className="text-[10px] text-red-600 font-bold whitespace-nowrap">Are you sure?</span>
+                                                                            <button 
+                                                                                onClick={() => handleDeleteCat(cat.id)}
+                                                                                className="bg-red-600 hover:bg-red-700 text-white px-2.5 py-1 rounded-lg text-[10px] font-bold tracking-wide transition-all"
+                                                                            >
+                                                                                Yes, delete
+                                                                            </button>
+                                                                            <button 
+                                                                                onClick={() => setConfirmCatDeleteId(null)}
+                                                                                className="bg-slate-200 hover:bg-slate-300 text-slate-700 px-2.5 py-1 rounded-lg text-[10px] font-bold tracking-wide transition-all"
+                                                                            >
+                                                                                Cancel
+                                                                            </button>
+                                                                        </div>
+                                                                    ) : (
+                                                                        <div className="inline-flex gap-2 justify-end w-full">
+                                                                            <button 
+                                                                                onClick={() => handleOpenEditCat(cat)}
+                                                                                className="px-3 py-1.5 text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 border border-slate-200 hover:border-indigo-100 rounded-xl transition-all font-bold flex items-center gap-1.5 active:scale-95"
+                                                                            >
+                                                                                <Edit size={13} />
+                                                                                <span>Edit</span>
+                                                                            </button>
+                                                                            <button 
+                                                                                onClick={() => setConfirmCatDeleteId(cat.id)}
+                                                                                className="px-3 py-1.5 text-slate-600 hover:text-red-800 hover:bg-red-50 border border-slate-200 hover:border-red-100 rounded-xl transition-all font-bold flex items-center gap-1.5 active:scale-95"
+                                                                            >
+                                                                                <Trash2 size={13} />
+                                                                                <span>Delete</span>
+                                                                            </button>
+                                                                        </div>
+                                                                    )}
+                                                                </td>
+                                                            </tr>
+                                                        ))}
+                                                    </React.Fragment>
+                                                );
+                                            })}
                                         </tbody>
                                     </table>
                                 </div>
