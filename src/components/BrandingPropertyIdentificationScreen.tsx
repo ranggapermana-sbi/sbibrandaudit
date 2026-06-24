@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ChevronRight, Camera, Loader2, CheckCircle2, Image as ImageIcon, FileUp, Hash, Type, CheckSquare, UploadCloud, X, AlertCircle } from 'lucide-react';
+import { ChevronRight, Camera, Loader2, CheckCircle2, Image as ImageIcon, FileUp, Hash, Type, CheckSquare, UploadCloud, X, AlertCircle, RefreshCw } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
 interface BrandingPropertyProps {
@@ -80,7 +80,7 @@ const uploadToIMGBB = async (file: File): Promise<string> => {
     }
 }
 
-const AuditItemCard = ({ item, hotelId }: { item: any, hotelId: string }) => {
+const AuditItemCard: React.FC<{ item: any, hotelId: string }> = ({ item, hotelId }) => {
     const [value, setValue] = useState<string>('');
     const [isNa, setIsNa] = useState<boolean>(false);
     const [naReason, setNaReason] = useState<string>('');
@@ -89,7 +89,75 @@ const AuditItemCard = ({ item, hotelId }: { item: any, hotelId: string }) => {
     const [previewUrl, setPreviewUrl] = useState<string | null>(null);
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
+    // Camera specific state
+    const [isCameraOpen, setIsCameraOpen] = useState(false);
+    const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
+    const videoRef = useRef<HTMLVideoElement>(null);
+    const streamRef = useRef<MediaStream | null>(null);
+
     const fileInputRef = useRef<HTMLInputElement>(null);
+
+    const startCamera = async (mode: 'environment' | 'user') => {
+        setIsCameraOpen(true);
+        try {
+            if (streamRef.current) {
+                streamRef.current.getTracks().forEach(t => t.stop());
+            }
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: mode }
+            });
+            streamRef.current = stream;
+            if (videoRef.current) {
+                videoRef.current.srcObject = stream;
+            }
+        } catch (err) {
+            console.error("Camera error", err);
+            alert("Could not access camera. Please ensure permissions are granted.");
+            setIsCameraOpen(false);
+        }
+    };
+
+    const stopCamera = () => {
+        if (streamRef.current) {
+            streamRef.current.getTracks().forEach(t => t.stop());
+            streamRef.current = null;
+        }
+        setIsCameraOpen(false);
+    };
+
+    const switchCamera = () => {
+        const newMode = facingMode === 'environment' ? 'user' : 'environment';
+        setFacingMode(newMode);
+        startCamera(newMode);
+    };
+
+    const capturePhoto = () => {
+        if (videoRef.current) {
+            const canvas = document.createElement('canvas');
+            canvas.width = videoRef.current.videoWidth;
+            canvas.height = videoRef.current.videoHeight;
+            const ctx = canvas.getContext('2d');
+            if (ctx) {
+                ctx.drawImage(videoRef.current, 0, 0);
+                canvas.toBlob((blob) => {
+                    if (blob) {
+                        const file = new File([blob], `capture_${Date.now()}.jpg`, { type: 'image/jpeg' });
+                        setSelectedFile(file);
+                        setPreviewUrl(URL.createObjectURL(file));
+                        stopCamera();
+                    }
+                }, 'image/jpeg', 0.8);
+            }
+        }
+    };
+
+    useEffect(() => {
+        return () => {
+            if (streamRef.current) {
+                streamRef.current.getTracks().forEach(t => t.stop());
+            }
+        };
+    }, []);
 
     // Initialize from local storage
     useEffect(() => {
@@ -231,6 +299,28 @@ const AuditItemCard = ({ item, hotelId }: { item: any, hotelId: string }) => {
             case 'camera':
                 return (
                     <div className="mt-3">
+                        {isCameraOpen && (
+                            <div className="fixed inset-0 z-[100] bg-black flex flex-col animate-fadeIn">
+                                <div className="absolute top-4 right-4 z-[110] flex gap-4">
+                                    <button onClick={switchCamera} className="bg-white/20 p-3 rounded-full backdrop-blur-md text-white hover:bg-white/30 transition-all active:scale-95">
+                                        <RefreshCw size={24} />
+                                    </button>
+                                    <button onClick={stopCamera} className="bg-white/20 p-3 rounded-full backdrop-blur-md text-white hover:bg-white/30 transition-all active:scale-95">
+                                        <X size={24} />
+                                    </button>
+                                </div>
+                                <div className="flex-1 relative flex items-center justify-center bg-black overflow-hidden">
+                                    <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover" />
+                                </div>
+                                <div className="h-32 bg-black pb-8 flex items-center justify-center shrink-0">
+                                    <button 
+                                        onClick={capturePhoto}
+                                        className="w-16 h-16 rounded-full border-4 border-white bg-white/20 hover:bg-white/40 transition-all active:scale-90"
+                                    />
+                                </div>
+                            </div>
+                        )}
+                        
                         {previewUrl ? (
                             <div className="relative inline-block group w-full sm:w-auto">
                                 <img src={previewUrl} alt="Preview" className="w-full sm:w-48 h-48 object-cover rounded-xl border border-slate-200 shadow-sm" />
@@ -245,16 +335,8 @@ const AuditItemCard = ({ item, hotelId }: { item: any, hotelId: string }) => {
                             </div>
                         ) : (
                             <div>
-                                <input 
-                                    type="file" 
-                                    accept="image/*" 
-                                    capture="environment" 
-                                    className="hidden" 
-                                    ref={fileInputRef} 
-                                    onChange={handleFileChange} 
-                                />
                                 <button 
-                                    onClick={() => fileInputRef.current?.click()}
+                                    onClick={() => startCamera(facingMode)}
                                     className="flex items-center justify-center gap-2 w-full py-5 border-2 border-dashed border-indigo-200 bg-indigo-50/50 hover:bg-indigo-50 text-indigo-600 rounded-xl font-bold transition-colors active:scale-95"
                                 >
                                     <Camera size={22} />
