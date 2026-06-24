@@ -14,6 +14,7 @@ interface Hotel {
 }
 
 const FALLBACK_HOTELS: Hotel[] = [
+    { id: 'sbi-ho', name: 'Swiss-Belhotel International', location: 'Corporate Headquarters', code: 'SBI', brandClass: 'Corporate', region: 'Global', country: 'International', stars: 5 },
     { id: '1', name: 'Swiss-Belhotel Seef', location: 'Manama, Bahrain', code: 'SBSE', brandClass: 'Swiss-Belhotel', region: 'Middle East', country: 'Bahrain', stars: 4 },
     { id: '2', name: 'Swiss-Belresidences Juffair', location: 'Juffair, Bahrain', code: 'SBJU', brandClass: 'Swiss-Belresidences', region: 'Middle East', country: 'Bahrain', stars: 4 },
     { id: '3', name: 'Swiss-Belinn Airport Jakarta', location: 'Jakarta, Indonesia', code: 'SBAJ', brandClass: 'Swiss-Belinn', region: 'Asia Pacific', country: 'Indonesia', stars: 3 },
@@ -25,6 +26,7 @@ const FALLBACK_HOTELS: Hotel[] = [
 ];
 
 const ROLES = [
+    'Auditor',
     'General Manager',
     'GM Secretary',
     'Marcomm/PR',
@@ -103,6 +105,25 @@ export default function SignupScreen({ onComplete, onLogout }: SignupScreenProps
                                 stars: item.stars ? Number(item.stars) : 4
                             };
                         });
+
+                        // Ensure Swiss-Belhotel International is always at the very top
+                        const sbiIndex = mapped.findIndex(h => h.name.toLowerCase() === 'swiss-belhotel international');
+                        if (sbiIndex > -1) {
+                            const [sbi] = mapped.splice(sbiIndex, 1);
+                            mapped.unshift(sbi);
+                        } else {
+                            mapped.unshift({
+                                id: 'sbi-ho',
+                                name: 'Swiss-Belhotel International',
+                                location: 'Corporate Headquarters',
+                                code: 'SBI',
+                                brandClass: 'Corporate',
+                                region: 'Global',
+                                country: 'International',
+                                stars: 5
+                            });
+                        }
+
                         setHotels(mapped);
                     } else {
                         setHotels(FALLBACK_HOTELS);
@@ -183,6 +204,7 @@ export default function SignupScreen({ onComplete, onLogout }: SignupScreenProps
                 hotel_name: selectedHotel?.name || null,
                 hotel_code: selectedHotel?.code || null,
                 role: role,
+                access_level: role === 'Auditor' ? 'auditor' : 'auditee',
                 is_brand_audit_lead: isAuditLead,
                 updated_at: new Date().toISOString()
             };

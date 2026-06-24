@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, CheckCircle, Clock, Building, BarChart3, ChevronRight, Plus, Trash2, Edit, Search, X, AlertCircle, MapPin, Settings2, Calendar, Star, Briefcase, ClipboardList, FileCheck, Layers, Package, Camera, ImageIcon, FileText, Hash, Type, CheckSquare, Users, ShieldCheck, Percent, GripVertical, ChevronUp, ChevronDown, Eye, User } from 'lucide-react';
+import { ArrowLeft, CheckCircle, Clock, Building, BarChart3, ChevronRight, Plus, Trash2, Edit, Search, X, AlertCircle, MapPin, Settings2, Calendar, Star, Briefcase, ClipboardList, FileCheck, Layers, Package, Camera, ImageIcon, FileText, Hash, Type, CheckSquare, Users, ShieldCheck, Percent, GripVertical, ChevronUp, ChevronDown, Eye, User, RefreshCw } from 'lucide-react';
+import { supabase } from '../lib/supabase';
 
 interface Department {
     id: string;
@@ -44,6 +45,7 @@ interface AuditItem {
     points?: number;
     description?: string;
     sort_order?: number;
+    filled_by_hotel?: boolean;
 }
 
 interface AuditGroup {
@@ -105,6 +107,16 @@ const DEFAULT_DEPARTMENTS: Department[] = [
 ];
 
 const DEFAULT_HOTELS: Hotel[] = [
+    {
+        id: 'sbi-ho',
+        name: 'Swiss-Belhotel International',
+        location: 'Corporate Headquarters',
+        code: 'SBI',
+        brandClass: 'Corporate',
+        region: 'Global',
+        country: 'International',
+        stars: 5
+    },
     { 
         id: '1', 
         name: 'Swiss-Belhotel Seef', 
@@ -232,8 +244,8 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     const canAccessSubView = (view: string) => {
         if (userProfile?.access_level === 'admin') return true;
         if (userProfile?.access_level === 'auditor') {
-            // Auditor: 'Manage Master Data' (departments, categories, items, groups, batches), 'Audit Report' (dashboard), 'Recent Submissions' (dashboard)
-            return ['dashboard', 'departments', 'categories', 'items', 'groups', 'batches', 'hotels'].includes(view);
+            // Auditor: Show ONLY Audit Report & Inspection and Recent Submission sections on dashboard
+            return ['dashboard'].includes(view);
         }
         return false;
     };
@@ -359,6 +371,22 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
 
     const updateAccessLevel = async (userId: string, newAccessLevel: string) => {
         try {
+            // First, update the local state and localStorage so the user gets instant visual feedback and resilience
+            const updatedList = profilesList.map(p => {
+                if (p.id === userId) {
+                    const updatedUser = { 
+                        ...p, 
+                        access_level: newAccessLevel, 
+                        updated_at: new Date().toISOString() 
+                    };
+                    localStorage.setItem(`sbi_profile_${userId}`, JSON.stringify(updatedUser));
+                    return updatedUser;
+                }
+                return p;
+            });
+            setProfilesList(updatedList);
+            setToastMessage(`Updated access level to ${newAccessLevel} locally.`);
+
             const response = await fetch(`${MAIN_URL}audit_users?id=eq.${userId}`, {
                 method: 'PATCH',
                 headers: {
@@ -367,16 +395,21 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                     'Content-Type': 'application/json',
                     'Prefer': 'return=representation'
                 },
-                body: JSON.stringify({ access_level: newAccessLevel })
+                body: JSON.stringify({ 
+                    access_level: newAccessLevel,
+                    updated_at: new Date().toISOString()
+                })
             });
 
             if (response.ok) {
+                // Fetch the latest representation to sync
                 fetchProfilesFromSupabase();
+                setToastMessage(`Successfully saved access level to cloud database.`);
             } else {
-                console.error("Failed to update access level");
+                console.warn("Failed to sync access level update with Supabase, kept local copy.");
             }
         } catch (e) {
-            console.error("Error updating access level", e);
+            console.warn("Network error or table missing while updating access level, kept local copy.", e);
         }
     };
 
@@ -412,6 +445,149 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             });
         }
         setProfilesList(cachedProfiles);
+    };
+
+    const handleOpenCreateUser = () => {
+        setEditingUser(null);
+        setUserFormEmail('');
+        setUserFormFirstName('');
+        setUserFormLastName('');
+        setUserFormDisplayName('');
+        setUserFormRole('General Manager');
+        setUserFormAccessLevel('auditee');
+        setUserFormHotelId('');
+        setUserFormIsBrandAuditLead(false);
+        setUserFormError('');
+        setIsUserFormOpen(true);
+    };
+
+    const handleOpenEditUser = (user: any) => {
+        setEditingUser(user);
+        setUserFormEmail(user.email || '');
+        setUserFormFirstName(user.first_name || '');
+        setUserFormLastName(user.last_name || '');
+        setUserFormDisplayName(user.display_name || '');
+        setUserFormRole(user.role || 'General Manager');
+        setUserFormAccessLevel(user.access_level || 'auditee');
+        setUserFormHotelId(user.hotel_id || '');
+        setUserFormIsBrandAuditLead(user.is_brand_audit_lead || false);
+        setUserFormError('');
+        setIsUserFormOpen(true);
+    };
+
+    const handleSaveUser = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setUserFormError('');
+
+        if (!userFormEmail.trim()) {
+            setUserFormError('Email is a mandatory requirement.');
+            return;
+        }
+
+        const selectedHotel = hotels.find(h => h.id === userFormHotelId);
+        
+        const payload = {
+            id: editingUser ? editingUser.id : crypto.randomUUID(),
+            email: userFormEmail.trim(),
+            first_name: userFormFirstName.trim(),
+            last_name: userFormLastName.trim(),
+            display_name: userFormDisplayName.trim() || `${userFormFirstName.trim()} ${userFormLastName.trim()}`.trim() || userFormEmail.split('@')[0],
+            role: userFormRole,
+            access_level: userFormAccessLevel,
+            hotel_id: userFormHotelId || null,
+            hotel_name: selectedHotel ? selectedHotel.name : null,
+            hotel_code: selectedHotel ? (selectedHotel.code || null) : null,
+            is_brand_audit_lead: userFormIsBrandAuditLead,
+            updated_at: new Date().toISOString()
+        };
+
+        try {
+            setIsSupabaseLoading(true);
+            
+            // 1. Save locally to localStorage (as fallback or active state representation)
+            localStorage.setItem(`sbi_profile_${payload.id}`, JSON.stringify(payload));
+
+            // 2. Write to Supabase REST endpoint
+            if (editingUser) {
+                // UPDATE / PATCH
+                const res = await fetch(`${MAIN_URL}audit_users?id=eq.${payload.id}`, {
+                    method: 'PATCH',
+                    headers: {
+                        'apikey': MAIN_KEY,
+                        'Authorization': `Bearer ${MAIN_KEY}`,
+                        'Content-Type': 'application/json',
+                        'Prefer': 'return=representation'
+                    },
+                    body: JSON.stringify(payload)
+                });
+                if (!res.ok) {
+                    throw new Error(`Database profiles update returned status: ${res.status}`);
+                }
+                setToastMessage('User profile updated successfully!');
+            } else {
+                // CREATE / POST
+                const res = await fetch(`${MAIN_URL}audit_users`, {
+                    method: 'POST',
+                    headers: {
+                        'apikey': MAIN_KEY,
+                        'Authorization': `Bearer ${MAIN_KEY}`,
+                        'Content-Type': 'application/json',
+                        'Prefer': 'return=representation'
+                    },
+                    body: JSON.stringify({
+                        ...payload,
+                        created_at: new Date().toISOString()
+                    })
+                });
+                if (!res.ok) {
+                    throw new Error(`Database profiles creation returned status: ${res.status}`);
+                }
+                setToastMessage('New user created successfully!');
+            }
+
+            setIsUserFormOpen(false);
+            fetchProfilesFromSupabase();
+        } catch (err: any) {
+            console.warn("Database sync failed, saved user profile locally.", err);
+            setToastMessage('Saved user profile locally');
+            setIsUserFormOpen(false);
+            fetchProfilesFromSupabase();
+        } finally {
+            setIsSupabaseLoading(false);
+        }
+    };
+
+    const handleDeleteUser = async (userId: string) => {
+        try {
+            setIsSupabaseLoading(true);
+            
+            // 1. Delete locally from localStorage
+            localStorage.removeItem(`sbi_profile_${userId}`);
+
+            // 2. Delete from Supabase REST endpoint
+            const res = await fetch(`${MAIN_URL}audit_users?id=eq.${userId}`, {
+                method: 'DELETE',
+                headers: {
+                    'apikey': MAIN_KEY,
+                    'Authorization': `Bearer ${MAIN_KEY}`
+                }
+            });
+
+            if (!res.ok && res.status !== 404) {
+                throw new Error(`Database deletion returned status: ${res.status}`);
+            }
+
+            setToastMessage('User deleted successfully!');
+            setConfirmUserDeleteId(null);
+            fetchProfilesFromSupabase();
+        } catch (err: any) {
+            console.warn("Database delete failed, deleted locally.", err);
+            setToastMessage('Deleted user locally');
+            setConfirmUserDeleteId(null);
+            fetchProfilesFromSupabase();
+        } finally {
+            setIsSupabaseLoading(false);
+        }
     };
 
     // CRUD state for Audit Groups
@@ -695,7 +871,8 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 inputType: item.input_type as AuditItem['inputType'],
                 points: item.points !== undefined && item.points !== null ? Number(item.points) : (item.point !== undefined && item.point !== null ? Number(item.point) : 5),
                 description: item.description,
-                sort_order: item.sort_order !== undefined && item.sort_order !== null ? Number(item.sort_order) : undefined
+                sort_order: item.sort_order !== undefined && item.sort_order !== null ? Number(item.sort_order) : undefined,
+                filled_by_hotel: item.filled_by_hotel !== undefined && item.filled_by_hotel !== null ? Boolean(item.filled_by_hotel) : true
             }));
             
             // Build initial itemOrder from fetched sort_order values
@@ -861,6 +1038,24 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                     stars: Number(stars) || 4
                 };
             });
+
+            // Ensure Swiss-Belhotel International is always at the very top
+            const sbiIndex = mapped.findIndex(h => h.name.toLowerCase() === 'swiss-belhotel international');
+            if (sbiIndex > -1) {
+                const [sbi] = mapped.splice(sbiIndex, 1);
+                mapped.unshift(sbi);
+            } else {
+                mapped.unshift({
+                    id: 'sbi-ho',
+                    name: 'Swiss-Belhotel International',
+                    location: 'Corporate Headquarters',
+                    code: 'SBI',
+                    brandClass: 'Corporate',
+                    region: 'Global',
+                    country: 'International',
+                    stars: 5
+                });
+            }
             
             setHotels(mapped);
             setSupabaseConnected(true);
@@ -934,18 +1129,74 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         }
     };
 
+    const [isAdminSyncing, setIsAdminSyncing] = useState(false);
+
+    const syncAllAdminData = async (silent = false) => {
+        if (!silent) setIsAdminSyncing(true);
+        try {
+            await Promise.all([
+                fetchHotelsFromSupabase(),
+                fetchBatchesFromSupabase(),
+                fetchDepartmentsFromSupabase(),
+                fetchCategoriesFromSupabase(),
+                fetchItemsFromSupabase(),
+                fetchProfilesFromSupabase()
+            ]);
+            if (!silent) {
+                setToastMessage("All admin database collections synced successfully!");
+                setTimeout(() => setToastMessage(null), 3000);
+            }
+        } catch (err) {
+            console.error("Error syncing admin data:", err);
+        } finally {
+            if (!silent) setIsAdminSyncing(false);
+        }
+    };
+
     useEffect(() => {
         localStorage.setItem('sbi_audit_hotels_v2', JSON.stringify(hotels));
     }, [hotels]);
 
     // Perform database sync on subView transition and initialization
     useEffect(() => {
-        fetchHotelsFromSupabase();
-        fetchBatchesFromSupabase();
-        fetchDepartmentsFromSupabase();
-        fetchCategoriesFromSupabase();
-        fetchItemsFromSupabase();
-        fetchProfilesFromSupabase();
+        syncAllAdminData(true);
+
+        // Subscribe to real-time events to keep admin dashboard always up-to-date with database changes
+        const adminRealtimeChannel = supabase
+            .channel('admin-realtime-db-sync')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'audit_departments' }, () => {
+                console.log('Real-time database update detected for audit_departments.');
+                fetchDepartmentsFromSupabase();
+            })
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'audit_categories' }, () => {
+                console.log('Real-time database update detected for audit_categories.');
+                fetchCategoriesFromSupabase();
+            })
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'audit_items' }, () => {
+                console.log('Real-time database update detected for audit_items.');
+                fetchItemsFromSupabase();
+            })
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'audit_users' }, () => {
+                console.log('Real-time database update detected for audit_users.');
+                fetchProfilesFromSupabase();
+            })
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'audit_batches' }, () => {
+                console.log('Real-time database update detected for audit_batches.');
+                fetchBatchesFromSupabase();
+            })
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'audit_batch_hotels' }, () => {
+                console.log('Real-time database update detected for audit_batch_hotels.');
+                fetchBatchesFromSupabase();
+            })
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'hotels' }, () => {
+                console.log('Real-time database update detected for hotels.');
+                fetchHotelsFromSupabase();
+            })
+            .subscribe();
+
+        return () => {
+            supabase.removeChannel(adminRealtimeChannel);
+        };
     }, []);
 
     useEffect(() => {
@@ -1083,6 +1334,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     const [itemInstruction, setItemInstruction] = useState('');
     const [itemItemDescription, setItemItemDescription] = useState('');
     const [itemPoints, setItemPoints] = useState<number>(5);
+    const [itemFilledByHotel, setItemFilledByHotel] = useState<boolean>(true);
     const [itemError, setItemError] = useState('');
     const [confirmItemDeleteId, setConfirmItemDeleteId] = useState<string | null>(null);
 
@@ -1097,6 +1349,20 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     const [groupError, setGroupError] = useState('');
     const [dialogSearchQuery, setDialogSearchQuery] = useState('');
     const [expandedCategoryIds, setExpandedCategoryIds] = useState<string[]>([]);
+
+    // User Management CRUD states
+    const [isUserFormOpen, setIsUserFormOpen] = useState(false);
+    const [editingUser, setEditingUser] = useState<any | null>(null);
+    const [userFormEmail, setUserFormEmail] = useState('');
+    const [userFormFirstName, setUserFormFirstName] = useState('');
+    const [userFormLastName, setUserFormLastName] = useState('');
+    const [userFormDisplayName, setUserFormDisplayName] = useState('');
+    const [userFormRole, setUserFormRole] = useState('');
+    const [userFormAccessLevel, setUserFormAccessLevel] = useState<'admin' | 'auditor' | 'auditee'>('auditee');
+    const [userFormHotelId, setUserFormHotelId] = useState('');
+    const [userFormIsBrandAuditLead, setUserFormIsBrandAuditLead] = useState(false);
+    const [userFormError, setUserFormError] = useState('');
+    const [confirmUserDeleteId, setConfirmUserDeleteId] = useState<string | null>(null);
 
     // Category Drag-and-drop state parameters
     const [draggedCatId, setDraggedCatId] = useState<string | null>(null);
@@ -1433,6 +1699,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         setItemCategoryId('');
         setItemInputType('text');
         setItemPoints(5);
+        setItemFilledByHotel(true);
         setItemInstruction('');
         setItemItemDescription('');
         setItemError('');
@@ -1446,6 +1713,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         setItemCategoryId(item.categoryId);
         setItemInputType(item.inputType);
         setItemPoints(item.points ?? 5);
+        setItemFilledByHotel(item.filled_by_hotel ?? true);
         setItemInstruction(item.description || '');
         setItemItemDescription(item.itemDescription || '');
         setItemError('');
@@ -1467,6 +1735,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 category_id: itemCategoryId,
                 input_type: itemInputType,
                 points: itemPoints,
+                filled_by_hotel: itemFilledByHotel,
                 description: itemInstruction.trim() || null,
                 item_description: itemItemDescription.trim() || null
             };
@@ -1483,7 +1752,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 });
                 if (!response.ok) throw new Error('Failed to update item');
                 
-                setItems(prev => prev.map(i => i.id === editingItem.id ? { ...i, ...itemData, departmentId: itemDepartmentId, categoryId: itemCategoryId, inputType: itemInputType, points: itemPoints } : i));
+                setItems(prev => prev.map(i => i.id === editingItem.id ? { ...i, ...itemData, departmentId: itemDepartmentId, categoryId: itemCategoryId, inputType: itemInputType, points: itemPoints, filled_by_hotel: itemFilledByHotel } : i));
                 setToastMessage('Item updated successfully in Database!');
             } else {
                 const response = await fetch(`${MAIN_URL}audit_items`, {
@@ -1499,7 +1768,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 if (!response.ok) throw new Error('Failed to create item');
                 const data = await response.json();
                 
-                setItems(prev => [...prev, { id: String(data[0].id), ...itemData, departmentId: itemDepartmentId, categoryId: itemCategoryId, inputType: itemInputType, points: itemPoints }]);
+                setItems(prev => [...prev, { id: String(data[0].id), ...itemData, departmentId: itemDepartmentId, categoryId: itemCategoryId, inputType: itemInputType, points: itemPoints, filled_by_hotel: itemFilledByHotel }]);
                 setToastMessage('New item added to Database!');
             }
 
@@ -2202,14 +2471,29 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                         {subView === 'departments' ? 'Audit Departments' : subView === 'hotels' ? 'Master Hotel List' : subView === 'batches' ? 'Audit Batch' : subView === 'categories' ? 'Audit Category' : subView === 'items' ? 'Audit Items' : subView === 'groups' ? 'Audit Groups' : subView === 'users' ? 'User Management' : 'Admin Dashboard'}
                     </h1>
                 </div>
-                {subView === 'dashboard' && (
-                    <button 
-                        onClick={onLogout} 
-                        className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-full font-bold active:scale-95 transition-all outline-none"
+                <div className="flex items-center gap-3">
+                    <button
+                        onClick={() => syncAllAdminData(false)}
+                        disabled={isAdminSyncing}
+                        className={`text-xs px-4 py-2 rounded-full font-bold active:scale-95 transition-all outline-none flex items-center gap-2 border ${
+                            isAdminSyncing
+                                ? 'bg-indigo-50 text-indigo-500 border-indigo-150/50 cursor-not-allowed'
+                                : 'bg-white hover:bg-indigo-50/50 text-indigo-600 border-indigo-150/50 hover:border-indigo-200'
+                        }`}
+                        title="Sync all admin collections with remote Supabase database"
                     >
-                        Exit Admin
+                        <RefreshCw size={12} className={isAdminSyncing ? 'animate-spin' : ''} />
+                        {isAdminSyncing ? 'Syncing...' : 'Sync DB'}
                     </button>
-                )}
+                    {subView === 'dashboard' && (
+                        <button 
+                            onClick={onLogout} 
+                            className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-full font-bold active:scale-95 transition-all outline-none"
+                        >
+                            Exit Admin
+                        </button>
+                    )}
+                </div>
             </header>
 
             {/* Main Content */}
@@ -2225,209 +2509,215 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 {subView === 'dashboard' ? (
                     <>
                         {/* Stats Row */}
-                        <section className="grid grid-cols-1 md:grid-cols-3 gap-5">
-                            {stats.map((stat, i) => {
-                                const Icon = stat.icon;
-                                const isProperties = stat.title === 'Active Properties';
-                                const displayValue = isProperties ? hotels.length : stat.value;
-                                return (
-                                    <div key={i} className="bg-white p-6 rounded-[24px] border border-slate-150/80 shadow-[0_4px_24px_rgba(15,23,42,0.015)] flex items-center justify-between hover:shadow-[0_8px_32px_rgba(15,23,42,0.03)] hover:scale-[1.01] transition-all duration-300">
-                                        <div>
-                                            <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">{stat.title}</p>
-                                            <p className="text-3xl font-extrabold text-slate-900 mt-1 font-sans tracking-tight">
-                                                {displayValue}
-                                            </p>
+                        {userProfile?.access_level !== 'auditor' && (
+                            <section className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                                {stats.map((stat, i) => {
+                                    const Icon = stat.icon;
+                                    const isProperties = stat.title === 'Active Properties';
+                                    const displayValue = isProperties ? hotels.length : stat.value;
+                                    return (
+                                        <div key={i} className="bg-white p-6 rounded-[24px] border border-slate-150/80 shadow-[0_4px_24px_rgba(15,23,42,0.015)] flex items-center justify-between hover:shadow-[0_8px_32px_rgba(15,23,42,0.03)] hover:scale-[1.01] transition-all duration-300">
+                                            <div>
+                                                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">{stat.title}</p>
+                                                <p className="text-3xl font-extrabold text-slate-900 mt-1 font-sans tracking-tight">
+                                                    {displayValue}
+                                                </p>
+                                            </div>
+                                            <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 ${
+                                                stat.color.includes('indigo') ? 'bg-indigo-50/80 text-indigo-600' :
+                                                stat.color.includes('amber') ? 'bg-amber-50/80 text-amber-600' :
+                                                'bg-emerald-50/80 text-emerald-600'
+                                            }`}>
+                                                <Icon size={24} />
+                                            </div>
                                         </div>
-                                        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 ${
-                                            stat.color.includes('indigo') ? 'bg-indigo-50/80 text-indigo-600' :
-                                            stat.color.includes('amber') ? 'bg-amber-50/80 text-amber-600' :
-                                            'bg-emerald-50/80 text-emerald-600'
-                                        }`}>
-                                            <Icon size={24} />
-                                        </div>
-                                    </div>
-                                );
-                            })}
-                        </section>
+                                    );
+                                })}
+                            </section>
+                        )}
 
                         {/* Config Area */}
-                        <section className="bg-white p-6 sm:p-8 rounded-[28px] border border-slate-150/80 shadow-[0_12px_40px_rgba(15,23,42,0.02)]">
-                            <h2 className="text-lg font-bold text-slate-900 mb-6 flex items-center justify-between gap-3 flex-wrap">
-                                <div className="flex items-center gap-2.5">
-                                    <Settings2 size={20} className="text-indigo-600" />
-                                    <span className="tracking-tight">Manage Master Data</span>
-                                </div>
-                                <div className="flex items-center gap-2 bg-slate-50 border border-slate-100 px-3 py-1.5 rounded-full text-xs shrink-0 max-w-full">
-                                    <span className={`block h-2.5 w-2.5 rounded-full ${
-                                        supabaseConnected === true ? 'bg-emerald-500 animate-pulse' :
-                                        supabaseConnected === false ? 'bg-red-500' :
-                                        'bg-amber-400'
-                                    }`}></span>
-                                    <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Main DB:</span>
-                                    <span className="text-xs font-semibold text-slate-600 font-mono select-all truncate max-w-[180px] sm:max-w-xs" title={MAIN_URL}>
-                                        {MAIN_URL.replace('https://', '').split('/')[0] || 'diqyjjuipouujvhfsmli.supabase.co'}
-                                    </span>
-                                </div>
-                            </h2>
-                            <div className="space-y-6">
-                                <div>
-                                    <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4">Audit Config</h3>
-                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 animate-fadeIn">
-                                        
-                                        {/* Master Hotel List Action Grid */}
-                                        <div 
-                                            onClick={() => { handleSetSubView('hotels'); setSearchQuery(''); }}
-                                            className="flex items-center justify-between p-5 bg-slate-50/60 hover:bg-slate-100/80 rounded-[20px] border border-slate-100 cursor-pointer hover:border-indigo-200 active:scale-[0.99] transition-all duration-200 group"
-                                        >
-                                            <div className="flex items-center gap-4">
-                                                <div className="w-11 h-11 rounded-2xl bg-indigo-50 text-indigo-700 flex items-center justify-center shrink-0 transition-transform duration-300 group-hover:scale-105">
-                                                    <Building size={22} />
+                        {userProfile?.access_level !== 'auditor' && (
+                            <section className="bg-white p-6 sm:p-8 rounded-[28px] border border-slate-150/80 shadow-[0_12px_40px_rgba(15,23,42,0.02)]">
+                                <h2 className="text-lg font-bold text-slate-900 mb-6 flex items-center justify-between gap-3 flex-wrap">
+                                    <div className="flex items-center gap-2.5">
+                                        <Settings2 size={20} className="text-indigo-600" />
+                                        <span className="tracking-tight">Manage Master Data</span>
+                                    </div>
+                                    <div className="flex items-center gap-2 bg-slate-50 border border-slate-100 px-3 py-1.5 rounded-full text-xs shrink-0 max-w-full">
+                                        <span className={`block h-2.5 w-2.5 rounded-full ${
+                                            supabaseConnected === true ? 'bg-emerald-500 animate-pulse' :
+                                            supabaseConnected === false ? 'bg-red-500' :
+                                            'bg-amber-400'
+                                        }`}></span>
+                                        <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Main DB:</span>
+                                        <span className="text-xs font-semibold text-slate-600 font-mono select-all truncate max-w-[180px] sm:max-w-xs" title={MAIN_URL}>
+                                            {MAIN_URL.replace('https://', '').split('/')[0] || 'diqyjjuipouujvhfsmli.supabase.co'}
+                                        </span>
+                                    </div>
+                                </h2>
+                                <div className="space-y-6">
+                                    <div>
+                                        <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4">Audit Config</h3>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 animate-fadeIn">
+                                            
+                                            {/* Master Hotel List Action Grid */}
+                                            <div 
+                                                onClick={() => { handleSetSubView('hotels'); setSearchQuery(''); }}
+                                                className="flex items-center justify-between p-5 bg-slate-50/60 hover:bg-slate-100/80 rounded-[20px] border border-slate-100 cursor-pointer hover:border-indigo-200 active:scale-[0.99] transition-all duration-200 group"
+                                            >
+                                                <div className="flex items-center gap-4">
+                                                    <div className="w-11 h-11 rounded-2xl bg-indigo-50 text-indigo-700 flex items-center justify-center shrink-0 transition-transform duration-300 group-hover:scale-105">
+                                                        <Building size={22} />
+                                                    </div>
+                                                    <div>
+                                                        <p className="text-sm font-bold text-slate-800 tracking-tight">Audit Hotels</p>
+                                                        <p className="text-xs text-slate-400 mt-0.5">{hotels.length} registered properties</p>
+                                                    </div>
                                                 </div>
-                                                <div>
-                                                    <p className="text-sm font-bold text-slate-800 tracking-tight">Audit Hotels</p>
-                                                    <p className="text-xs text-slate-400 mt-0.5">{hotels.length} registered properties</p>
-                                                </div>
+                                                <ChevronRight className="text-slate-300 group-hover:text-indigo-600 group-hover:translate-x-1 transition-all" size={18} />
                                             </div>
-                                            <ChevronRight className="text-slate-300 group-hover:text-indigo-600 group-hover:translate-x-1 transition-all" size={18} />
-                                        </div>
 
-                                        {/* Departments Action Grid */}
-                                        <div 
-                                            onClick={() => { handleSetSubView('departments'); setSearchQuery(''); }}
-                                            className="flex items-center justify-between p-5 bg-slate-50/60 hover:bg-slate-100/80 rounded-[20px] border border-slate-100 cursor-pointer hover:border-indigo-200 active:scale-[0.99] transition-all duration-200 group"
-                                        >
-                                            <div className="flex items-center gap-4">
-                                                <div className="w-11 h-11 rounded-2xl bg-indigo-50 text-indigo-700 flex items-center justify-center shrink-0 transition-transform duration-300 group-hover:scale-105">
-                                                    <Briefcase size={22} />
+                                            {/* Departments Action Grid */}
+                                            <div 
+                                                onClick={() => { handleSetSubView('departments'); setSearchQuery(''); }}
+                                                className="flex items-center justify-between p-5 bg-slate-50/60 hover:bg-slate-100/80 rounded-[20px] border border-slate-100 cursor-pointer hover:border-indigo-200 active:scale-[0.99] transition-all duration-200 group"
+                                            >
+                                                <div className="flex items-center gap-4">
+                                                    <div className="w-11 h-11 rounded-2xl bg-indigo-50 text-indigo-700 flex items-center justify-center shrink-0 transition-transform duration-300 group-hover:scale-105">
+                                                        <Briefcase size={22} />
+                                                    </div>
+                                                    <div>
+                                                        <p className="text-sm font-bold text-slate-800 tracking-tight">Audit Department</p>
+                                                        <p className="text-xs text-slate-400 mt-0.5">{departments.length} registered departments</p>
+                                                    </div>
                                                 </div>
-                                                <div>
-                                                    <p className="text-sm font-bold text-slate-800 tracking-tight">Audit Department</p>
-                                                    <p className="text-xs text-slate-400 mt-0.5">{departments.length} registered departments</p>
-                                                </div>
+                                                <ChevronRight className="text-slate-300 group-hover:text-indigo-600 group-hover:translate-x-1 transition-all" size={18} />
                                             </div>
-                                            <ChevronRight className="text-slate-300 group-hover:text-indigo-600 group-hover:translate-x-1 transition-all" size={18} />
-                                        </div>
 
-                                        {/* Categories Action Grid */}
-                                        <div 
-                                            onClick={() => { handleSetSubView('categories'); setSearchQuery(''); }}
-                                            className="flex items-center justify-between p-5 bg-slate-50/60 hover:bg-slate-100/80 rounded-[20px] border border-slate-100 cursor-pointer hover:border-indigo-200 active:scale-[0.99] transition-all duration-200 group"
-                                        >
-                                            <div className="flex items-center gap-4">
-                                                <div className="w-11 h-11 rounded-2xl bg-indigo-50 text-indigo-700 flex items-center justify-center shrink-0 transition-transform duration-300 group-hover:scale-105">
-                                                    <ClipboardList size={22} />
+                                            {/* Categories Action Grid */}
+                                            <div 
+                                                onClick={() => { handleSetSubView('categories'); setSearchQuery(''); }}
+                                                className="flex items-center justify-between p-5 bg-slate-50/60 hover:bg-slate-100/80 rounded-[20px] border border-slate-100 cursor-pointer hover:border-indigo-200 active:scale-[0.99] transition-all duration-200 group"
+                                            >
+                                                <div className="flex items-center gap-4">
+                                                    <div className="w-11 h-11 rounded-2xl bg-indigo-50 text-indigo-700 flex items-center justify-center shrink-0 transition-transform duration-300 group-hover:scale-105">
+                                                        <ClipboardList size={22} />
+                                                    </div>
+                                                    <div>
+                                                        <p className="text-sm font-bold text-slate-800 tracking-tight">Audit Category</p>
+                                                        <p className="text-xs text-slate-400 mt-0.5">{catList.length} checklist categories</p>
+                                                    </div>
                                                 </div>
-                                                <div>
-                                                    <p className="text-sm font-bold text-slate-800 tracking-tight">Audit Category</p>
-                                                    <p className="text-xs text-slate-400 mt-0.5">{catList.length} checklist categories</p>
-                                                </div>
+                                                <ChevronRight className="text-slate-300 group-hover:text-indigo-600 group-hover:translate-x-1 transition-all" size={18} />
                                             </div>
-                                            <ChevronRight className="text-slate-300 group-hover:text-indigo-600 group-hover:translate-x-1 transition-all" size={18} />
-                                        </div>
 
-                                        {/* Audit Item Action Grid */}
-                                        <div 
-                                            onClick={() => handleSetSubView('items')}
-                                            className="flex items-center justify-between p-5 bg-slate-50/60 hover:bg-slate-100/80 rounded-[20px] border border-slate-100 cursor-pointer hover:border-indigo-200 active:scale-[0.99] transition-all duration-200 group"
-                                        >
-                                            <div className="flex items-center gap-4">
-                                                <div className="w-11 h-11 rounded-2xl bg-indigo-50 text-indigo-700 flex items-center justify-center shrink-0 transition-transform duration-300 group-hover:scale-105">
-                                                    <FileCheck size={22} />
+                                            {/* Audit Item Action Grid */}
+                                            <div 
+                                                onClick={() => handleSetSubView('items')}
+                                                className="flex items-center justify-between p-5 bg-slate-50/60 hover:bg-slate-100/80 rounded-[20px] border border-slate-100 cursor-pointer hover:border-indigo-200 active:scale-[0.99] transition-all duration-200 group"
+                                            >
+                                                <div className="flex items-center gap-4">
+                                                    <div className="w-11 h-11 rounded-2xl bg-indigo-50 text-indigo-700 flex items-center justify-center shrink-0 transition-transform duration-300 group-hover:scale-105">
+                                                        <FileCheck size={22} />
+                                                    </div>
+                                                    <div>
+                                                        <p className="text-sm font-bold text-slate-800 tracking-tight">Audit Items</p>
+                                                        <p className="text-xs text-slate-400 mt-0.5">Manage audit criteria items</p>
+                                                    </div>
                                                 </div>
-                                                <div>
-                                                    <p className="text-sm font-bold text-slate-800 tracking-tight">Audit Items</p>
-                                                    <p className="text-xs text-slate-400 mt-0.5">Manage audit criteria items</p>
-                                                </div>
+                                                <ChevronRight className="text-slate-300 group-hover:text-indigo-600 group-hover:translate-x-1 transition-all" size={18} />
                                             </div>
-                                            <ChevronRight className="text-slate-300 group-hover:text-indigo-600 group-hover:translate-x-1 transition-all" size={18} />
-                                        </div>
 
-                                        {/* Audit Group Action Grid */}
-                                        <div 
-                                            onClick={() => { handleSetSubView('groups'); setSearchQuery(''); }}
-                                            className="flex items-center justify-between p-5 bg-slate-50/60 hover:bg-slate-100/80 rounded-[20px] border border-slate-100 cursor-pointer hover:border-indigo-200 active:scale-[0.99] transition-all duration-200 group"
-                                        >
-                                            <div className="flex items-center gap-4">
-                                                <div className="w-11 h-11 rounded-2xl bg-indigo-50 text-indigo-700 flex items-center justify-center shrink-0 transition-transform duration-300 group-hover:scale-105">
-                                                    <Layers size={22} />
+                                            {/* Audit Group Action Grid */}
+                                            <div 
+                                                onClick={() => { handleSetSubView('groups'); setSearchQuery(''); }}
+                                                className="flex items-center justify-between p-5 bg-slate-50/60 hover:bg-slate-100/80 rounded-[20px] border border-slate-100 cursor-pointer hover:border-indigo-200 active:scale-[0.99] transition-all duration-200 group"
+                                            >
+                                                <div className="flex items-center gap-4">
+                                                    <div className="w-11 h-11 rounded-2xl bg-indigo-50 text-indigo-700 flex items-center justify-center shrink-0 transition-transform duration-300 group-hover:scale-105">
+                                                        <Layers size={22} />
+                                                    </div>
+                                                    <div>
+                                                        <p className="text-sm font-bold text-slate-800 tracking-tight">Audit Group</p>
+                                                        <p className="text-xs text-slate-400 mt-0.5">{groups.length} configured groups</p>
+                                                    </div>
                                                 </div>
-                                                <div>
-                                                    <p className="text-sm font-bold text-slate-800 tracking-tight">Audit Group</p>
-                                                    <p className="text-xs text-slate-400 mt-0.5">{groups.length} configured groups</p>
-                                                </div>
+                                                <ChevronRight className="text-slate-300 group-hover:text-indigo-600 group-hover:translate-x-1 transition-all" size={18} />
                                             </div>
-                                            <ChevronRight className="text-slate-300 group-hover:text-indigo-600 group-hover:translate-x-1 transition-all" size={18} />
-                                        </div>
 
-                                        {/* Audit Batch Action Grid */}
-                                        <div 
-                                            onClick={() => { handleSetSubView('batches'); setSearchQuery(''); }}
-                                            className="flex items-center justify-between p-5 bg-slate-50/60 hover:bg-slate-100/80 rounded-[20px] border border-slate-100 cursor-pointer hover:border-indigo-200 active:scale-[0.99] transition-all duration-200 group"
-                                        >
-                                            <div className="flex items-center gap-4">
-                                                <div className="w-11 h-11 rounded-2xl bg-indigo-50 text-indigo-700 flex items-center justify-center shrink-0 transition-transform duration-300 group-hover:scale-105">
-                                                    <Package size={22} />
+                                            {/* Audit Batch Action Grid */}
+                                            <div 
+                                                onClick={() => { handleSetSubView('batches'); setSearchQuery(''); }}
+                                                className="flex items-center justify-between p-5 bg-slate-50/60 hover:bg-slate-100/80 rounded-[20px] border border-slate-100 cursor-pointer hover:border-indigo-200 active:scale-[0.99] transition-all duration-200 group"
+                                            >
+                                                <div className="flex items-center gap-4">
+                                                    <div className="w-11 h-11 rounded-2xl bg-indigo-50 text-indigo-700 flex items-center justify-center shrink-0 transition-transform duration-300 group-hover:scale-105">
+                                                        <Package size={22} />
+                                                    </div>
+                                                    <div>
+                                                        <p className="text-sm font-bold text-slate-800 tracking-tight">Audit Batch</p>
+                                                        <p className="text-xs text-slate-400 mt-0.5">{batches.length} registered batches</p>
+                                                    </div>
                                                 </div>
-                                                <div>
-                                                    <p className="text-sm font-bold text-slate-800 tracking-tight">Audit Batch</p>
-                                                    <p className="text-xs text-slate-400 mt-0.5">{batches.length} registered batches</p>
-                                                </div>
+                                                <ChevronRight className="text-slate-300 group-hover:text-indigo-600 group-hover:translate-x-1 transition-all" size={18} />
                                             </div>
-                                            <ChevronRight className="text-slate-300 group-hover:text-indigo-600 group-hover:translate-x-1 transition-all" size={18} />
-                                        </div>
 
+                                        </div>
                                     </div>
                                 </div>
-                            </div>
-                        </section>
+                            </section>
+                        )}
 
                         {/* User & Access Setup Area */}
-                        <section className="bg-white p-6 sm:p-8 rounded-[28px] border border-slate-150/80 shadow-[0_12px_40px_rgba(15,23,42,0.02)] mt-6">
-                            <h2 className="text-lg font-bold text-slate-900 mb-6 flex items-center gap-2.5">
-                                <Users size={20} className="text-indigo-600" />
-                                <span className="tracking-tight">User & Access Setup</span>
-                            </h2>
-                            <div className="space-y-6">
-                                <div>
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-fadeIn">
-                                        
-                                        {/* User Management */}
-                                        <div 
-                                            onClick={() => { handleSetSubView('users'); setSearchQuery(''); fetchProfilesFromSupabase(); }}
-                                            className="flex items-center justify-between p-5 bg-slate-50/60 hover:bg-slate-100/80 rounded-[20px] border border-slate-100 cursor-pointer hover:border-indigo-200 active:scale-[0.99] transition-all duration-200 group"
-                                        >
-                                            <div className="flex items-center gap-4">
-                                                <div className="w-11 h-11 rounded-2xl bg-indigo-50 text-indigo-700 flex items-center justify-center shrink-0 transition-transform duration-300 group-hover:scale-105">
-                                                    <Users size={22} />
+                        {userProfile?.access_level !== 'auditor' && (
+                            <section className="bg-white p-6 sm:p-8 rounded-[28px] border border-slate-150/80 shadow-[0_12px_40px_rgba(15,23,42,0.02)] mt-6">
+                                <h2 className="text-lg font-bold text-slate-900 mb-6 flex items-center gap-2.5">
+                                    <Users size={20} className="text-indigo-600" />
+                                    <span className="tracking-tight">User & Access Setup</span>
+                                </h2>
+                                <div className="space-y-6">
+                                    <div>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-fadeIn">
+                                            
+                                            {/* User Management */}
+                                            <div 
+                                                onClick={() => { handleSetSubView('users'); setSearchQuery(''); fetchProfilesFromSupabase(); }}
+                                                className="flex items-center justify-between p-5 bg-slate-50/60 hover:bg-slate-100/80 rounded-[20px] border border-slate-100 cursor-pointer hover:border-indigo-200 active:scale-[0.99] transition-all duration-200 group"
+                                            >
+                                                <div className="flex items-center gap-4">
+                                                    <div className="w-11 h-11 rounded-2xl bg-indigo-50 text-indigo-700 flex items-center justify-center shrink-0 transition-transform duration-300 group-hover:scale-105">
+                                                        <Users size={22} />
+                                                    </div>
+                                                    <div>
+                                                        <p className="text-sm font-bold text-slate-800 tracking-tight">User Management</p>
+                                                        <p className="text-xs text-slate-400 mt-0.5">Manage system users</p>
+                                                    </div>
                                                 </div>
-                                                <div>
-                                                    <p className="text-sm font-bold text-slate-800 tracking-tight">User Management</p>
-                                                    <p className="text-xs text-slate-400 mt-0.5">Manage system users</p>
-                                                </div>
+                                                <ChevronRight className="text-slate-300 group-hover:text-indigo-600 group-hover:translate-x-1 transition-all" size={18} />
                                             </div>
-                                            <ChevronRight className="text-slate-300 group-hover:text-indigo-600 group-hover:translate-x-1 transition-all" size={18} />
-                                        </div>
 
-                                        {/* Access Right Management */}
-                                        <div 
-                                            onClick={() => handleSetSubView('access')}
-                                            className="flex items-center justify-between p-5 bg-slate-50/60 hover:bg-slate-100/80 rounded-[20px] border border-slate-100 cursor-pointer hover:border-indigo-200 active:scale-[0.99] transition-all duration-200 group"
-                                        >
-                                            <div className="flex items-center gap-4">
-                                                <div className="w-11 h-11 rounded-2xl bg-indigo-50 text-indigo-700 flex items-center justify-center shrink-0 transition-transform duration-300 group-hover:scale-105">
-                                                    <ShieldCheck size={22} />
+                                            {/* Access Right Management */}
+                                            <div 
+                                                onClick={() => handleSetSubView('access')}
+                                                className="flex items-center justify-between p-5 bg-slate-50/60 hover:bg-slate-100/80 rounded-[20px] border border-slate-100 cursor-pointer hover:border-indigo-200 active:scale-[0.99] transition-all duration-200 group"
+                                            >
+                                                <div className="flex items-center gap-4">
+                                                    <div className="w-11 h-11 rounded-2xl bg-indigo-50 text-indigo-700 flex items-center justify-center shrink-0 transition-transform duration-300 group-hover:scale-105">
+                                                        <ShieldCheck size={22} />
+                                                    </div>
+                                                    <div>
+                                                        <p className="text-sm font-bold text-slate-800 tracking-tight">Access Right Management</p>
+                                                        <p className="text-xs text-slate-400 mt-0.5">Define role-based access</p>
+                                                    </div>
                                                 </div>
-                                                <div>
-                                                    <p className="text-sm font-bold text-slate-800 tracking-tight">Access Right Management</p>
-                                                    <p className="text-xs text-slate-400 mt-0.5">Define role-based access</p>
-                                                </div>
+                                                <ChevronRight className="text-slate-300 group-hover:text-indigo-600 group-hover:translate-x-1 transition-all" size={18} />
                                             </div>
-                                            <ChevronRight className="text-slate-300 group-hover:text-indigo-600 group-hover:translate-x-1 transition-all" size={18} />
                                         </div>
                                     </div>
                                 </div>
-                            </div>
-                        </section>
+                            </section>
+                        )}
 
                         {/* Audit Report & Inspection Area */}
                         <section className="bg-white p-6 sm:p-8 rounded-[28px] border border-slate-150/80 shadow-[0_12px_40px_rgba(15,23,42,0.02)] mt-6">
@@ -2499,158 +2789,221 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                         </section>
                     </>
                 ) : subView === 'users' ? (
-                    <div className="space-y-6">
-                        {/* Users Layout Header */}
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                            <div>
-                                <button 
-                                    onClick={() => { setSubView('dashboard'); setSearchQuery(''); }} 
-                                    className="inline-flex items-center gap-1.5 text-xs font-bold text-indigo-600 bg-indigo-50/50 hover:bg-slate-100 px-3.5 py-1.5 rounded-full border border-indigo-100/50 mb-3 hover:shadow-sm active:scale-95 transition-all outline-none"
-                                >
-                                    <ArrowLeft size={12} /> Back to Dashboard
-                                </button>
-                                <h2 className="text-2xl font-extrabold text-slate-900 tracking-tight">Onboarded User Registry</h2>
-                                <p className="text-xs text-slate-500 mt-1">Manage system logins, registration roles, property bindings, and brand audit privileges.</p>
-                            </div>
+                    userProfile?.access_level !== 'admin' ? (
+                        <div className="bg-red-50/50 border border-red-100 p-8 rounded-[28px] text-center max-w-lg mx-auto my-12 animate-fadeIn shadow-sm">
+                            <ShieldCheck className="text-red-500 mx-auto mb-4" size={48} />
+                            <h3 className="text-lg font-bold text-slate-800">Access Restricted</h3>
+                            <p className="text-xs text-slate-500 mt-2 leading-relaxed">
+                                Only designated Administrators are authorized to access the User Management portal. Please contact a system administrator if you require authorization.
+                            </p>
                             <button 
-                                onClick={fetchProfilesFromSupabase}
-                                className="bg-indigo-600 hover:bg-indigo-700 text-white transition-all px-4 py-2.5 rounded-full font-bold text-sm flex items-center gap-2 justify-center shadow-lg hover:shadow-indigo-500/10 active:scale-95 outline-none"
+                                onClick={() => { setSubView('dashboard'); setSearchQuery(''); }}
+                                className="mt-6 inline-flex items-center gap-1.5 text-xs font-bold text-indigo-600 bg-white hover:bg-slate-50 px-4 py-2 rounded-full border border-indigo-100 shadow-sm transition-all"
                             >
-                                <Clock size={16} className={isSupabaseLoading ? 'animate-spin' : ''} />
-                                <span>Sync Profiles</span>
+                                <ArrowLeft size={12} /> Return to Dashboard
                             </button>
                         </div>
-
-                        {/* Database Setup Notice if table missing */}
-                        {isProfilesTableMissing && (
-                            <div className="bg-amber-50 border border-amber-200 p-5 rounded-[20px] animate-fadeIn space-y-3">
-                                <div className="flex items-start gap-3">
-                                    <AlertCircle className="text-amber-600 shrink-0 mt-0.5" size={20} />
-                                    <div>
-                                        <h4 className="text-sm font-bold text-slate-805">Supabase Table Sync Pending</h4>
-                                        <p className="text-xs text-slate-650 leading-relaxed mt-1">
-                                            The <code className="bg-amber-100 px-1 py-0.5 rounded font-mono font-bold text-amber-800">public.audit_users</code> table doesn't exist yet on your Supabase instance, or permissions require database provisioning. 
-                                        </p>
-                                        <p className="text-xs text-slate-650 leading-relaxed mt-2 font-medium">
-                                            👉 We have automatically saved your onboarding information locally in your browser. To finalize cloud storage sync, please copy the script inside the <strong className="text-slate-800">/supabase-onboarding.sql</strong> file and execute it within your Supabase SQL Editor.
-                                        </p>
-                                    </div>
+                    ) : (
+                        <div className="space-y-6 animate-fadeIn">
+                            {/* Users Layout Header */}
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                                <div>
+                                    <button 
+                                        onClick={() => { setSubView('dashboard'); setSearchQuery(''); }} 
+                                        className="inline-flex items-center gap-1.5 text-xs font-bold text-indigo-600 bg-indigo-50/50 hover:bg-slate-100 px-3.5 py-1.5 rounded-full border border-indigo-100/50 mb-3 hover:shadow-sm active:scale-95 transition-all outline-none"
+                                    >
+                                        <ArrowLeft size={12} /> Back to Dashboard
+                                    </button>
+                                    <h2 className="text-2xl font-extrabold text-slate-900 tracking-tight">Onboarded User Registry</h2>
+                                    <p className="text-xs text-slate-500 mt-1">Manage system logins, registration roles, property bindings, and brand audit privileges.</p>
+                                </div>
+                                <div className="flex flex-wrap items-center gap-3">
+                                    <button 
+                                        onClick={handleOpenCreateUser}
+                                        className="bg-indigo-600 hover:bg-indigo-700 text-white transition-all px-4 py-2.5 rounded-full font-bold text-sm flex items-center gap-2 justify-center shadow-lg hover:shadow-indigo-500/10 active:scale-95 outline-none"
+                                    >
+                                        <Plus size={16} />
+                                        <span>Add New User</span>
+                                    </button>
+                                    <button 
+                                        onClick={fetchProfilesFromSupabase}
+                                        className="bg-white hover:bg-slate-50 text-slate-750 border border-slate-200 transition-all px-4 py-2.5 rounded-full font-bold text-sm flex items-center gap-2 justify-center shadow-sm active:scale-95 outline-none"
+                                    >
+                                        <Clock size={16} className={isSupabaseLoading ? 'animate-spin' : ''} />
+                                        <span>Sync Profiles</span>
+                                    </button>
                                 </div>
                             </div>
-                        )}
 
-                        {/* Search bar */}
-                        <div className="bg-white p-4 rounded-2xl border border-slate-150/80 shadow-[0_4px_24px_rgba(15,23,42,0.015)] flex items-center gap-3 hover:border-slate-300 focus-within:border-indigo-400 focus-within:shadow-[0_8px_30px_rgba(99,102,241,0.03)] transition-all">
-                            <Search className="text-slate-400 shrink-0" size={18} />
-                            <input 
-                                type="text" 
-                                placeholder="Search users by email, name, role, or hotel..." 
-                                className="w-full text-sm text-slate-705 bg-transparent outline-none border-none placeholder-slate-400 focus:ring-0"
-                                value={searchQuery}
-                                onChange={(e) => setSearchQuery(e.target.value)}
-                            />
-                            {searchQuery && (
-                                <button 
-                                    onClick={() => setSearchQuery('')} 
-                                    className="p-1 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100"
-                                >
-                                    <X size={14} />
-                                </button>
-                            )}
-                        </div>
-
-                        {/* User List */}
-                        {(() => {
-                            const filteredProfiles = profilesList.filter(p => {
-                                const q = searchQuery.toLowerCase();
-                                return (
-                                    (p.email || '').toLowerCase().includes(q) ||
-                                    (p.display_name || '').toLowerCase().includes(q) ||
-                                    (p.first_name || '').toLowerCase().includes(q) ||
-                                    (p.last_name || '').toLowerCase().includes(q) ||
-                                    (p.role || '').toLowerCase().includes(q) ||
-                                    (p.hotel_name || '').toLowerCase().includes(q) ||
-                                    (p.hotel_code || '').toLowerCase().includes(q)
-                                );
-                            });
-
-                            const formatSqlTimestamp = (isoString?: string) => {
-                                if (!isoString) return '—';
-                                try {
-                                    const d = new Date(isoString);
-                                    if (isNaN(d.getTime())) return '—';
-                                    const day = String(d.getUTCDate()).padStart(2, '0');
-                                    const month = String(d.getUTCMonth() + 1).padStart(2, '0');
-                                    const year = d.getUTCFullYear();
-                                    const hours = String(d.getUTCHours()).padStart(2, '0');
-                                    const minutes = String(d.getUTCMinutes()).padStart(2, '0');
-                                    const seconds = String(d.getUTCSeconds()).padStart(2, '0');
-                                    return `${day}-${month}-${year} ${hours}:${minutes}:${seconds} (UTC)`;
-                                } catch {
-                                    return '—';
-                                }
-                            };
-
-                            if (filteredProfiles.length === 0) {
-                                return (
-                                    <div className="bg-white/40 backdrop-blur-sm p-12 rounded-[24px] border border-dashed border-slate-200 text-center">
-                                        <Search size={28} className="text-slate-300 mx-auto mb-3" />
-                                        <h3 className="text-sm font-bold text-slate-800">No registered users matched your criteria</h3>
-                                        <p className="text-xs text-slate-400 mt-1 font-medium">Try verifying spelling or clear search filters.</p>
-                                    </div>
-                                );
-                            }
-
-                            return (
-                                <div className="bg-white rounded-[24px] border border-slate-150/80 shadow-[0_8px_30px_rgba(15,23,42,0.012)] overflow-hidden animate-fadeIn">
-                                    <div className="overflow-x-auto">
-                                        <table className="w-full text-left border-collapse">
-                                            <thead>
-                                                <tr className="border-b border-slate-100 bg-slate-50/50 select-none text-[10px] font-extrabold text-slate-400 tracking-wider uppercase">
-                                                    <th className="px-6 py-4">Display Name</th>
-                                                    <th className="px-6 py-4">Email</th>
-                                                    <th className="px-6 py-4">Hotel Code</th>
-                                                    <th className="px-6 py-4">Role</th>
-                                                    <th className="px-6 py-4">Access Level</th>
-                                                    <th className="px-6 py-4">Created At</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody className="divide-y divide-slate-100 text-slate-700">
-                                                {filteredProfiles.map((p, index) => {
-                                                    const roleStyles = getRoleStyles(p.access_level);
-                                                    return (
-                                                        <tr key={p.id || index} className={`${roleStyles.bg} hover:opacity-90 transition-colors group`}>
-                                                            <td className="px-6 py-4 text-xs font-semibold text-slate-800 flex items-center gap-2">
-                                                                <span className={roleStyles.text}>{roleStyles.icon}</span>
-                                                                {p.display_name || '—'}
-                                                            </td>
-                                                            <td className="px-6 py-4 text-xs text-slate-600">{p.email || '—'}</td>
-                                                            <td className="px-6 py-4 text-xs font-mono text-indigo-600 font-bold">{p.hotel_code || '—'}</td>
-                                                            <td className="px-6 py-4 text-xs text-slate-600">{p.role || '—'}</td>
-                                                            <td className="px-6 py-4 text-xs text-slate-600">
-                                                                <select 
-                                                                    value={p.access_level || 'auditee'} 
-                                                                    onChange={(e) => updateAccessLevel(p.id, e.target.value)}
-                                                                    className="text-xs font-semibold text-slate-700 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 outline-none focus:border-indigo-500 cursor-pointer"
-                                                                >
-                                                                    <option value="admin">Admin</option>
-                                                                    <option value="auditor">Auditor</option>
-                                                                    <option value="auditee">Auditee</option>
-                                                                </select>
-                                                            </td>
-                                                            <td className="px-6 py-4 text-[11px] font-mono font-bold text-slate-550">
-                                                                {formatSqlTimestamp(p.created_at)}
-                                                            </td>
-                                                        </tr>
-                                                    );
-                                                })}
-                                            </tbody>
-                                        </table>
+                            {/* Database Setup Notice if table missing */}
+                            {isProfilesTableMissing && (
+                                <div className="bg-amber-50 border border-amber-200 p-5 rounded-[20px] animate-fadeIn space-y-3">
+                                    <div className="flex items-start gap-3">
+                                        <AlertCircle className="text-amber-600 shrink-0 mt-0.5" size={20} />
+                                        <div>
+                                            <h4 className="text-sm font-bold text-slate-805">Supabase Table Sync Pending</h4>
+                                            <p className="text-xs text-slate-650 leading-relaxed mt-1">
+                                                The <code className="bg-amber-100 px-1 py-0.5 rounded font-mono font-bold text-amber-800">public.audit_users</code> table doesn't exist yet on your Supabase instance, or permissions require database provisioning. 
+                                            </p>
+                                            <p className="text-xs text-slate-650 leading-relaxed mt-2 font-medium">
+                                                👉 We have automatically saved your onboarding information locally in your browser. To finalize cloud storage sync, please copy the script inside the <strong className="text-slate-800">/supabase-onboarding.sql</strong> file and execute it within your Supabase SQL Editor.
+                                            </p>
+                                        </div>
                                     </div>
                                 </div>
-                            );
-                        })()}
-                    </div>
+                            )}
+
+                            {/* Search bar */}
+                            <div className="bg-white p-4 rounded-2xl border border-slate-150/80 shadow-[0_4px_24px_rgba(15,23,42,0.015)] flex items-center gap-3 hover:border-slate-300 focus-within:border-indigo-400 focus-within:shadow-[0_8px_30px_rgba(99,102,241,0.03)] transition-all">
+                                <Search className="text-slate-400 shrink-0" size={18} />
+                                <input 
+                                    type="text" 
+                                    placeholder="Search users by email, name, role, or hotel..." 
+                                    className="w-full text-sm text-slate-705 bg-transparent outline-none border-none placeholder-slate-400 focus:ring-0"
+                                    value={searchQuery}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                />
+                                {searchQuery && (
+                                    <button 
+                                        onClick={() => setSearchQuery('')} 
+                                        className="p-1 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100"
+                                    >
+                                        <X size={14} />
+                                    </button>
+                                )}
+                            </div>
+
+                            {/* User List */}
+                            {(() => {
+                                const filteredProfiles = profilesList.filter(p => {
+                                    const q = searchQuery.toLowerCase();
+                                    return (
+                                        (p.email || '').toLowerCase().includes(q) ||
+                                        (p.display_name || '').toLowerCase().includes(q) ||
+                                        (p.first_name || '').toLowerCase().includes(q) ||
+                                        (p.last_name || '').toLowerCase().includes(q) ||
+                                        (p.role || '').toLowerCase().includes(q) ||
+                                        (p.hotel_name || '').toLowerCase().includes(q) ||
+                                        (p.hotel_code || '').toLowerCase().includes(q)
+                                    );
+                                });
+
+                                const formatSqlTimestamp = (isoString?: string) => {
+                                    if (!isoString) return '—';
+                                    try {
+                                        const d = new Date(isoString);
+                                        if (isNaN(d.getTime())) return '—';
+                                        const day = String(d.getUTCDate()).padStart(2, '0');
+                                        const month = String(d.getUTCMonth() + 1).padStart(2, '0');
+                                        const year = d.getUTCFullYear();
+                                        const hours = String(d.getUTCHours()).padStart(2, '0');
+                                        const minutes = String(d.getUTCMinutes()).padStart(2, '0');
+                                        const seconds = String(d.getUTCSeconds()).padStart(2, '0');
+                                        return `${day}-${month}-${year} ${hours}:${minutes}:${seconds} (UTC)`;
+                                    } catch {
+                                        return '—';
+                                    }
+                                };
+
+                                if (filteredProfiles.length === 0) {
+                                    return (
+                                        <div className="bg-white/40 backdrop-blur-sm p-12 rounded-[24px] border border-dashed border-slate-200 text-center">
+                                            <Search size={28} className="text-slate-300 mx-auto mb-3" />
+                                            <h3 className="text-sm font-bold text-slate-800">No registered users matched your criteria</h3>
+                                            <p className="text-xs text-slate-400 mt-1 font-medium">Try verifying spelling or clear search filters.</p>
+                                        </div>
+                                    );
+                                }
+
+                                return (
+                                    <div className="bg-white rounded-[24px] border border-slate-150/80 shadow-[0_8px_30px_rgba(15,23,42,0.012)] overflow-hidden">
+                                        <div className="overflow-x-auto">
+                                            <table className="w-full text-left border-collapse">
+                                                <thead>
+                                                    <tr className="border-b border-slate-100 bg-slate-50/50 select-none text-[10px] font-extrabold text-slate-400 tracking-wider uppercase">
+                                                        <th className="px-6 py-4">Display Name</th>
+                                                        <th className="px-6 py-4">Email</th>
+                                                        <th className="px-6 py-4">Hotel Property</th>
+                                                        <th className="px-6 py-4">Role</th>
+                                                        <th className="px-6 py-4">Access Level</th>
+                                                        <th className="px-6 py-4">Created At</th>
+                                                        <th className="px-6 py-4 text-right">Actions</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody className="divide-y divide-slate-100 text-slate-700">
+                                                    {filteredProfiles.map((p, index) => {
+                                                        const roleStyles = getRoleStyles(p.access_level);
+                                                        return (
+                                                            <tr key={p.id || index} className={`${roleStyles.bg} hover:opacity-95 transition-colors`}>
+                                                                <td className="px-6 py-4 text-xs font-semibold text-slate-800 flex items-center gap-2">
+                                                                    <span className={roleStyles.text}>{roleStyles.icon}</span>
+                                                                    <div>
+                                                                        <div className="font-bold">{p.display_name || '—'}</div>
+                                                                        {(p.first_name || p.last_name) && (
+                                                                            <div className="text-[10px] text-slate-400 font-medium">({p.first_name || ''} {p.last_name || ''})</div>
+                                                                        )}
+                                                                    </div>
+                                                                </td>
+                                                                <td className="px-6 py-4 text-xs text-slate-600">{p.email || '—'}</td>
+                                                                <td className="px-6 py-4 text-xs">
+                                                                    {p.hotel_name ? (
+                                                                        <div>
+                                                                            <span className="font-bold text-slate-800">{p.hotel_name}</span>
+                                                                            {p.hotel_code && <span className="ml-1.5 font-mono text-xs font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded">#{p.hotel_code}</span>}
+                                                                        </div>
+                                                                    ) : (
+                                                                        <span className="text-slate-400 font-medium">—</span>
+                                                                    )}
+                                                                </td>
+                                                                <td className="px-6 py-4 text-xs text-slate-600">
+                                                                    <div>{p.role || '—'}</div>
+                                                                    {p.is_brand_audit_lead && (
+                                                                        <span className="mt-1 inline-flex items-center text-[8px] bg-indigo-50 text-indigo-700 border border-indigo-100 px-1.5 py-0.5 rounded font-extrabold uppercase tracking-wide">Brand Lead</span>
+                                                                    )}
+                                                                </td>
+                                                                <td className="px-6 py-4 text-xs">
+                                                                    <select 
+                                                                        value={p.access_level || 'auditee'} 
+                                                                        onChange={(e) => updateAccessLevel(p.id, e.target.value)}
+                                                                        className="text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-lg px-2 py-1 outline-none focus:border-indigo-500 cursor-pointer shadow-sm hover:border-slate-300 transition-all"
+                                                                    >
+                                                                        <option value="admin">Admin</option>
+                                                                        <option value="auditor">Auditor</option>
+                                                                        <option value="auditee">Auditee</option>
+                                                                    </select>
+                                                                </td>
+                                                                <td className="px-6 py-4 text-[11px] font-mono font-bold text-slate-550">
+                                                                    {formatSqlTimestamp(p.created_at)}
+                                                                </td>
+                                                                <td className="px-6 py-4 text-xs text-right">
+                                                                    <div className="flex items-center justify-end gap-2">
+                                                                        <button 
+                                                                            onClick={() => handleOpenEditUser(p)}
+                                                                            className="p-1.5 text-indigo-600 hover:text-white bg-indigo-50 hover:bg-indigo-600 rounded-lg border border-indigo-100/50 transition-all"
+                                                                            title="Edit Profile"
+                                                                        >
+                                                                            <Edit size={13} />
+                                                                        </button>
+                                                                        <button 
+                                                                            onClick={() => setConfirmUserDeleteId(p.id)}
+                                                                            className="p-1.5 text-red-600 hover:text-white bg-red-50 hover:bg-red-600 rounded-lg border border-red-100/50 transition-all"
+                                                                            title="Delete Profile"
+                                                                        >
+                                                                            <Trash2 size={13} />
+                                                                        </button>
+                                                                    </div>
+                                                                </td>
+                                                            </tr>
+                                                        );
+                                                    })}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                );
+                            })()}
+                        </div>
+                    )
                 ) : subView === 'access' ? (
                     <div className="space-y-6">
                         {/* Access Right Management Layout */}
@@ -3337,7 +3690,14 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                     </div>
                                                                 </td>
                                                                 <td className="px-6 py-4 text-xs text-slate-500 font-semibold">
-                                                                    {departments.find(d => d.id === item.departmentId)?.name} / {group.category.name}
+                                                                    <div>{departments.find(d => d.id === item.departmentId)?.name} / {group.category.name}</div>
+                                                                    <div className="mt-1 flex items-center">
+                                                                        {item.filled_by_hotel !== false ? (
+                                                                            <span className="inline-flex items-center text-[9px] bg-emerald-50 text-emerald-700 border border-emerald-100/40 px-2 py-0.5 rounded-md font-extrabold tracking-wide uppercase">Filled by Hotel</span>
+                                                                        ) : (
+                                                                            <span className="inline-flex items-center text-[9px] bg-amber-50 text-amber-700 border border-amber-100/50 px-2 py-0.5 rounded-md font-extrabold tracking-wide uppercase">Auditor Only</span>
+                                                                        )}
+                                                                    </div>
                                                                 </td>
                                                                 <td className="px-6 py-4 text-xs font-bold text-indigo-650 uppercase">
                                                                     <span className="bg-indigo-50/80 px-2.5 py-1 rounded-full text-[10px] border border-indigo-100/30">
@@ -4303,6 +4663,26 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                 />
                             </div>
 
+                            <div className="flex items-center justify-between bg-slate-50 border border-slate-200 hover:border-slate-300 p-4 rounded-2xl">
+                                <div className="pr-4">
+                                    <label className="block text-xs font-bold text-slate-800 uppercase tracking-wider mb-0.5">Filled by Hotel</label>
+                                    <p className="text-[10px] text-slate-400 font-bold leading-tight">True if the hotel property fills this checklist item as part of self-audit</p>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => setItemFilledByHotel(!itemFilledByHotel)}
+                                    className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                                        itemFilledByHotel ? 'bg-indigo-600' : 'bg-slate-300'
+                                    }`}
+                                >
+                                    <span
+                                        className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                                            itemFilledByHotel ? 'translate-x-5' : 'translate-x-0'
+                                        }`}
+                                    />
+                                </button>
+                            </div>
+
                             <div>
                                 <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Instruction (Optional)</label>
                                 <textarea 
@@ -4641,6 +5021,198 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                 </button>
                             </div>
                         </form>
+                    </div>
+                </div>
+            )}
+
+            {/* User Form Modal */}
+            {isUserFormOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-fadeIn">
+                    <div className="bg-white w-full max-w-lg p-6 sm:p-8 rounded-[28px] border border-slate-200 shadow-2xl relative animate-scaleUp max-h-[90vh] flex flex-col overflow-y-auto">
+                        <button 
+                            type="button"
+                            onClick={() => setIsUserFormOpen(false)}
+                            className="absolute top-5 right-5 p-2 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100 transition-all outline-none"
+                        >
+                            <X size={18} />
+                        </button>
+
+                        <div className="mb-6">
+                            <h3 className="text-xl font-bold text-slate-900">
+                                {editingUser ? 'Edit User Profile' : 'Create New User Profile'}
+                            </h3>
+                            <p className="text-xs text-slate-500 font-medium mt-1">
+                                {editingUser ? 'Update role, property bindings, and brand audit privileges.' : 'Manually provision a new user profile with specific access rights.'}
+                            </p>
+                        </div>
+
+                        <form onSubmit={handleSaveUser} className="space-y-4">
+                            {userFormError && (
+                                <div className="bg-red-50 border border-red-100 p-3 rounded-xl flex items-center gap-2 text-xs text-red-600 font-bold">
+                                    <AlertCircle size={15} />
+                                    <span>{userFormError}</span>
+                                </div>
+                            )}
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">First Name</label>
+                                    <input 
+                                        type="text" 
+                                        placeholder="e.g. John"
+                                        className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all focus:ring-1 focus:ring-indigo-100"
+                                        value={userFormFirstName}
+                                        onChange={(e) => {
+                                            setUserFormFirstName(e.target.value);
+                                            if (!userFormDisplayName) {
+                                                setUserFormDisplayName(`${e.target.value} ${userFormLastName}`.trim());
+                                            }
+                                        }}
+                                        required
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Last Name</label>
+                                    <input 
+                                        type="text" 
+                                        placeholder="e.g. Doe"
+                                        className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all focus:ring-1 focus:ring-indigo-100"
+                                        value={userFormLastName}
+                                        onChange={(e) => {
+                                            setUserFormLastName(e.target.value);
+                                            if (!userFormDisplayName) {
+                                                setUserFormDisplayName(`${userFormFirstName} ${e.target.value}`.trim());
+                                            }
+                                        }}
+                                    />
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Display Name</label>
+                                <input 
+                                    type="text" 
+                                    placeholder="e.g. John Doe (Internal)"
+                                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all focus:ring-1 focus:ring-indigo-100"
+                                    value={userFormDisplayName}
+                                    onChange={(e) => setUserFormDisplayName(e.target.value)}
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Email Address</label>
+                                <input 
+                                    type="email" 
+                                    placeholder="e.g. johndoe@swiss-belhotel.com"
+                                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all focus:ring-1 focus:ring-indigo-100"
+                                    value={userFormEmail}
+                                    onChange={(e) => setUserFormEmail(e.target.value)}
+                                    disabled={!!editingUser}
+                                    required
+                                />
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Access Level</label>
+                                    <select 
+                                        className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all focus:ring-1 focus:ring-indigo-100"
+                                        value={userFormAccessLevel}
+                                        onChange={(e) => setUserFormAccessLevel(e.target.value as any)}
+                                    >
+                                        <option value="admin">Admin</option>
+                                        <option value="auditor">Auditor</option>
+                                        <option value="auditee">Auditee</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Role / Title</label>
+                                    <select
+                                        className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all focus:ring-1 focus:ring-indigo-100"
+                                        value={userFormRole}
+                                        onChange={(e) => setUserFormRole(e.target.value)}
+                                    >
+                                        {['General Manager', 'GM Secretary', 'Marcomm/PR', 'Room Division', 'Front Office', 'Sales & Marketing', 'Auditor', 'Director of Finance', 'Executive Housekeeper', 'Admin'].map(r => (
+                                            <option key={r} value={r}>{r}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Assigned Hotel Property</label>
+                                <select 
+                                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all focus:ring-1 focus:ring-indigo-100"
+                                    value={userFormHotelId}
+                                    onChange={(e) => setUserFormHotelId(e.target.value)}
+                                >
+                                    <option value="">-- No Assigned Hotel / Corporate Office --</option>
+                                    {hotels.map(h => (
+                                        <option key={h.id} value={h.id}>
+                                            {h.name} {h.code ? `(${h.code})` : ''}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <div className="flex items-center gap-2.5 pt-2">
+                                <input 
+                                    type="checkbox" 
+                                    id="userFormIsBrandAuditLead"
+                                    checked={userFormIsBrandAuditLead}
+                                    onChange={(e) => setUserFormIsBrandAuditLead(e.target.checked)}
+                                    className="w-4 h-4 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500"
+                                />
+                                <label htmlFor="userFormIsBrandAuditLead" className="text-xs font-bold text-slate-600 select-none cursor-pointer">
+                                    Brand Audit Lead Designation
+                                </label>
+                            </div>
+
+                            <div className="flex gap-3 justify-end pt-4 border-t border-slate-100">
+                                <button 
+                                    type="button"
+                                    onClick={() => setIsUserFormOpen(false)}
+                                    className="px-6 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-full font-bold text-sm transition-all active:scale-95 outline-none"
+                                >
+                                    Cancel
+                                </button>
+                                <button 
+                                    type="submit"
+                                    className="px-8 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full font-bold text-sm transition-all shadow-lg hover:shadow-indigo-500/10 active:scale-95 outline-none"
+                                >
+                                    {editingUser ? 'Save Changes' : 'Create Profile'}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {/* Confirm User Delete Dialog */}
+            {confirmUserDeleteId && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-fadeIn">
+                    <div className="bg-white w-full max-w-sm p-6 rounded-3xl border border-slate-200 shadow-xl relative animate-scaleUp">
+                        <div className="w-12 h-12 rounded-full bg-red-50 text-red-600 flex items-center justify-center mb-4">
+                            <Trash2 size={24} />
+                        </div>
+                        <h3 className="text-lg font-bold text-slate-900 mb-2">Delete User Profile?</h3>
+                        <p className="text-xs text-slate-500 leading-relaxed mb-6 font-medium">
+                            Are you absolutely sure you want to permanently delete this user registry profile? This action cannot be undone.
+                        </p>
+                        <div className="flex gap-3">
+                            <button 
+                                onClick={() => handleDeleteUser(confirmUserDeleteId)}
+                                className="flex-1 bg-red-600 hover:bg-red-700 text-white py-2.5 rounded-full font-bold text-sm transition-all shadow-md active:scale-95"
+                            >
+                                Delete User
+                            </button>
+                            <button 
+                                onClick={() => setConfirmUserDeleteId(null)}
+                                className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-600 py-2.5 rounded-full font-bold text-sm transition-all active:scale-95"
+                            >
+                                Cancel
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}

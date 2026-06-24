@@ -28,8 +28,10 @@ export default function BrandingPropertyIdentificationScreen({ selectedCategory,
                 
                 if (error) throw error;
                 
+                const filtered = (data || []).filter((item: any) => item.filled_by_hotel !== false);
+                
                 // Sort by sort_order first, then name
-                const sorted = (data || []).sort((a: any, b: any) => {
+                const sorted = filtered.sort((a: any, b: any) => {
                     if (a.sort_order !== undefined && a.sort_order !== null && b.sort_order !== undefined && b.sort_order !== null) {
                         return Number(a.sort_order) - Number(b.sort_order);
                     }

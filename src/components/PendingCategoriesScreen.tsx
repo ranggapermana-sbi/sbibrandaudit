@@ -24,12 +24,15 @@ export default function PendingCategoriesScreen({ onBack, onNavigate }: PendingC
             // Fetch items
             const { data: itemsData, error: itemsError } = await supabase
                 .from('audit_items')
-                .select('category_id');
+                .select('category_id, filled_by_hotel');
             if (itemsError) throw itemsError;
 
             // Group and map them dynamically
             const mapped = (catsData || []).map((cat: any) => {
-                const catItems = (itemsData || []).filter((item: any) => item.category_id === cat.id);
+                const catItems = (itemsData || []).filter((item: any) => 
+                    item.category_id === cat.id && 
+                    item.filled_by_hotel !== false
+                );
                 
                 // Retrieve completed count from localStorage mock-progress
                 const completedKey = `sbi_cat_completed_${cat.id}`;

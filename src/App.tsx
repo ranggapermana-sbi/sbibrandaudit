@@ -196,7 +196,11 @@ export default function App() {
         <SignupScreen 
           onComplete={(profile) => {
             setUserProfile(profile);
-            setCurrentScreen('dashboard');
+            if (profile?.access_level === 'admin' || profile?.access_level === 'auditor' || profile?.role === 'Auditor') {
+              setCurrentScreen('adminPanel');
+            } else {
+              setCurrentScreen('dashboard');
+            }
           }} 
           onLogout={handleLogout}
         />
