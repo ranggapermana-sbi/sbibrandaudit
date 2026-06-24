@@ -205,18 +205,20 @@ export default function App() {
         <DashboardScreen 
           onViewPending={() => setCurrentScreen('pendingCategories')} 
           userProfile={userProfile}
+          onProfileUpdate={setUserProfile}
           onLogout={handleLogout}
         />
       )}
       
       {currentScreen === 'step1' && <Step1Screen onNext={() => setCurrentScreen('step2')} />}
       {currentScreen === 'step2' && <Step2Screen />}
-      {currentScreen === 'pendingCategories' && <PendingCategoriesScreen onBack={() => setCurrentScreen('dashboard')} onNavigate={(screen) => setCurrentScreen(screen)} />}
+      {currentScreen === 'pendingCategories' && <PendingCategoriesScreen userProfile={userProfile} onBack={() => setCurrentScreen('dashboard')} onNavigate={(screen) => setCurrentScreen(screen)} />}
       {currentScreen === 'brandingPropertyIdentification' && <BrandingPropertyIdentificationScreen onBack={() => setCurrentScreen('pendingCategories')} />}
       {currentScreen === 'adminPanel' && (userProfile?.access_level === 'auditee' ? (
         <DashboardScreen 
           onViewPending={() => setCurrentScreen('pendingCategories')} 
           userProfile={userProfile}
+          onProfileUpdate={setUserProfile}
           onLogout={handleLogout}
         />
       ) : (
