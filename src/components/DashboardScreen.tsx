@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Menu, CheckCircle, Clock, Edit3, Building, ChevronRight, ChevronDown, PlusCircle, LayoutDashboard, History, User, LogOut, FileText, Folder, Layers, Maximize2, Minimize2, Eye, X } from 'lucide-react';
+import { Menu, CheckCircle, Clock, Edit3, Building, ChevronRight, ChevronDown, PlusCircle, LayoutDashboard, History, User, LogOut, FileText, Folder, Layers, Maximize2, Minimize2, RefreshCw } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
 interface DashboardProps {
@@ -12,6 +12,9 @@ interface DashboardProps {
 export default function DashboardScreen({ onViewPending, userProfile, onProfileUpdate, onLogout }: DashboardProps) {
   const [auditItems, setAuditItems] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [assignedBatches, setAssignedBatches] = useState<any[]>([]);
+  const [isFetchingBatches, setIsFetchingBatches] = useState(false);
   const [expandedDepts, setExpandedDepts] = useState<Record<string, boolean>>({});
   const [expandedCats, setExpandedCats] = useState<Record<string, boolean>>({});
 
@@ -22,57 +25,6 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
   const [editRole, setEditRole] = useState('');
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [saveProfileError, setSaveProfileError] = useState('');
-
-  // Drafts & submissions states
-  const [draftsCount, setDraftsCount] = useState(0);
-  const [submissionsList, setSubmissionsList] = useState<any[]>([]);
-  const [activeTab, setActiveTab] = useState<'checklist' | 'history'>('checklist');
-  const [selectedHistoricalSub, setSelectedHistoricalSub] = useState<any | null>(null);
-
-  useEffect(() => {
-    if (userProfile?.id) {
-      // Load drafts
-      const draftsKey = `sbi_all_drafts_${userProfile.id}`;
-      const savedDrafts = JSON.parse(localStorage.getItem(draftsKey) || '{}');
-      setDraftsCount(Object.keys(savedDrafts).length);
-
-      // Load submissions
-      const submissionsKey = `sbi_submissions_${userProfile.id}`;
-      const savedSubs = JSON.parse(localStorage.getItem(submissionsKey) || '[]');
-      
-      const totalPoints = auditItems.reduce((acc, item) => acc + (item.points || 0), 0);
-      
-      if (savedSubs.length === 0 && totalPoints > 0) {
-        const defaults = [
-          {
-            id: 'sub_default_1',
-            hotel_name: userProfile?.hotel_name || 'Swiss-Belhotel Property',
-            hotel_code: userProfile?.hotel_code || 'SBH',
-            batch_name: 'Q1 2026 Brand Standards',
-            submitted_at: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
-            score: Math.round(totalPoints * 0.94),
-            max_score: totalPoints,
-            pass_rate: 94,
-            status: 'Approved'
-          },
-          {
-            id: 'sub_default_2',
-            hotel_name: userProfile?.hotel_name || 'Swiss-Belhotel Property',
-            hotel_code: userProfile?.hotel_code || 'SBH',
-            batch_name: 'Q4 2025 Brand Audit',
-            submitted_at: new Date(Date.now() - 120 * 24 * 60 * 60 * 1000).toISOString(),
-            score: Math.round(totalPoints * 0.91),
-            max_score: totalPoints,
-            pass_rate: 91,
-            status: 'Approved'
-          }
-        ];
-        setSubmissionsList(defaults);
-      } else if (savedSubs.length > 0) {
-        setSubmissionsList(savedSubs);
-      }
-    }
-  }, [userProfile?.id, auditItems, isEditProfileOpen]);
 
   useEffect(() => {
     if (userProfile) {
@@ -141,44 +93,129 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
     }
   };
 
-  useEffect(() => {
-    const fetchAuditItems = async () => {
-      try {
-        const { data, error } = await supabase
-          .from('audit_items')
-          .select('*, audit_departments(name), audit_categories(name)');
-          
-        if (error) throw error;
+  const fetchAuditItems = async (showSyncIndicator = false) => {
+    if (showSyncIndicator) {
+      setIsSyncing(true);
+    } else {
+      setIsLoading(true);
+    }
+    try {
+      const { data, error } = await supabase
+        .from('audit_items')
+        .select('*, audit_departments(name), audit_categories(name)');
         
-        const sortedData = (data || []).sort((a: any, b: any) => {
-          if (a.sort_order !== undefined && a.sort_order !== null && b.sort_order !== undefined && b.sort_order !== null) {
-            return Number(a.sort_order) - Number(b.sort_order);
-          }
-          return (a.name || '').localeCompare(b.name || '');
-        });
-        
-        setAuditItems(sortedData);
+      if (error) throw error;
+      
+      const sortedData = (data || []).sort((a: any, b: any) => {
+        if (a.sort_order !== undefined && a.sort_order !== null && b.sort_order !== undefined && b.sort_order !== null) {
+          return Number(a.sort_order) - Number(b.sort_order);
+        }
+        return (a.name || '').localeCompare(b.name || '');
+      });
+      
+      setAuditItems(sortedData);
 
-        // Auto-expand the first department and its categories by default on load
-        if (sortedData.length > 0) {
-          const firstDeptId = sortedData[0].department_id || 'unassigned-dept';
-          setExpandedDepts({ [firstDeptId]: true });
-          
-          const firstDeptCats = sortedData.filter(i => (i.department_id || 'unassigned-dept') === firstDeptId);
-          if (firstDeptCats.length > 0) {
-            const firstCatId = firstDeptCats[0].category_id || 'unassigned-cat';
-            setExpandedCats({ [firstCatId]: true });
+      // Auto-expand the first department and its categories by default on load
+      if (sortedData.length > 0 && Object.keys(expandedDepts).length === 0) {
+        const firstDeptId = sortedData[0].department_id || 'unassigned-dept';
+        setExpandedDepts({ [firstDeptId]: true });
+        
+        const firstDeptCats = sortedData.filter(i => (i.department_id || 'unassigned-dept') === firstDeptId);
+        if (firstDeptCats.length > 0) {
+          const firstCatId = firstDeptCats[0].category_id || 'unassigned-cat';
+          setExpandedCats({ [firstCatId]: true });
+        }
+      }
+    } catch (err) {
+      console.error('Error fetching audit items:', err);
+    } finally {
+      setIsLoading(false);
+      setIsSyncing(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchAuditItems();
+
+    // Subscribe to real-time changes on audit_items, audit_categories, and audit_departments
+    const itemsChannel = supabase
+      .channel('realtime-audit-sync')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'audit_items' },
+        () => {
+          console.log('Realtime change in audit_items. Syncing...');
+          fetchAuditItems(true);
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'audit_categories' },
+        () => {
+          console.log('Realtime change in audit_categories. Syncing...');
+          fetchAuditItems(true);
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'audit_departments' },
+        () => {
+          console.log('Realtime change in audit_departments. Syncing...');
+          fetchAuditItems(true);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(itemsChannel);
+    };
+  }, []);
+
+  // Fetch assigned batches for the user's hotel
+  useEffect(() => {
+    const fetchAssignedBatches = async () => {
+      if (!userProfile?.hotel_id) return;
+      setIsFetchingBatches(true);
+      try {
+        const mainUrl = import.meta.env.MAIN_SUPABASE_URL || 'https://gvnwxrejgdkixbszhxkw.supabase.co/rest/v1/';
+        const cleanMainUrl = mainUrl.replace(/\/rest\/v1\/?$/, '').trim();
+        const mainAnonKey = import.meta.env.MAIN_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd2bnd4cmVqZ2RraXhic3poeGt3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkxNTE2ODcsImV4cCI6MjA5NDcyNzY4N30.Pvv9rgR_Vr9McwxLrYfELeSpWYLNH2NPw0nkeGD6ZXo';
+
+        // 1. Fetch junction links for user's hotel_id
+        const junctionRes = await fetch(`${cleanMainUrl}/rest/v1/audit_batch_hotels?hotel_id=eq.${userProfile.hotel_id}`, {
+          headers: {
+            'apikey': mainAnonKey,
+            'Authorization': `Bearer ${mainAnonKey}`
           }
+        });
+        if (!junctionRes.ok) throw new Error("Failed to fetch batch mappings");
+        const junctionData = await junctionRes.json();
+        
+        if (junctionData.length > 0) {
+          const batchIds = junctionData.map((m: any) => m.batch_id);
+          // 2. Fetch the actual batches
+          const batchesRes = await fetch(`${cleanMainUrl}/rest/v1/audit_batches?id=in.(${batchIds.join(',')})`, {
+            headers: {
+              'apikey': mainAnonKey,
+              'Authorization': `Bearer ${mainAnonKey}`
+            }
+          });
+          if (batchesRes.ok) {
+            const batchesData = await batchesRes.json();
+            setAssignedBatches(batchesData);
+          }
+        } else {
+          setAssignedBatches([]);
         }
       } catch (err) {
-        console.error('Error fetching audit items:', err);
+        console.error("Error fetching assigned batches:", err);
       } finally {
-        setIsLoading(false);
+        setIsFetchingBatches(false);
       }
     };
 
-    fetchAuditItems();
-  }, []);
+    fetchAssignedBatches();
+  }, [userProfile?.hotel_id]);
 
   // Grouping auditItems by department, then category
   const getGroupedData = () => {
@@ -361,100 +398,129 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
             </div>
         </section>
 
+        {/* Assigned Batches / Schedules program sync */}
+        {isFetchingBatches ? (
+          <section className="mb-8 bg-white border border-slate-200/60 p-5 rounded-2xl animate-pulse">
+            <div className="h-4 bg-slate-200 rounded w-1/4 mb-3" />
+            <div className="h-10 bg-slate-100 rounded w-full" />
+          </section>
+        ) : assignedBatches.length > 0 ? (
+          <section className="mb-8">
+            <h3 className="text-xs font-extrabold text-slate-500 uppercase tracking-widest mb-3 flex items-center gap-1.5 pl-1 select-none">
+              <Building size={13} className="text-slate-400" />
+              Your Active Brand Audit Schedules ({assignedBatches.length})
+            </h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {assignedBatches.map((batch) => (
+                <div key={batch.id} className="bg-gradient-to-r from-slate-900 via-slate-850 to-indigo-950 p-5 rounded-[22px] border border-slate-800 text-white shadow-lg relative overflow-hidden group">
+                  <div className="absolute right-0 top-0 w-24 h-24 bg-indigo-500/10 rounded-full blur-2xl group-hover:bg-indigo-500/20 transition-all duration-300" />
+                  <div className="flex justify-between items-start mb-3">
+                    <span className="text-[9px] font-extrabold uppercase tracking-widest px-2.5 py-1 bg-indigo-500/30 text-indigo-100 rounded-full select-none border border-indigo-400/10">
+                      {batch.status || 'Active'}
+                    </span>
+                    <Clock size={15} className="text-slate-400" />
+                  </div>
+                  <h4 className="font-extrabold text-sm text-slate-50 tracking-tight mb-1">{batch.name}</h4>
+                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Assigned Property: {userProfile?.hotel_name}</p>
+                </div>
+              ))}
+            </div>
+          </section>
+        ) : userProfile?.hotel_id ? (
+          <section className="mb-8 bg-slate-50 border border-slate-200/60 p-5 rounded-2xl flex items-center justify-between gap-4">
+            <div className="space-y-0.5">
+              <h4 className="font-extrabold text-sm text-slate-800 tracking-tight">No Active Audit Schedule Assigned</h4>
+              <p className="text-xs text-slate-400 font-medium">Please coordinate with the Swiss-Belhotel International brand audit team to schedule your property.</p>
+            </div>
+            <span className="text-[9px] font-extrabold px-2.5 py-1.5 bg-slate-200 text-slate-500 rounded-lg uppercase tracking-wider select-none shrink-0">Unassigned</span>
+          </section>
+        ) : null}
+
         <section className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
             <div 
-                onClick={onViewPending} 
-                className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm cursor-pointer hover:border-indigo-300 hover:shadow-md transition-all duration-200"
+              onClick={onViewPending} 
+              className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm cursor-pointer hover:border-indigo-300 transition-all duration-200 hover:shadow-md group"
+              title="Click to perform self-audit and upload evidence photos"
             >
                 <div className="flex justify-between items-start mb-2">
-                    <CheckCircle className="text-emerald-500" size={24}/>
-                    <span className="text-indigo-600 text-[10px] font-bold bg-indigo-50 px-2 py-1 rounded-md">Realtime</span>
+                    <CheckCircle className="text-indigo-600" size={24}/>
+                    <span className="text-indigo-600 text-[10px] font-extrabold bg-indigo-50 px-2 py-0.5 rounded-md uppercase tracking-wider group-hover:scale-105 transition-transform">Start Self-Audit</span>
                 </div>
-                <p className="text-slate-500 text-xs font-bold uppercase tracking-wide">Pending Checklist Standards</p>
-                <p className="text-3xl font-bold text-slate-900 mt-1">{totalItems || '45'}</p>
-                <p className="text-[10px] text-slate-400 mt-2 font-semibold">Click to start dynamic self-inspection</p>
+                <p className="text-slate-500 text-xs font-bold uppercase tracking-wide">Self-Audit Checklist</p>
+                <p className="text-3xl font-extrabold text-slate-900 mt-1 flex items-baseline gap-1.5">
+                  {totalItems}
+                  <span className="text-xs text-slate-400 font-bold uppercase tracking-wider">items</span>
+                </p>
             </div>
             <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
                 <div className="flex justify-between items-start mb-2">
-                    <Clock className="text-amber-500" size={24}/>
-                    <span className="text-amber-600 text-[10px] font-bold bg-amber-50 px-2 py-1 rounded-md">Active</span>
+                    <Layers className="text-indigo-600" size={24}/>
+                    <span className="text-slate-500 text-[10px] font-extrabold bg-slate-50 px-2 py-0.5 rounded-md uppercase tracking-wider">Synced</span>
                 </div>
-                <p className="text-slate-500 text-xs font-bold uppercase tracking-wide">Failed Standards requiring Action</p>
-                <p className="text-3xl font-bold text-slate-900 mt-1">
-                    {submissionsList.find(s => s.failedCount > 0)?.failedCount || '0'}
+                <p className="text-slate-500 text-xs font-bold uppercase tracking-wide">Checklist Categories</p>
+                <p className="text-3xl font-extrabold text-slate-900 mt-1 flex items-baseline gap-1.5">
+                  {totalCats}
+                  <span className="text-xs text-slate-400 font-bold uppercase tracking-wider">groups</span>
                 </p>
-                <p className="text-[10px] text-slate-400 mt-2 font-semibold">From recent audit submissions</p>
             </div>
-            <div 
-                onClick={onViewPending}
-                className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm cursor-pointer hover:border-indigo-300 hover:shadow-md transition-all duration-200"
-            >
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
                 <div className="flex justify-between items-start mb-2">
-                    <Edit3 className="text-indigo-500" size={24}/>
-                    {draftsCount > 0 && (
-                        <span className="text-emerald-600 text-[10px] font-bold bg-emerald-50 px-2 py-1 rounded-md">Draft saved</span>
-                    )}
+                    <Building className="text-indigo-600" size={24}/>
+                    <span className="text-emerald-600 text-[10px] font-extrabold bg-emerald-50 px-2 py-0.5 rounded-md uppercase tracking-wider flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping inline-block" />
+                      Live
+                    </span>
                 </div>
-                <p className="text-slate-500 text-xs font-bold uppercase tracking-wide">Active Inspection Drafts</p>
-                <p className="text-3xl font-bold text-slate-900 mt-1">0{draftsCount}</p>
-                <p className="text-[10px] text-slate-400 mt-2 font-semibold">Resume unfinished draft checklists</p>
+                <p className="text-slate-500 text-xs font-bold uppercase tracking-wide">Property Departments</p>
+                <p className="text-3xl font-extrabold text-slate-900 mt-1 flex items-baseline gap-1.5">
+                  {totalDepts}
+                  <span className="text-xs text-slate-400 font-bold uppercase tracking-wider">areas</span>
+                </p>
             </div>
         </section>
 
-        {/* Tab Selection */}
-        <div className="flex border-b border-slate-200 mb-6 gap-6">
-            <button 
-                onClick={() => setActiveTab('checklist')}
-                className={`pb-3 text-xs sm:text-sm font-extrabold transition-all relative outline-none uppercase tracking-wider ${
-                    activeTab === 'checklist' 
-                        ? 'text-indigo-600 border-b-2 border-indigo-600' 
-                        : 'text-slate-400 hover:text-slate-600'
-                }`}
-            >
-                Brand Standards Directory
-            </button>
-            <button 
-                onClick={() => setActiveTab('history')}
-                className={`pb-3 text-xs sm:text-sm font-extrabold transition-all relative outline-none uppercase tracking-wider ${
-                    activeTab === 'history' 
-                        ? 'text-indigo-600 border-b-2 border-indigo-600' 
-                        : 'text-slate-400 hover:text-slate-600'
-                }`}
-            >
-                Submission History ({submissionsList.length})
-            </button>
-        </div>
-
-        {activeTab === 'checklist' ? (
-            <section className="animate-fadeIn">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-5">
-                    <div>
-                        <h3 className="text-lg font-bold text-slate-900 tracking-tight flex items-center gap-2">
-                            <span className="w-2 h-5 bg-indigo-600 rounded-full" />
-                            Audit Checklist Directory
-                        </h3>
-                        <p className="text-slate-400 text-xs mt-0.5 font-medium">Organized by Department and Category</p>
-                    </div>
-                    
-                    {!isLoading && groupedData.length > 0 && (
-                        <div className="flex items-center gap-2 self-start sm:self-auto">
-                            <button 
-                                onClick={() => expandAll(groupedData)}
-                                className="p-1.5 px-3 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-full text-[11px] font-bold transition-all flex items-center gap-1.5 outline-none active:scale-95 border border-indigo-100/30"
-                            >
-                                <Maximize2 size={12} />
-                                Expand All
-                            </button>
-                            <button 
-                                onClick={collapseAll}
-                                className="p-1.5 px-3 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-full text-[11px] font-bold transition-all flex items-center gap-1.5 outline-none active:scale-95 border border-slate-200/50"
-                            >
-                                <Minimize2 size={12} />
-                                Collapse All
-                            </button>
-                        </div>
-                    )}
+        <section>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-5">
+                <div>
+                    <h3 className="text-lg font-bold text-slate-900 tracking-tight flex items-center gap-2">
+                        <span className="w-2 h-5 bg-indigo-600 rounded-full" />
+                        Audit Checklist Directory
+                    </h3>
+                    <p className="text-slate-400 text-xs mt-0.5 font-medium">Organized by Department and Category</p>
                 </div>
+                
+                {!isLoading && groupedData.length > 0 && (
+                    <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
+                        <button 
+                            onClick={() => fetchAuditItems(true)}
+                            disabled={isSyncing}
+                            className={`p-1.5 px-3 rounded-full text-[11px] font-bold transition-all flex items-center gap-1.5 outline-none active:scale-95 border ${
+                                isSyncing 
+                                    ? 'bg-indigo-50 text-indigo-500 border-indigo-100/50 cursor-not-allowed' 
+                                    : 'bg-white hover:bg-indigo-50 text-indigo-600 border-indigo-100/50 shadow-sm'
+                            }`}
+                            title="Sync checklist directory in real-time with remote database"
+                        >
+                            <RefreshCw size={12} className={isSyncing ? 'animate-spin' : ''} />
+                            {isSyncing ? 'Syncing...' : 'Sync with DB'}
+                        </button>
+                        <button 
+                            onClick={() => expandAll(groupedData)}
+                            className="p-1.5 px-3 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-full text-[11px] font-bold transition-all flex items-center gap-1.5 outline-none active:scale-95 border border-indigo-100/30"
+                        >
+                            <Maximize2 size={12} />
+                            Expand All
+                        </button>
+                        <button 
+                            onClick={collapseAll}
+                            className="p-1.5 px-3 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-full text-[11px] font-bold transition-all flex items-center gap-1.5 outline-none active:scale-95 border border-slate-200/50"
+                        >
+                            <Minimize2 size={12} />
+                            Collapse All
+                        </button>
+                    </div>
+                )}
+            </div>
 
             {/* Micro Stats Banner */}
             {!isLoading && groupedData.length > 0 && (
@@ -612,88 +678,6 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
                 )}
             </div>
         </section>
-      ) : (
-        /* History logs / Submission History Tab content */
-        <section className="space-y-4 animate-fadeIn">
-            <div className="flex items-center justify-between gap-4 mb-4">
-                <div>
-                    <h3 className="text-lg font-bold text-slate-900 tracking-tight flex items-center gap-2">
-                        <span className="w-2 h-5 bg-emerald-500 rounded-full" />
-                        Self-Inspection Submissions
-                    </h3>
-                    <p className="text-slate-400 text-xs mt-0.5 font-medium">Historical audit records for this hotel property</p>
-                </div>
-            </div>
-
-            {submissionsList.length === 0 ? (
-                <div className="bg-white rounded-3xl p-12 text-center border border-slate-200">
-                    <p className="text-slate-400 font-bold text-sm">No submissions recorded yet for your property.</p>
-                    <button 
-                        onClick={onViewPending}
-                        className="mt-4 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl transition-all"
-                    >
-                        Start New Audit Inspection
-                    </button>
-                </div>
-            ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {submissionsList.map((sub) => (
-                        <div 
-                            key={sub.id} 
-                            className="bg-white p-5 rounded-[24px] border border-slate-200 shadow-sm hover:shadow-md transition-shadow relative overflow-hidden flex flex-col justify-between"
-                        >
-                            <div>
-                                <div className="flex items-center justify-between gap-2 mb-3.5">
-                                    <div className="bg-slate-50 border border-slate-100 rounded-lg px-2.5 py-1 text-[11px] font-extrabold text-slate-600">
-                                        {sub.batch_name}
-                                    </div>
-                                    <span className={`px-2 py-0.5 text-[9px] font-extrabold rounded uppercase ${
-                                        sub.status === 'Approved' 
-                                            ? 'bg-emerald-50 text-emerald-700' 
-                                            : 'bg-indigo-50 text-indigo-700'
-                                    }`}>
-                                        {sub.status}
-                                    </span>
-                                </div>
-
-                                <h4 className="font-extrabold text-slate-800 text-sm leading-snug">
-                                    {sub.hotel_name} ({sub.hotel_code || 'SBH'})
-                                </h4>
-                                <p className="text-[10px] text-slate-400 mt-1 font-semibold">
-                                    Submitted: {new Date(sub.submitted_at).toLocaleString()}
-                                </p>
-
-                                <div className="grid grid-cols-3 gap-2 mt-4 bg-slate-50/50 p-3 rounded-xl border border-slate-100/50 text-center">
-                                    <div>
-                                        <p className="text-[8px] text-slate-400 font-extrabold uppercase tracking-wide">Pass Rate</p>
-                                        <p className="text-sm font-extrabold text-emerald-600 mt-0.5">{sub.pass_rate}%</p>
-                                    </div>
-                                    <div>
-                                        <p className="text-[8px] text-slate-400 font-extrabold uppercase tracking-wide">Score</p>
-                                        <p className="text-sm font-extrabold text-indigo-600 mt-0.5">{sub.score}</p>
-                                    </div>
-                                    <div>
-                                        <p className="text-[8px] text-slate-400 font-extrabold uppercase tracking-wide">Max Pts</p>
-                                        <p className="text-sm font-bold text-slate-500 mt-0.5">{sub.max_score}</p>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div className="mt-4 pt-3 border-t border-slate-100 flex justify-end">
-                                <button 
-                                    onClick={() => setSelectedHistoricalSub(sub)}
-                                    className="text-xs font-extrabold uppercase text-indigo-600 hover:text-indigo-700 tracking-wider flex items-center gap-1"
-                                >
-                                    <Eye size={12} />
-                                    View Scorecard
-                                </button>
-                            </div>
-                        </div>
-                    ))}
-                </div>
-            )}
-        </section>
-      )}
       </main>
 
       {/* Mobile nav */}
@@ -779,59 +763,6 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
                 </button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
-
-      {/* Historical Scorecard Modal */}
-      {selectedHistoricalSub && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-fadeIn">
-          <div className="bg-white rounded-[32px] border border-slate-100 p-6 sm:p-8 w-full max-w-[480px] shadow-2xl relative animate-slideUp text-center">
-            <button 
-              onClick={() => setSelectedHistoricalSub(null)}
-              className="absolute top-6 right-6 p-1.5 bg-slate-50 hover:bg-slate-100 text-slate-500 rounded-full transition-all outline-none"
-            >
-              <X size={16} />
-            </button>
-
-            <h3 className="text-xl font-extrabold text-slate-900 tracking-tight">Audit Scorecard Receipt</h3>
-            <p className="text-slate-450 text-xs mt-1">Official verified self-inspection scorecard.</p>
-
-            <div className="mt-6 bg-slate-50 border border-slate-200/60 rounded-2xl p-5 text-left space-y-3.5 text-xs font-bold text-slate-700">
-              <div className="flex justify-between border-b border-slate-200/50 pb-2">
-                <span className="text-slate-450 uppercase text-[9px] tracking-wide">Property</span>
-                <span className="text-slate-800">{selectedHistoricalSub.hotel_name} ({selectedHistoricalSub.hotel_code || 'SBH'})</span>
-              </div>
-              <div className="flex justify-between border-b border-slate-200/50 pb-2">
-                <span className="text-slate-450 uppercase text-[9px] tracking-wide">Inspection Batch</span>
-                <span className="text-slate-800">{selectedHistoricalSub.batch_name}</span>
-              </div>
-              <div className="flex justify-between border-b border-slate-200/50 pb-2">
-                <span className="text-slate-450 uppercase text-[9px] tracking-wide">Auditee Officer</span>
-                <span className="text-slate-800">{selectedHistoricalSub.user_name || 'Verified Officer'}</span>
-              </div>
-              <div className="flex justify-between border-b border-slate-200/50 pb-2">
-                <span className="text-slate-450 uppercase text-[9px] tracking-wide">Overall Score</span>
-                <span className="text-indigo-650 text-sm font-black">{selectedHistoricalSub.score} / {selectedHistoricalSub.max_score} PTS</span>
-              </div>
-              <div className="flex justify-between border-b border-slate-200/50 pb-2">
-                <span className="text-slate-450 uppercase text-[9px] tracking-wide">Compliance Pass Rate</span>
-                <span className="text-emerald-600 font-extrabold">{selectedHistoricalSub.pass_rate}% Pass</span>
-              </div>
-              <div className="flex justify-between pt-1">
-                <span className="text-slate-450 uppercase text-[9px] tracking-wide">Submission Timestamp</span>
-                <span className="text-slate-500 font-medium font-mono">{new Date(selectedHistoricalSub.submitted_at).toLocaleString()}</span>
-              </div>
-            </div>
-
-            <div className="mt-6">
-              <button 
-                onClick={() => setSelectedHistoricalSub(null)}
-                className="w-full py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-full font-bold text-xs tracking-wider transition-all uppercase"
-              >
-                Close Scorecard
-              </button>
-            </div>
           </div>
         </div>
       )}

@@ -20,6 +20,7 @@ export default function App() {
   const [currentScreen, setCurrentScreen] = useState<AppScreen>('login');
   const [userProfile, setUserProfile] = useState<any>(null);
   const [isLoadingSession, setIsLoadingSession] = useState(true);
+  const [selectedCategory, setSelectedCategory] = useState<any>(null);
 
   const checkSuperAdmin = (session: any) => {
     if (session.user.email === 'brandaudit@swiss-belhotel.com') {
@@ -212,8 +213,21 @@ export default function App() {
       
       {currentScreen === 'step1' && <Step1Screen onNext={() => setCurrentScreen('step2')} />}
       {currentScreen === 'step2' && <Step2Screen />}
-      {currentScreen === 'pendingCategories' && <PendingCategoriesScreen userProfile={userProfile} onBack={() => setCurrentScreen('dashboard')} onNavigate={(screen) => setCurrentScreen(screen)} />}
-      {currentScreen === 'brandingPropertyIdentification' && <BrandingPropertyIdentificationScreen onBack={() => setCurrentScreen('pendingCategories')} />}
+      {currentScreen === 'pendingCategories' && (
+        <PendingCategoriesScreen 
+          onBack={() => setCurrentScreen('dashboard')} 
+          onNavigate={(screen, category) => {
+            if (category) setSelectedCategory(category);
+            setCurrentScreen(screen);
+          }} 
+        />
+      )}
+      {currentScreen === 'brandingPropertyIdentification' && (
+        <BrandingPropertyIdentificationScreen 
+          selectedCategory={selectedCategory}
+          onBack={() => setCurrentScreen('pendingCategories')} 
+        />
+      )}
       {currentScreen === 'adminPanel' && (userProfile?.access_level === 'auditee' ? (
         <DashboardScreen 
           onViewPending={() => setCurrentScreen('pendingCategories')} 
