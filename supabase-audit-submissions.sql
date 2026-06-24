@@ -4,7 +4,7 @@
 CREATE TABLE IF NOT EXISTS audit_submissions (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     hotel_id VARCHAR(255),
-    item_id BIGINT REFERENCES audit_items(id) ON DELETE CASCADE,
+    item_id UUID REFERENCES audit_items(id) ON DELETE CASCADE,
     input_type VARCHAR(50),
     value TEXT,
     is_na BOOLEAN DEFAULT false,

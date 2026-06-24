@@ -1371,6 +1371,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     // Auditor scoring & inspection states
     const [selectedInspectionHotelId, setSelectedInspectionHotelId] = useState<string>('');
     const [selectedInspectionCategoryId, setSelectedInspectionCategoryId] = useState<string>('');
+    const [hotelSubmissions, setHotelSubmissions] = useState<Record<string, any>>({});
     const [inspectionScores, setInspectionScores] = useState<Record<string, number>>(() => {
         const stored = localStorage.getItem('sbi_inspection_scores');
         return stored ? JSON.parse(stored) : {};
@@ -1379,6 +1380,32 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         const stored = localStorage.getItem('sbi_inspection_comments');
         return stored ? JSON.parse(stored) : {};
     });
+
+    useEffect(() => {
+        const fetchSubmissions = async () => {
+            if (!selectedInspectionHotelId) {
+                setHotelSubmissions({});
+                return;
+            }
+            try {
+                const { data, error } = await supabase
+                    .from('audit_submissions')
+                    .select('*')
+                    .eq('hotel_id', selectedInspectionHotelId);
+                
+                if (error) throw error;
+                
+                const submissionsMap: Record<string, any> = {};
+                data?.forEach(sub => {
+                    submissionsMap[sub.item_id] = sub;
+                });
+                setHotelSubmissions(submissionsMap);
+            } catch (err) {
+                console.error("Error fetching hotel submissions:", err);
+            }
+        };
+        fetchSubmissions();
+    }, [selectedInspectionHotelId]);
 
     const saveInspectionScore = (hotelId: string, itemId: string, score: number) => {
         const updated = {
@@ -3808,7 +3835,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                 </button>
                                 <h2 className="text-2xl font-extrabold text-slate-900 tracking-tight">Perform Audit Inspection</h2>
                                 <p className="text-xs text-slate-500 mt-1">
-                                    Fill in quality, criteria, and compliance scores for items designated as Auditor-Only (Filled by Hotel is FALSE).
+                                    Review hotel submissions and assign quality, criteria, and compliance scores.
                                 </p>
                             </div>
                         </div>
@@ -3903,19 +3930,20 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                 const hotel = hotels.find(h => h.id === selectedInspectionHotelId);
                                 if (!hotel) return null;
 
+                                const allHotelItems = items.filter(i => true); // Get all items
                                 const auditorItems = items.filter(i => i.filled_by_hotel === false);
-                                const scoredAuditorItems = auditorItems.filter(i => inspectionScores[`${hotel.id}_${i.id}`] !== undefined);
-                                const totalPointsScored = scoredAuditorItems.reduce((sum, i) => sum + Number(inspectionScores[`${hotel.id}_${i.id}`] || 0), 0);
-                                const totalPointsMax = auditorItems.reduce((sum, i) => sum + (i.points ?? 5), 0);
+                                const scoredItems = allHotelItems.filter(i => inspectionScores[`${hotel.id}_${i.id}`] !== undefined);
+                                const totalPointsScored = scoredItems.reduce((sum, i) => sum + Number(inspectionScores[`${hotel.id}_${i.id}`] || 0), 0);
+                                const totalPointsMax = allHotelItems.reduce((sum, i) => sum + (i.points ?? 5), 0);
 
-                                // Filter categories that actually have auditor items
-                                const categoriesWithAuditorItems = catList.filter(cat => 
-                                    auditorItems.some(item => item.categoryId === cat.id)
+                                // Filter categories that actually have any items
+                                const categoriesWithItems = catList.filter(cat => 
+                                    allHotelItems.some(item => item.categoryId === cat.id)
                                 );
 
                                 // Group items by selected category or show all
-                                const activeCategoryId = selectedInspectionCategoryId || (categoriesWithAuditorItems[0]?.id || '');
-                                const filteredAuditorItems = auditorItems.filter(item => item.categoryId === activeCategoryId);
+                                const activeCategoryId = selectedInspectionCategoryId || (categoriesWithItems[0]?.id || '');
+                                const filteredItems = allHotelItems.filter(item => item.categoryId === activeCategoryId);
 
                                 return (
                                     <div className="space-y-6 animate-fadeIn">
@@ -3951,13 +3979,13 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                     <div className="flex items-center justify-between text-xs font-bold mb-1.5 text-slate-350">
                                                         <span>Auditor Criteria Progress</span>
                                                         <span className="text-indigo-300 font-extrabold">
-                                                            {scoredAuditorItems.length} / {auditorItems.length} scored
+                                                            {scoredItems.length} / {allHotelItems.length} scored
                                                         </span>
                                                     </div>
                                                     <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
                                                         <div 
                                                             className="bg-indigo-500 h-full rounded-full transition-all duration-500"
-                                                            style={{ width: `${auditorItems.length > 0 ? (scoredAuditorItems.length / auditorItems.length) * 100 : 0}%` }}
+                                                            style={{ width: `${allHotelItems.length > 0 ? (scoredItems.length / allHotelItems.length) * 100 : 0}%` }}
                                                         />
                                                     </div>
                                                 </div>
@@ -3973,11 +4001,11 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                         </div>
 
                                         {/* Categories horizontal tabs selection */}
-                                        {categoriesWithAuditorItems.length > 0 ? (
+                                        {categoriesWithItems.length > 0 ? (
                                             <div className="bg-white p-3.5 rounded-2xl border border-slate-150/80 shadow-sm flex items-center gap-1.5 overflow-x-auto scrollbar-none">
-                                                {categoriesWithAuditorItems.map(cat => {
+                                                {categoriesWithItems.map(cat => {
                                                     const isActive = activeCategoryId === cat.id;
-                                                    const catItems = auditorItems.filter(i => i.categoryId === cat.id);
+                                                    const catItems = allHotelItems.filter(i => i.categoryId === cat.id);
                                                     const scoredCatItems = catItems.filter(i => inspectionScores[`${hotel.id}_${i.id}`] !== undefined).length;
 
                                                     return (
@@ -4002,24 +4030,25 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                             </div>
                                         ) : (
                                             <div className="bg-amber-50 border border-amber-100/60 p-6 rounded-2xl text-amber-805 text-xs text-center font-bold">
-                                                No checklist items with "Filled by Hotel" set to FALSE (Auditor-Only criteria) are available in the master database. Please go back and configure your criteria first.
+                                                No checklist items are available in the master database. Please go back and configure your criteria first.
                                             </div>
                                         )}
 
                                         {/* Audit Items Scoring Card List */}
-                                        {categoriesWithAuditorItems.length > 0 && (
+                                        {categoriesWithItems.length > 0 && (
                                             <div className="space-y-4">
-                                                {filteredAuditorItems.length === 0 ? (
+                                                {filteredItems.length === 0 ? (
                                                     <div className="bg-white p-12 text-center rounded-2xl border border-slate-150">
                                                         <ClipboardList size={32} className="text-slate-300 mx-auto mb-2" />
-                                                        <p className="text-slate-400 font-bold text-xs">No Auditor-Only criteria items under this category.</p>
+                                                        <p className="text-slate-400 font-bold text-xs">No criteria items under this category.</p>
                                                     </div>
                                                 ) : (
-                                                    filteredAuditorItems.map(item => {
+                                                    filteredItems.map(item => {
                                                         const scoreKey = `${hotel.id}_${item.id}`;
                                                         const currentScore = inspectionScores[scoreKey];
                                                         const currentComment = inspectionComments[scoreKey] || '';
                                                         const maxPoints = item.points ?? 5;
+                                                        const submission = hotelSubmissions[item.id];
 
                                                         return (
                                                             <div key={item.id} className="bg-white p-5 sm:p-6 rounded-[22px] border border-slate-200 hover:border-slate-300 shadow-sm transition-all flex flex-col md:flex-row gap-5">
@@ -4029,6 +4058,15 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                         <span className="text-[10px] font-extrabold uppercase tracking-widest bg-indigo-50 text-indigo-700 border border-indigo-100/30 px-2.5 py-0.5 rounded-md whitespace-nowrap">
                                                                             {maxPoints} Max Points
                                                                         </span>
+                                                                        {item.filled_by_hotel ? (
+                                                                            <span className="text-[10px] font-extrabold bg-blue-50 text-blue-700 border border-blue-100 px-2 py-0.5 rounded-md">
+                                                                                Submitted by Hotel
+                                                                            </span>
+                                                                        ) : (
+                                                                            <span className="text-[10px] font-extrabold bg-slate-100 text-slate-600 border border-slate-200 px-2 py-0.5 rounded-md">
+                                                                                Auditor Only
+                                                                            </span>
+                                                                        )}
                                                                         {currentScore !== undefined ? (
                                                                             <span className="text-[10px] font-extrabold bg-emerald-50 text-emerald-700 border border-emerald-100 px-2 py-0.5 rounded-md flex items-center gap-1">
                                                                                 <CheckCircle size={10} />
@@ -4048,6 +4086,67 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                         <p className="text-xs text-slate-400 font-medium">
                                                                             {item.description}
                                                                         </p>
+                                                                    )}
+
+                                                                    {/* Hotel Submission Display */}
+                                                                    {item.filled_by_hotel && (
+                                                                        <div className="mt-4 p-4 bg-slate-50 border border-slate-100 rounded-xl">
+                                                                            <h5 className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">Hotel Submission</h5>
+                                                                            {submission ? (
+                                                                                <div className="space-y-2">
+                                                                                    {submission.is_na ? (
+                                                                                        <p className="text-sm text-slate-700"><strong>N/A:</strong> {submission.na_reason}</p>
+                                                                                    ) : (
+                                                                                        <>
+                                                                                            {(item.inputType === 'camera' || item.inputType === 'image') && submission.value ? (
+                                                                                                <div className="mt-2">
+                                                                                                    <img src={submission.value} alt="Submission" className="w-full sm:w-64 h-auto object-cover rounded-xl border border-slate-200 shadow-sm" />
+                                                                                                </div>
+                                                                                            ) : item.inputType === 'document' && submission.value ? (
+                                                                                                <div className="mt-2">
+                                                                                                    <a href={submission.value} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 px-3 py-2 bg-indigo-50 text-indigo-700 font-bold text-xs rounded-lg border border-indigo-100 hover:bg-indigo-100 transition-colors">
+                                                                                                        <FileText size={16} /> View Document
+                                                                                                    </a>
+                                                                                                </div>
+                                                                                            ) : item.inputType === 'checkbox' && submission.value !== undefined ? (
+                                                                                                <div className="mt-2">
+                                                                                                    {submission.value === 'true' || submission.value === true || submission.value === 'Yes' || submission.value === 'yes' ? (
+                                                                                                        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 text-emerald-700 font-bold text-sm rounded-lg border border-emerald-100">
+                                                                                                            <CheckCircle size={16} /> Checked (Yes)
+                                                                                                        </span>
+                                                                                                    ) : (
+                                                                                                        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 text-slate-600 font-bold text-sm rounded-lg border border-slate-200">
+                                                                                                            <X size={16} /> Unchecked (No)
+                                                                                                        </span>
+                                                                                                    )}
+                                                                                                </div>
+                                                                                            ) : item.inputType === 'numeric' && submission.value ? (
+                                                                                                <div className="mt-2">
+                                                                                                    <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white text-slate-800 font-extrabold text-lg rounded-lg border border-slate-200 shadow-sm">
+                                                                                                        <Hash size={18} className="text-slate-400" /> {submission.value}
+                                                                                                    </span>
+                                                                                                </div>
+                                                                                            ) : submission.value ? (
+                                                                                                <div className="mt-2 p-3 bg-white border border-slate-200 rounded-lg shadow-sm">
+                                                                                                    <p className="text-sm text-slate-800 whitespace-pre-wrap">{submission.value}</p>
+                                                                                                </div>
+                                                                                            ) : (
+                                                                                                <p className="text-sm text-slate-500 italic">No value provided.</p>
+                                                                                            )}
+                                                                                            
+                                                                                            {submission.notes && (
+                                                                                                <div className="mt-3 bg-white p-3 rounded-lg border border-slate-200">
+                                                                                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Hotel Notes</p>
+                                                                                                    <p className="text-xs text-slate-700">{submission.notes}</p>
+                                                                                                </div>
+                                                                                            )}
+                                                                                        </>
+                                                                                    )}
+                                                                                </div>
+                                                                            ) : (
+                                                                                <p className="text-sm text-amber-600 italic">No submission provided by hotel yet.</p>
+                                                                            )}
+                                                                        </div>
                                                                     )}
 
                                                                     {/* Observations Text Input */}
