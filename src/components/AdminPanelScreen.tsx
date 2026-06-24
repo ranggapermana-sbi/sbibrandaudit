@@ -243,6 +243,27 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             console.warn("Access denied for this section");
         }
     };
+
+    useEffect(() => {
+        const handlePopState = (event: PopStateEvent) => {
+            if (event.state && event.state.subView && canAccessSubView(event.state.subView)) {
+                setSubView(event.state.subView);
+            }
+        };
+        window.addEventListener('popstate', handlePopState);
+        
+        if (window.history.state?.screen === 'adminPanel' && !window.history.state?.subView) {
+            window.history.replaceState({ screen: 'adminPanel', subView }, '', `#adminPanel/${subView}`);
+        }
+        
+        return () => window.removeEventListener('popstate', handlePopState);
+    }, [userProfile]);
+
+    useEffect(() => {
+        if (window.history.state?.screen === 'adminPanel' && window.history.state?.subView !== subView) {
+            window.history.pushState({ screen: 'adminPanel', subView }, '', `#adminPanel/${subView}`);
+        }
+    }, [subView]);
     
     const handleToggleAuditorAccess = (view: string) => {
         setAuditorAccess(prev => ({ ...prev, [view]: !prev[view] }));

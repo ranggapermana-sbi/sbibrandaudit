@@ -112,6 +112,27 @@ export default function App() {
   };
 
   useEffect(() => {
+    const handlePopState = (event: PopStateEvent) => {
+      if (event.state && event.state.screen) {
+        setCurrentScreen(event.state.screen);
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    
+    if (!window.history.state?.screen) {
+      window.history.replaceState({ screen: currentScreen }, '', `#${currentScreen}`);
+    }
+    
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  useEffect(() => {
+    if (window.history.state?.screen !== currentScreen) {
+      window.history.pushState({ screen: currentScreen }, '', `#${currentScreen}`);
+    }
+  }, [currentScreen]);
+
+  useEffect(() => {
     // Check initial active session
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session) {
