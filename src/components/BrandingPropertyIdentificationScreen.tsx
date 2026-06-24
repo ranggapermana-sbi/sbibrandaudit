@@ -58,8 +58,7 @@ const resizeImage = (file: File, maxSizeMB: number): Promise<File> => {
 };
 
 const uploadToIMGBB = async (file: File): Promise<string> => {
-    // Note: To make this work in production, replace with your actual IMGBB API key
-    const IMGBB_API_KEY = 'df6d1d29d47d4e56598eb4b7b2fb29ef'; // A placeholder/free tier key
+    const IMGBB_API_KEY = '15f299b33841c0f24f364546a6d5ef3c';
     const formData = new FormData();
     formData.append('image', file);
     
@@ -72,9 +71,12 @@ const uploadToIMGBB = async (file: File): Promise<string> => {
         if (data.success) {
             return data.data.url;
         }
-        throw new Error(data.error?.message || "IMGBB Upload Failed");
+        console.error("IMGBB Upload Failed:", data);
+        alert("IMGBB Upload failed: Invalid API key. Falling back to local preview.");
+        return URL.createObjectURL(file);
     } catch (err) {
         console.error("Upload failed", err);
+        alert("IMGBB Upload failed. Falling back to local preview.");
         // Fallback for demo purposes
         return URL.createObjectURL(file); 
     }
@@ -272,9 +274,17 @@ const AuditItemCard: React.FC<{ item: any, hotelId: string }> = ({ item, hotelId
             };
 
             try {
-                await supabase.from('audit_submissions').upsert(submissionData, { onConflict: 'hotel_id,item_id' });
+                const { error } = await supabase.from('audit_submissions').upsert(submissionData, { onConflict: 'hotel_id,item_id' });
+                if (error) {
+                    console.error("Supabase upsert error:", error);
+                    if (error.code === '42P01') { // undefined_table
+                        alert("The audit_submissions table does not exist in Supabase. Please run the SQL script provided.");
+                    } else {
+                        alert("Failed to save to Supabase: " + error.message);
+                    }
+                }
             } catch (err) {
-                console.warn("Failed to save to Supabase. Table might not exist yet.", err);
+                console.warn("Failed to save to Supabase.", err);
             }
 
             localStorage.setItem(`sbi_audit_${hotelId}_${item.id}`, JSON.stringify({
