@@ -17,11 +17,18 @@ export default function DashboardScreen({ onViewPending, userProfile, onLogout }
       try {
         const { data, error } = await supabase
           .from('audit_items')
-          .select('*, audit_departments(name), audit_categories(name)')
-          .order('name');
+          .select('*, audit_departments(name), audit_categories(name)');
           
         if (error) throw error;
-        setAuditItems(data || []);
+        
+        const sortedData = (data || []).sort((a: any, b: any) => {
+          if (a.sort_order !== undefined && a.sort_order !== null && b.sort_order !== undefined && b.sort_order !== null) {
+            return Number(a.sort_order) - Number(b.sort_order);
+          }
+          return (a.name || '').localeCompare(b.name || '');
+        });
+        
+        setAuditItems(sortedData);
       } catch (err) {
         console.error('Error fetching audit items:', err);
       } finally {

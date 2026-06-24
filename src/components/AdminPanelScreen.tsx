@@ -42,6 +42,7 @@ interface AuditItem {
     inputType: 'camera' | 'image' | 'document' | 'numeric' | 'text' | 'checkbox' | 'score';
     points?: number;
     description?: string;
+    sort_order?: number;
 }
 
 interface AuditGroup {
@@ -490,29 +491,75 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         setExpandedCategories(prev => ({ ...prev, [categoryId]: !prev[categoryId] }));
     };
 
-    const handleMoveItem = (item: AuditItem, direction: 'up' | 'down') => {
+    const handleMoveItem = async (item: AuditItem, direction: 'up' | 'down') => {
         const catId = item.categoryId;
-        let catItems = itemOrder[catId] || items.filter(i => i.categoryId === catId).map(i => i.id);
-        
         const currentCatItems = items.filter(i => i.categoryId === catId);
-        catItems = catItems.filter(id => currentCatItems.some(i => i.id === id));
-        currentCatItems.forEach(i => {
-            if (!catItems.includes(i.id)) {
-                catItems.push(i.id);
-            }
+        
+        const orderArray = itemOrder[catId] || [];
+        const sortedCatItems = [...currentCatItems].sort((a, b) => {
+            const idxA = orderArray.indexOf(a.id);
+            const idxB = orderArray.indexOf(b.id);
+            if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+            if (idxA !== -1) return -1;
+            if (idxB !== -1) return 1;
+            if (a.sort_order !== undefined && b.sort_order !== undefined) return a.sort_order - b.sort_order;
+            return a.name.localeCompare(b.name);
         });
 
-        const currentIndex = catItems.indexOf(item.id);
+        const currentIndex = sortedCatItems.findIndex(i => i.id === item.id);
+        if (currentIndex === -1) return;
+
+        let targetIndex = -1;
         if (direction === 'up' && currentIndex > 0) {
-            const newCatItems = [...catItems];
-            newCatItems[currentIndex] = newCatItems[currentIndex - 1];
-            newCatItems[currentIndex - 1] = item.id;
-            saveItemOrder({ ...itemOrder, [catId]: newCatItems });
-        } else if (direction === 'down' && currentIndex < catItems.length - 1) {
-            const newCatItems = [...catItems];
-            newCatItems[currentIndex] = newCatItems[currentIndex + 1];
-            newCatItems[currentIndex + 1] = item.id;
-            saveItemOrder({ ...itemOrder, [catId]: newCatItems });
+            targetIndex = currentIndex - 1;
+        } else if (direction === 'down' && currentIndex < sortedCatItems.length - 1) {
+            targetIndex = currentIndex + 1;
+        }
+
+        if (targetIndex !== -1) {
+            const targetItem = sortedCatItems[targetIndex];
+            
+            // Swap items in local array representation
+            const newCatItemsIds = sortedCatItems.map(i => i.id);
+            newCatItemsIds[currentIndex] = targetItem.id;
+            newCatItemsIds[targetIndex] = item.id;
+            
+            // Update local state first for instant feedback
+            saveItemOrder({ ...itemOrder, [catId]: newCatItemsIds });
+
+            // Assign numeric sort_orders and save to Supabase
+            try {
+                const updates = newCatItemsIds.map((id, index) => {
+                    return fetch(`${MAIN_URL}audit_items?id=eq.${id}`, {
+                        method: 'PATCH',
+                        headers: {
+                            'apikey': MAIN_KEY,
+                            'Authorization': `Bearer ${MAIN_KEY}`,
+                            'Content-Type': 'application/json',
+                            'Prefer': 'return=minimal'
+                        },
+                        body: JSON.stringify({ sort_order: index + 1 })
+                    });
+                });
+                
+                await Promise.all(updates);
+                
+                // Update local items state
+                setItems(prevItems => {
+                    return prevItems.map(i => {
+                        const idx = newCatItemsIds.indexOf(i.id);
+                        if (idx !== -1) {
+                            return { ...i, sort_order: idx + 1 };
+                        }
+                        return i;
+                    });
+                });
+                
+                setToastMessage('Item order updated in Database successfully!');
+            } catch (err: any) {
+                console.error("Error updating sort_order in database:", err);
+                setToastMessage('Saved order locally (Run SQL script in Supabase to sync to database)');
+            }
         }
     };
 
@@ -538,8 +585,26 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 categoryId: String(item.category_id),
                 inputType: item.input_type as AuditItem['inputType'],
                 points: item.points !== undefined && item.points !== null ? Number(item.points) : (item.point !== undefined && item.point !== null ? Number(item.point) : 5),
-                description: item.description
+                description: item.description,
+                sort_order: item.sort_order !== undefined && item.sort_order !== null ? Number(item.sort_order) : undefined
             }));
+            
+            // Build initial itemOrder from fetched sort_order values
+            const initialItemOrder: Record<string, string[]> = { ...itemOrder };
+            const categoriesWithItems = Array.from(new Set(mapped.map(i => i.categoryId)));
+            categoriesWithItems.forEach(catId => {
+                const catItems = mapped.filter(i => i.categoryId === catId);
+                if (catItems.some(i => i.sort_order !== undefined)) {
+                    const sorted = [...catItems].sort((a, b) => {
+                        const sA = a.sort_order ?? 999999;
+                        const sB = b.sort_order ?? 999999;
+                        if (sA !== sB) return sA - sB;
+                        return a.name.localeCompare(b.name);
+                    });
+                    initialItemOrder[catId] = sorted.map(i => i.id);
+                }
+            });
+            setItemOrder(initialItemOrder);
             
             setItems(mapped);
             setSupabaseConnected(true);
@@ -1976,7 +2041,8 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             if (idxA !== -1 && idxB !== -1) return idxA - idxB;
             if (idxA !== -1) return -1;
             if (idxB !== -1) return 1;
-            return 0;
+            if (a.sort_order !== undefined && b.sort_order !== undefined) return a.sort_order - b.sort_order;
+            return a.name.localeCompare(b.name);
         });
 
         return {
