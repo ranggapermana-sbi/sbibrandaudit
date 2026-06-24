@@ -201,7 +201,7 @@ export default function SignupScreen({ onComplete, onLogout }: SignupScreenProps
                     method: 'POST',
                     headers: {
                         'apikey': mainAnonKey,
-                        'Authorization': `Bearer ${session.access_token || mainAnonKey}`,
+                        'Authorization': `Bearer ${mainAnonKey}`,
                         'Content-Type': 'application/json',
                         'Prefer': 'resolution=merge-duplicates'
                     },

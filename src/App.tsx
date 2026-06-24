@@ -57,7 +57,7 @@ export default function App() {
       try {
         const parsed = JSON.parse(cachedProfile);
         // Ensure onboarding is completed locally before routing to dashboard
-        if (parsed && (parsed.email === 'brandaudit@swiss-belhotel.com' || parsed.access_level === 'admin' || (parsed.first_name && parsed.role && parsed.hotel_id))) {
+        if (parsed && (parsed.email === 'brandaudit@swiss-belhotel.com' || parsed.access_level === 'admin' || (parsed.first_name && parsed.role && (parsed.hotel_id || parsed.hotel_name)))) {
           setUserProfile(parsed);
           if (parsed.email === 'brandaudit@swiss-belhotel.com' || parsed.access_level === 'admin' || parsed.access_level === 'auditor') {
             setCurrentScreen('adminPanel');
@@ -81,7 +81,7 @@ export default function App() {
       const response = await fetch(`${cleanMainUrl}/rest/v1/audit_users?id=eq.${userId}`, {
         headers: {
           'apikey': mainAnonKey,
-          'Authorization': `Bearer ${session.access_token || mainAnonKey}`
+          'Authorization': `Bearer ${mainAnonKey}`
         }
       });
       if (response.ok) {
@@ -89,7 +89,7 @@ export default function App() {
         if (Array.isArray(data) && data.length > 0) {
           const prof = data[0];
           // Check if mandatory onboarding fields are fully populated
-          if (prof && (prof.access_level === 'admin' || (prof.first_name && prof.role && prof.hotel_id))) {
+          if (prof && (prof.access_level === 'admin' || (prof.first_name && prof.role && (prof.hotel_id || prof.hotel_name)))) {
             setUserProfile(prof);
             localStorage.setItem(`sbi_profile_${userId}`, JSON.stringify(prof));
             if (prof.access_level === 'admin' || prof.access_level === 'auditor') {
