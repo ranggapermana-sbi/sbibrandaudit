@@ -1,4 +1,4 @@
-import { Menu, CheckCircle, Clock, Edit3, Building, ChevronRight, PlusCircle, LayoutDashboard, History, User, LogOut, FileText } from 'lucide-react';
+import { Menu, CheckCircle, Clock, Edit3, Building, ChevronRight, ChevronDown, PlusCircle, LayoutDashboard, History, User, LogOut, FileText, Folder, Layers, Maximize2, Minimize2 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 
@@ -11,6 +11,8 @@ interface DashboardProps {
 export default function DashboardScreen({ onViewPending, userProfile, onLogout }: DashboardProps) {
   const [auditItems, setAuditItems] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [expandedDepts, setExpandedDepts] = useState<Record<string, boolean>>({});
+  const [expandedCats, setExpandedCats] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     const fetchAuditItems = async () => {
@@ -29,6 +31,18 @@ export default function DashboardScreen({ onViewPending, userProfile, onLogout }
         });
         
         setAuditItems(sortedData);
+
+        // Auto-expand the first department and its categories by default on load
+        if (sortedData.length > 0) {
+          const firstDeptId = sortedData[0].department_id || 'unassigned-dept';
+          setExpandedDepts({ [firstDeptId]: true });
+          
+          const firstDeptCats = sortedData.filter(i => (i.department_id || 'unassigned-dept') === firstDeptId);
+          if (firstDeptCats.length > 0) {
+            const firstCatId = firstDeptCats[0].category_id || 'unassigned-cat';
+            setExpandedCats({ [firstCatId]: true });
+          }
+        }
       } catch (err) {
         console.error('Error fetching audit items:', err);
       } finally {
@@ -38,6 +52,112 @@ export default function DashboardScreen({ onViewPending, userProfile, onLogout }
 
     fetchAuditItems();
   }, []);
+
+  // Grouping auditItems by department, then category
+  const getGroupedData = () => {
+    const departmentsMap: Record<string, {
+      id: string;
+      name: string;
+      categoriesMap: Record<string, {
+        id: string;
+        name: string;
+        sort_order?: number;
+        items: any[];
+      }>;
+    }> = {};
+
+    auditItems.forEach(item => {
+      const deptId = item.department_id || 'unassigned-dept';
+      const deptName = item.audit_departments?.name || 'General / Unassigned';
+      
+      const catId = item.category_id || 'unassigned-cat';
+      const catName = item.audit_categories?.name || 'General Checklist';
+      const catSortOrder = item.audit_categories?.sort_order;
+
+      if (!departmentsMap[deptId]) {
+        departmentsMap[deptId] = {
+          id: deptId,
+          name: deptName,
+          categoriesMap: {}
+        };
+      }
+
+      if (!departmentsMap[deptId].categoriesMap[catId]) {
+        departmentsMap[deptId].categoriesMap[catId] = {
+          id: catId,
+          name: catName,
+          sort_order: catSortOrder,
+          items: []
+        };
+      }
+
+      departmentsMap[deptId].categoriesMap[catId].items.push(item);
+    });
+
+    // Convert map to sorted arrays
+    const sortedDepartments = Object.values(departmentsMap).map(dept => {
+      const sortedCategories = Object.values(dept.categoriesMap).map(cat => {
+        // Sort items by sort_order, then name
+        const sortedItems = [...cat.items].sort((a, b) => {
+          if (a.sort_order !== undefined && a.sort_order !== null && b.sort_order !== undefined && b.sort_order !== null) {
+            return Number(a.sort_order) - Number(b.sort_order);
+          }
+          return (a.name || '').localeCompare(b.name || '');
+        });
+        return {
+          ...cat,
+          items: sortedItems
+        };
+      }).sort((a, b) => {
+        // Sort categories by sort_order, then name
+        if (a.sort_order !== undefined && a.sort_order !== null && b.sort_order !== undefined && b.sort_order !== null) {
+          return Number(a.sort_order) - Number(b.sort_order);
+        }
+        return (a.name || '').localeCompare(b.name || '');
+      });
+
+      return {
+        ...dept,
+        categories: sortedCategories
+      };
+    }).sort((a, b) => a.name.localeCompare(b.name));
+
+    return sortedDepartments;
+  };
+
+  const toggleDept = (deptId: string) => {
+    setExpandedDepts(prev => ({ ...prev, [deptId]: !prev[deptId] }));
+  };
+
+  const toggleCat = (catId: string) => {
+    setExpandedCats(prev => ({ ...prev, [catId]: !prev[catId] }));
+  };
+
+  const expandAll = (groupedData: any[]) => {
+    const depts: Record<string, boolean> = {};
+    const cats: Record<string, boolean> = {};
+    groupedData.forEach(dept => {
+      depts[dept.id] = true;
+      dept.categories.forEach((cat: any) => {
+        cats[cat.id] = true;
+      });
+    });
+    setExpandedDepts(depts);
+    setExpandedCats(cats);
+  };
+
+  const collapseAll = () => {
+    setExpandedDepts({});
+    setExpandedCats({});
+  };
+
+  const groupedData = getGroupedData();
+
+  // Stats calculation
+  const totalDepts = groupedData.length;
+  const totalCats = groupedData.reduce((acc, dept) => acc + dept.categories.length, 0);
+  const totalItems = auditItems.length;
+  const totalPoints = auditItems.reduce((acc, item) => acc + (item.points || 0), 0);
 
   return (
     <div className="min-h-screen pb-24 md:pb-0 pt-20 md:pt-16 bg-transparent">
@@ -121,44 +241,188 @@ export default function DashboardScreen({ onViewPending, userProfile, onLogout }
         </section>
 
         <section>
-            <h3 className="text-lg font-bold mb-4 text-slate-900">Audit List</h3>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-5">
+                <div>
+                    <h3 className="text-lg font-bold text-slate-900 tracking-tight flex items-center gap-2">
+                        <span className="w-2 h-5 bg-indigo-600 rounded-full" />
+                        Audit Checklist Directory
+                    </h3>
+                    <p className="text-slate-400 text-xs mt-0.5 font-medium">Organized by Department and Category</p>
+                </div>
+                
+                {!isLoading && groupedData.length > 0 && (
+                    <div className="flex items-center gap-2 self-start sm:self-auto">
+                        <button 
+                            onClick={() => expandAll(groupedData)}
+                            className="p-1.5 px-3 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-full text-[11px] font-bold transition-all flex items-center gap-1.5 outline-none active:scale-95 border border-indigo-100/30"
+                        >
+                            <Maximize2 size={12} />
+                            Expand All
+                        </button>
+                        <button 
+                            onClick={collapseAll}
+                            className="p-1.5 px-3 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-full text-[11px] font-bold transition-all flex items-center gap-1.5 outline-none active:scale-95 border border-slate-200/50"
+                        >
+                            <Minimize2 size={12} />
+                            Collapse All
+                        </button>
+                    </div>
+                )}
+            </div>
+
+            {/* Micro Stats Banner */}
+            {!isLoading && groupedData.length > 0 && (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6 bg-slate-50 p-3.5 rounded-2xl border border-slate-100 text-center select-none">
+                    <div>
+                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Departments</p>
+                        <p className="text-lg font-extrabold text-slate-800 mt-0.5">{totalDepts}</p>
+                    </div>
+                    <div className="border-l border-slate-200/60">
+                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Categories</p>
+                        <p className="text-lg font-extrabold text-slate-800 mt-0.5">{totalCats}</p>
+                    </div>
+                    <div className="border-l border-slate-200/60">
+                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Audit Items</p>
+                        <p className="text-lg font-extrabold text-indigo-700 mt-0.5">{totalItems}</p>
+                    </div>
+                    <div className="border-l border-slate-200/60">
+                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Total Points</p>
+                        <p className="text-lg font-extrabold text-emerald-700 mt-0.5">{totalPoints} PTS</p>
+                    </div>
+                </div>
+            )}
+
             <div className="space-y-4">
                 {isLoading ? (
-                    <div className="text-center py-8 text-slate-400 font-bold text-sm animate-pulse">Loading audit items...</div>
-                ) : auditItems.length === 0 ? (
-                    <div className="text-center py-8 text-slate-400 font-bold text-sm">No audit items found.</div>
+                    <div className="text-center py-12 text-slate-400 font-bold text-sm animate-pulse flex flex-col items-center justify-center gap-2">
+                        <div className="w-8 h-8 rounded-full border-2 border-indigo-600 border-t-transparent animate-spin" />
+                        Loading audit directory...
+                    </div>
+                ) : groupedData.length === 0 ? (
+                    <div className="text-center py-12 text-slate-400 font-bold text-sm bg-white rounded-2xl border border-slate-200">No audit items found.</div>
                 ) : (
-                    auditItems.map(item => (
-                        <div key={item.id} className="bg-white p-5 rounded-2xl border border-slate-200 flex flex-col hover:border-indigo-300 transition-colors cursor-pointer group">
-                            <div className="flex items-start justify-between gap-4">
-                                <div className="flex items-start gap-3">
-                                    <div className="mt-0.5 p-2 bg-indigo-50 rounded-lg text-indigo-600">
-                                        <FileText size={18} />
+                    groupedData.map(dept => {
+                        const isDeptExpanded = !!expandedDepts[dept.id];
+                        const deptItemCount = dept.categories.reduce((acc: number, c: any) => acc + c.items.length, 0);
+                        const deptPoints = dept.categories.reduce((acc: number, c: any) => acc + c.items.reduce((sum: number, i: any) => sum + (i.points || 0), 0), 0);
+
+                        return (
+                            <div key={dept.id} className="bg-white rounded-[20px] border border-slate-200/80 shadow-sm overflow-hidden transition-all duration-300">
+                                {/* Department Accordion Header */}
+                                <div 
+                                    onClick={() => toggleDept(dept.id)}
+                                    className={`p-4 px-5 flex items-center justify-between gap-3 cursor-pointer select-none transition-colors duration-200 ${
+                                        isDeptExpanded ? 'bg-indigo-50/40 border-b border-slate-100' : 'hover:bg-slate-50/50'
+                                    }`}
+                                >
+                                    <div className="flex items-center gap-3.5 min-w-0">
+                                        <div className={`p-2 rounded-xl shrink-0 transition-colors ${
+                                            isDeptExpanded ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-500'
+                                        }`}>
+                                            <Building size={18} />
+                                        </div>
+                                        <div className="min-w-0">
+                                            <p className="font-bold text-slate-900 text-sm md:text-base tracking-tight truncate">
+                                                {dept.name}
+                                            </p>
+                                            <p className="text-[10px] text-slate-400 mt-0.5 font-medium flex items-center gap-1.5">
+                                                <span>{dept.categories.length} {dept.categories.length === 1 ? 'category' : 'categories'}</span>
+                                                <span className="w-1 h-1 rounded-full bg-slate-300" />
+                                                <span>{deptItemCount} checklist items</span>
+                                            </p>
+                                        </div>
                                     </div>
-                                    <div>
-                                        <p className="font-semibold text-slate-900 text-sm leading-tight">{item.name}</p>
-                                        <div className="flex flex-wrap items-center gap-1.5 mt-2">
-                                            {item.audit_departments?.name && (
-                                                <span className="text-[9px] text-slate-600 font-bold uppercase tracking-wider bg-slate-100 px-2 py-0.5 rounded-md">
-                                                    {item.audit_departments.name}
-                                                </span>
-                                            )}
-                                            {item.audit_categories?.name && (
-                                                <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider">
-                                                    {item.audit_categories.name}
-                                                </span>
-                                            )}
+
+                                    <div className="flex items-center gap-3 shrink-0">
+                                        <span className="text-[10px] font-extrabold text-slate-600 bg-slate-100 px-2 py-0.5 rounded-md">
+                                            {deptPoints} PTS
+                                        </span>
+                                        <div className={`p-1 rounded-lg text-slate-400 transition-transform duration-250 ${
+                                            isDeptExpanded ? 'rotate-180 bg-indigo-50 text-indigo-600' : 'group-hover:bg-slate-100'
+                                        }`}>
+                                            <ChevronDown size={18} />
                                         </div>
                                     </div>
                                 </div>
-                                <div className="flex-shrink-0">
-                                    <span className="text-[10px] font-bold text-indigo-700 bg-indigo-100 px-2 py-1 rounded-md whitespace-nowrap">
-                                        {item.points || 0} PTS
-                                    </span>
-                                </div>
+
+                                {/* Department Accordion Body (Contains Categories) */}
+                                {isDeptExpanded && (
+                                    <div className="p-4 bg-slate-50/30 border-t-0 space-y-3">
+                                        {dept.categories.map(cat => {
+                                            const isCatExpanded = !!expandedCats[cat.id];
+                                            const catPoints = cat.items.reduce((sum: number, i: any) => sum + (i.points || 0), 0);
+
+                                            return (
+                                                <div key={cat.id} className="bg-white rounded-xl border border-slate-150 overflow-hidden transition-all duration-200">
+                                                    {/* Category Header */}
+                                                    <div 
+                                                        onClick={() => toggleCat(cat.id)}
+                                                        className={`p-3 px-4 flex items-center justify-between gap-3 cursor-pointer select-none transition-colors duration-150 ${
+                                                            isCatExpanded ? 'bg-slate-50 border-b border-slate-100' : 'hover:bg-slate-50/40'
+                                                        }`}
+                                                    >
+                                                        <div className="flex items-center gap-2.5 min-w-0">
+                                                            <div className={`p-1.5 rounded-lg shrink-0 ${
+                                                                isCatExpanded ? 'text-indigo-600 bg-indigo-50' : 'text-slate-400'
+                                                            }`}>
+                                                                <Layers size={14} />
+                                                            </div>
+                                                            <div className="min-w-0">
+                                                                <p className="font-semibold text-slate-800 text-xs md:text-sm tracking-tight truncate">
+                                                                    {cat.name}
+                                                                </p>
+                                                            </div>
+                                                        </div>
+
+                                                        <div className="flex items-center gap-2.5 shrink-0">
+                                                            <span className="text-[9px] font-bold text-indigo-605 bg-indigo-50 px-1.5 py-0.5 rounded">
+                                                                {cat.items.length} {cat.items.length === 1 ? 'item' : 'items'} ({catPoints} PTS)
+                                                            </span>
+                                                            <div className={`text-slate-400 transition-transform duration-200 ${
+                                                                isCatExpanded ? 'rotate-180 text-indigo-500' : ''
+                                                            }`}>
+                                                                <ChevronDown size={14} />
+                                                            </div>
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Category Body (Contains checklist items) */}
+                                                    {isCatExpanded && (
+                                                        <div className="divide-y divide-slate-100">
+                                                            {cat.items.length === 0 ? (
+                                                                <p className="p-3 text-[11px] italic text-slate-450 text-center select-none bg-slate-50/20">
+                                                                    No checklist items in this category.
+                                                                </p>
+                                                            ) : (
+                                                                cat.items.map(item => (
+                                                                    <div 
+                                                                        key={item.id} 
+                                                                        className="p-3 pl-6 pr-4 flex items-start justify-between gap-3 bg-white hover:bg-indigo-50/10 transition-colors"
+                                                                    >
+                                                                        <div className="flex items-start gap-2.5 min-w-0">
+                                                                            <div className="mt-0.5 text-slate-350 shrink-0">
+                                                                                <FileText size={13} />
+                                                                            </div>
+                                                                            <p className="font-medium text-slate-700 text-xs md:text-sm leading-relaxed">
+                                                                                {item.name}
+                                                                            </p>
+                                                                        </div>
+                                                                        <span className="text-[9px] shrink-0 font-extrabold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded whitespace-nowrap self-center">
+                                                                            {item.points || 0} PTS
+                                                                        </span>
+                                                                    </div>
+                                                                ))
+                                                            )}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                )}
                             </div>
-                        </div>
-                    ))
+                        );
+                    })
                 )}
             </div>
         </section>
