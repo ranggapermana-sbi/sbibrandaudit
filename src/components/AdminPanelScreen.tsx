@@ -4923,202 +4923,214 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             {/* Item Form Dialog */}
             {isItemFormOpen && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-fadeIn">
-                    <div className="bg-white w-full max-w-md p-6 rounded-3xl border border-slate-200 shadow-xl relative animate-scaleUp">
+                    <div className="bg-white w-full max-w-4xl p-6 rounded-3xl border border-slate-200 shadow-xl relative animate-scaleUp max-h-[90vh] flex flex-col">
                         <button 
                             onClick={() => setIsItemFormOpen(false)}
-                            className="absolute top-4 right-4 p-2 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100 transition-all"
+                            className="absolute top-4 right-4 p-2 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100 transition-all z-10"
                         >
                             <X size={18} />
                         </button>
 
-                        <h3 className="text-lg font-bold text-slate-900 mb-1">
-                            {editingItem ? 'Edit Audit Item' : 'Create New Audit Item'}
-                        </h3>
-                        <p className="text-xs text-slate-500 mb-6 font-medium">
-                            {editingItem ? 'Modify the details of your audit checklist item below.' : 'Add a brand-new audit checklist item.'}
-                        </p>
+                        <div className="shrink-0 mb-6 pr-6">
+                            <h3 className="text-xl font-bold text-slate-900 mb-1">
+                                {editingItem ? 'Edit Audit Item' : 'Create New Audit Item'}
+                            </h3>
+                            <p className="text-sm text-slate-500 font-medium">
+                                {editingItem ? 'Modify the details of your audit checklist item below.' : 'Add a brand-new audit checklist item.'}
+                            </p>
+                        </div>
 
-                        <form onSubmit={handleSaveItem} className="space-y-4">
-                            {itemError && (
-                                <div className="bg-red-50 border border-red-100 p-3 rounded-xl flex items-center gap-2 text-xs text-red-600 font-bold">
-                                    <AlertCircle size={15} />
-                                    <span>{itemError}</span>
+                        <div className="flex-1 overflow-y-auto pr-2 pb-2 scrollbar-thin">
+                            <form onSubmit={handleSaveItem} className="flex flex-col h-full">
+                                {itemError && (
+                                    <div className="bg-red-50 border border-red-100 p-3 rounded-xl flex items-center gap-2 text-xs text-red-600 font-bold mb-4 shrink-0">
+                                        <AlertCircle size={15} />
+                                        <span>{itemError}</span>
+                                    </div>
+                                )}
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-5">
+                                    {/* Left Column */}
+                                    <div className="space-y-5">
+                                        <div>
+                                            <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Item Name</label>
+                                            <input 
+                                                type="text" 
+                                                placeholder="e.g. Ensure logo is visible"
+                                                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all focus:ring-1 focus:ring-indigo-100"
+                                                value={itemName}
+                                                onChange={(e) => setItemName(e.target.value)}
+                                                required
+                                            />
+                                        </div>
+
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <div>
+                                                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Department</label>
+                                                <select
+                                                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all focus:ring-1 focus:ring-indigo-100"
+                                                    value={itemDepartmentId}
+                                                    onChange={(e) => setItemDepartmentId(e.target.value)}
+                                                    required
+                                                >
+                                                    <option value="">-- Select Dept --</option>
+                                                    {departments.map((dept) => (
+                                                        <option key={dept.id} value={dept.id}>
+                                                            {dept.name}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Category</label>
+                                                <select
+                                                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all focus:ring-1 focus:ring-indigo-100"
+                                                    value={itemCategoryId}
+                                                    onChange={(e) => setItemCategoryId(e.target.value)}
+                                                    required
+                                                >
+                                                    <option value="">-- Select Cat --</option>
+                                                    {[...catList]
+                                                        .sort((a, b) => {
+                                                            const idA = Number(a.id);
+                                                            const idB = Number(b.id);
+                                                            if (!isNaN(idA) && !isNaN(idB)) {
+                                                                return idA - idB;
+                                                            }
+                                                            return a.id.localeCompare(b.id);
+                                                        })
+                                                        .map((cat) => (
+                                                            <option key={cat.id} value={cat.id}>
+                                                                {cat.name}
+                                                            </option>
+                                                        ))}
+                                                </select>
+                                            </div>
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Point (Weight)</label>
+                                            <input 
+                                                type="number" 
+                                                min="0"
+                                                max="1000"
+                                                placeholder="e.g. 5"
+                                                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all focus:ring-1 focus:ring-indigo-100"
+                                                value={itemPoints}
+                                                onChange={(e) => setItemPoints(Number(e.target.value))}
+                                                required
+                                            />
+                                        </div>
+
+                                        <div className="flex items-center justify-between bg-slate-50 border border-slate-200 hover:border-slate-300 p-4 rounded-2xl">
+                                            <div className="pr-4">
+                                                <label className="block text-xs font-bold text-slate-800 uppercase tracking-wider mb-0.5">Filled by Hotel</label>
+                                                <p className="text-[10px] text-slate-400 font-bold leading-tight">True if the hotel property fills this checklist item as part of self-audit</p>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={() => setItemFilledByHotel(!itemFilledByHotel)}
+                                                className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                                                    itemFilledByHotel ? 'bg-indigo-600' : 'bg-slate-300'
+                                                }`}
+                                            >
+                                                <span
+                                                    className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                                                        itemFilledByHotel ? 'translate-x-5' : 'translate-x-0'
+                                                    }`}
+                                                />
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {/* Right Column */}
+                                    <div className="space-y-5">
+                                        <div>
+                                            <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Input Type</label>
+                                            <div className="grid grid-cols-3 gap-2">
+                                                {[
+                                                    { id: 'camera', label: 'Camera', icon: Camera },
+                                                    { id: 'image', label: 'Image', icon: ImageIcon },
+                                                    { id: 'document', label: 'Document', icon: FileText },
+                                                    { id: 'numeric', label: 'Numeric', icon: Hash },
+                                                    { id: 'text', label: 'Text', icon: Type },
+                                                    { id: 'checkbox', label: 'Checkbox', icon: CheckSquare }
+                                                ].map((type) => (
+                                                    <button
+                                                        type="button"
+                                                        key={type.id}
+                                                        onClick={() => setItemInputType(type.id as AuditItem['inputType'])}
+                                                        className={`flex flex-col items-center justify-center p-3 rounded-xl border transition-all ${
+                                                            itemInputType === type.id 
+                                                                ? 'bg-indigo-50 border-indigo-500 text-indigo-700' 
+                                                                : 'bg-slate-50 border-slate-200 text-slate-600 hover:border-slate-300'
+                                                        }`}
+                                                    >
+                                                        <type.icon size={20} />
+                                                        <span className="text-[10px] font-bold mt-1 uppercase">{type.label}</span>
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+
+                                        {itemInputType === 'numeric' && (
+                                            <div className="animate-fadeIn">
+                                                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Minimum Value</label>
+                                                <input 
+                                                    type="number" 
+                                                    placeholder="e.g. 10"
+                                                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all focus:ring-1 focus:ring-indigo-100"
+                                                    value={itemMinValue}
+                                                    onChange={(e) => setItemMinValue(e.target.value === '' ? '' : Number(e.target.value))}
+                                                    required
+                                                />
+                                                <p className="text-[10px] text-slate-500 mt-1">
+                                                    The audit will require the inputted number to be at least this minimum value.
+                                                </p>
+                                            </div>
+                                        )}
+
+                                        <div>
+                                            <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Item Description (Optional)</label>
+                                            <textarea 
+                                                placeholder="Add item description..."
+                                                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all focus:ring-1 focus:ring-indigo-100"
+                                                value={itemItemDescription}
+                                                onChange={(e) => setItemItemDescription(e.target.value)}
+                                                rows={2}
+                                            />
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Instruction (Optional)</label>
+                                            <textarea 
+                                                placeholder="Add instruction..."
+                                                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all focus:ring-1 focus:ring-indigo-100"
+                                                value={itemInstruction}
+                                                onChange={(e) => setItemInstruction(e.target.value)}
+                                                rows={2}
+                                            />
+                                        </div>
+                                    </div>
                                 </div>
-                            )}
 
-                            <div>
-                                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Item Name</label>
-                                <input 
-                                    type="text" 
-                                    placeholder="e.g. Ensure logo is visible"
-                                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all focus:ring-1 focus:ring-indigo-100"
-                                    value={itemName}
-                                    onChange={(e) => setItemName(e.target.value)}
-                                    required
-                                />
-                            </div>
-
-                            <div>
-                                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Item Description (Optional)</label>
-                                <textarea 
-                                    placeholder="Add item description..."
-                                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all focus:ring-1 focus:ring-indigo-100"
-                                    value={itemItemDescription}
-                                    onChange={(e) => setItemItemDescription(e.target.value)}
-                                    rows={2}
-                                />
-                            </div>
-
-                            <div className="grid grid-cols-2 gap-4">
-                                <div>
-                                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Department</label>
-                                    <select
-                                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all focus:ring-1 focus:ring-indigo-100"
-                                        value={itemDepartmentId}
-                                        onChange={(e) => setItemDepartmentId(e.target.value)}
-                                        required
+                                <div className="flex gap-3 mt-auto pt-6 border-t border-slate-100 shrink-0">
+                                    <button 
+                                        type="submit"
+                                        className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white py-3.5 rounded-full font-bold text-sm transition-all shadow-lg hover:shadow-indigo-500/20 active:scale-95 outline-none"
                                     >
-                                        <option value="">-- Select Dept --</option>
-                                        {departments.map((dept) => (
-                                            <option key={dept.id} value={dept.id}>
-                                                {dept.name}
-                                            </option>
-                                        ))}
-                                    </select>
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Category</label>
-                                    <select
-                                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all focus:ring-1 focus:ring-indigo-100"
-                                        value={itemCategoryId}
-                                        onChange={(e) => setItemCategoryId(e.target.value)}
-                                        required
+                                        {editingItem ? 'Save Changes' : 'Create Item'}
+                                    </button>
+                                    <button 
+                                        type="button"
+                                        onClick={() => setIsItemFormOpen(false)}
+                                        className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-600 py-3.5 rounded-full font-bold text-sm transition-all active:scale-95 outline-none"
                                     >
-                                        <option value="">-- Select Cat --</option>
-                                        {[...catList]
-                                            .sort((a, b) => {
-                                                const idA = Number(a.id);
-                                                const idB = Number(b.id);
-                                                if (!isNaN(idA) && !isNaN(idB)) {
-                                                    return idA - idB;
-                                                }
-                                                return a.id.localeCompare(b.id);
-                                            })
-                                            .map((cat) => (
-                                                <option key={cat.id} value={cat.id}>
-                                                    {cat.name}
-                                                </option>
-                                            ))}
-                                    </select>
+                                        Cancel
+                                    </button>
                                 </div>
-                            </div>
-
-                            <div>
-                                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Input Type</label>
-                                <div className="grid grid-cols-4 gap-2">
-                                    {[
-                                        { id: 'camera', label: 'Camera', icon: Camera },
-                                        { id: 'image', label: 'Image', icon: ImageIcon },
-                                        { id: 'document', label: 'Document', icon: FileText },
-                                        { id: 'numeric', label: 'Numeric', icon: Hash },
-                                        { id: 'text', label: 'Text', icon: Type },
-                                        { id: 'checkbox', label: 'Checkbox', icon: CheckSquare }
-                                    ].map((type) => (
-                                        <button
-                                            type="button"
-                                            key={type.id}
-                                            onClick={() => setItemInputType(type.id as AuditItem['inputType'])}
-                                            className={`flex flex-col items-center justify-center p-3 rounded-xl border transition-all ${
-                                                itemInputType === type.id 
-                                                    ? 'bg-indigo-50 border-indigo-500 text-indigo-700' 
-                                                    : 'bg-slate-50 border-slate-200 text-slate-600 hover:border-slate-300'
-                                            }`}
-                                        >
-                                            <type.icon size={20} />
-                                            <span className="text-[10px] font-bold mt-1 uppercase">{type.label}</span>
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-
-                            {itemInputType === 'numeric' && (
-                                <div>
-                                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Minimum Value</label>
-                                    <input 
-                                        type="number" 
-                                        placeholder="e.g. 10"
-                                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all focus:ring-1 focus:ring-indigo-100"
-                                        value={itemMinValue}
-                                        onChange={(e) => setItemMinValue(e.target.value === '' ? '' : Number(e.target.value))}
-                                        required
-                                    />
-                                    <p className="text-[10px] text-slate-500 mt-1">
-                                        The audit will require the inputted number to be at least this minimum value.
-                                    </p>
-                                </div>
-                            )}
-
-                            <div>
-                                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Point (Weight)</label>
-                                <input 
-                                    type="number" 
-                                    min="0"
-                                    max="1000"
-                                    placeholder="e.g. 5"
-                                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all focus:ring-1 focus:ring-indigo-100"
-                                    value={itemPoints}
-                                    onChange={(e) => setItemPoints(Number(e.target.value))}
-                                    required
-                                />
-                            </div>
-
-                            <div className="flex items-center justify-between bg-slate-50 border border-slate-200 hover:border-slate-300 p-4 rounded-2xl">
-                                <div className="pr-4">
-                                    <label className="block text-xs font-bold text-slate-800 uppercase tracking-wider mb-0.5">Filled by Hotel</label>
-                                    <p className="text-[10px] text-slate-400 font-bold leading-tight">True if the hotel property fills this checklist item as part of self-audit</p>
-                                </div>
-                                <button
-                                    type="button"
-                                    onClick={() => setItemFilledByHotel(!itemFilledByHotel)}
-                                    className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                                        itemFilledByHotel ? 'bg-indigo-600' : 'bg-slate-300'
-                                    }`}
-                                >
-                                    <span
-                                        className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                                            itemFilledByHotel ? 'translate-x-5' : 'translate-x-0'
-                                        }`}
-                                    />
-                                </button>
-                            </div>
-
-                            <div>
-                                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Instruction (Optional)</label>
-                                <textarea 
-                                    placeholder="Add instruction..."
-                                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all focus:ring-1 focus:ring-indigo-100"
-                                    value={itemInstruction}
-                                    onChange={(e) => setItemInstruction(e.target.value)}
-                                    rows={3}
-                                />
-                            </div>
-
-                            <div className="flex gap-3 mt-6 pt-4 border-t border-slate-100">
-                                <button 
-                                    type="submit"
-                                    className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-full font-bold text-sm transition-all shadow-lg hover:shadow-indigo-500/10 active:scale-95 outline-none"
-                                >
-                                    {editingItem ? 'Save Changes' : 'Create Item'}
-                                </button>
-                                <button 
-                                    type="button"
-                                    onClick={() => setIsItemFormOpen(false)}
-                                    className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-600 py-3 rounded-full font-bold text-sm transition-all active:scale-95 outline-none"
-                                >
-                                    Cancel
-                                </button>
-                            </div>
-                        </form>
+                            </form>
+                        </div>
                     </div>
                 </div>
             )}
