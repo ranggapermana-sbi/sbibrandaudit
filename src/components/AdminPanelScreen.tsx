@@ -469,6 +469,52 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
 
     // CRUD state for Items
     const [items, setItems] = useState<AuditItem[]>([]);
+    const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({});
+    const [itemOrder, setItemOrder] = useState<Record<string, string[]>>({});
+
+    useEffect(() => {
+        const savedOrder = localStorage.getItem('sbi_item_orders');
+        if (savedOrder) {
+            try {
+                setItemOrder(JSON.parse(savedOrder));
+            } catch (e) {}
+        }
+    }, []);
+
+    const saveItemOrder = (newOrder: Record<string, string[]>) => {
+        setItemOrder(newOrder);
+        localStorage.setItem('sbi_item_orders', JSON.stringify(newOrder));
+    };
+
+    const toggleCategoryExpansion = (categoryId: string) => {
+        setExpandedCategories(prev => ({ ...prev, [categoryId]: !prev[categoryId] }));
+    };
+
+    const handleMoveItem = (item: AuditItem, direction: 'up' | 'down') => {
+        const catId = item.categoryId;
+        let catItems = itemOrder[catId] || items.filter(i => i.categoryId === catId).map(i => i.id);
+        
+        const currentCatItems = items.filter(i => i.categoryId === catId);
+        catItems = catItems.filter(id => currentCatItems.some(i => i.id === id));
+        currentCatItems.forEach(i => {
+            if (!catItems.includes(i.id)) {
+                catItems.push(i.id);
+            }
+        });
+
+        const currentIndex = catItems.indexOf(item.id);
+        if (direction === 'up' && currentIndex > 0) {
+            const newCatItems = [...catItems];
+            newCatItems[currentIndex] = newCatItems[currentIndex - 1];
+            newCatItems[currentIndex - 1] = item.id;
+            saveItemOrder({ ...itemOrder, [catId]: newCatItems });
+        } else if (direction === 'down' && currentIndex < catItems.length - 1) {
+            const newCatItems = [...catItems];
+            newCatItems[currentIndex] = newCatItems[currentIndex + 1];
+            newCatItems[currentIndex + 1] = item.id;
+            saveItemOrder({ ...itemOrder, [catId]: newCatItems });
+        }
+    };
 
     const fetchItemsFromSupabase = async () => {
         setIsSupabaseLoading(true);
@@ -1919,6 +1965,26 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         (i.description && i.description.toLowerCase().includes(searchQuery.toLowerCase()))
     );
 
+    const groupedItems = Array.from(new Set(filteredItems.map(i => i.categoryId))).map(catId => {
+        const cat = catList.find(c => c.id === catId);
+        const catItems = filteredItems.filter(i => i.categoryId === catId);
+        
+        const orderArray = itemOrder[catId] || [];
+        catItems.sort((a, b) => {
+            const idxA = orderArray.indexOf(a.id);
+            const idxB = orderArray.indexOf(b.id);
+            if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+            if (idxA !== -1) return -1;
+            if (idxB !== -1) return 1;
+            return 0;
+        });
+
+        return {
+            category: cat || { id: catId, name: 'Unknown Category', totalTasks: 0 },
+            items: catItems
+        };
+    }).sort((a, b) => a.category.name.localeCompare(b.category.name));
+
     const filteredGroups = groups.filter(g => 
         g.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         (g.description || '').toLowerCase().includes(searchQuery.toLowerCase())
@@ -2999,60 +3065,101 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                              </tr>
                                          </thead>
                                          <tbody className="divide-y divide-slate-100">
-                                            {filteredItems.map((item) => (
-                                                <tr key={item.id} className="hover:bg-slate-50/20 transition-colors">
-                                                    <td className="px-6 py-4 font-bold text-sm text-slate-800">{item.name}</td>
-                                                    <td className="px-6 py-4 text-xs text-slate-500 font-semibold">
-                                                        {departments.find(d => d.id === item.departmentId)?.name} / {catList.find(c => c.id === item.categoryId)?.name}
-                                                    </td>
-                                                    <td className="px-6 py-4 text-xs font-bold text-indigo-650 uppercase">
-                                                        <span className="bg-indigo-50/80 px-2.5 py-1 rounded-full text-[10px] border border-indigo-100/30">
-                                                            {item.inputType}
-                                                        </span>
-                                                    </td>
-                                                    <td className="px-6 py-4 text-xs font-bold text-slate-700 text-center">
-                                                        <span className="bg-emerald-50 text-emerald-700 border border-emerald-100 px-2.5 py-1 rounded-md text-xs font-extrabold">
-                                                            {item.points ?? 5} pts
-                                                        </span>
-                                                    </td>
-                                                    <td className="px-6 py-4 whitespace-nowrap text-right text-xs">
-                                                        {confirmItemDeleteId === item.id ? (
-                                                            <div className="inline-flex items-center gap-2 bg-red-50/85 px-3 py-1.5 rounded-xl border border-red-105 text-left animate-fadeIn">
-                                                                <span className="text-[10px] text-red-600 font-bold whitespace-nowrap">Are you sure?</span>
-                                                                <button 
-                                                                    onClick={() => handleDeleteItem(item.id)}
-                                                                    className="bg-red-600 hover:bg-red-700 text-white px-2.5 py-1 rounded-lg text-[10px] font-bold tracking-wide transition-all"
-                                                                >
-                                                                    Yes, delete
-                                                                </button>
-                                                                <button 
-                                                                    onClick={() => setConfirmItemDeleteId(null)}
-                                                                    className="bg-slate-200 hover:bg-slate-300 text-slate-700 px-2.5 py-1 rounded-lg text-[10px] font-bold tracking-wide transition-all"
-                                                                >
-                                                                    Cancel
-                                                                </button>
-                                                            </div>
-                                                        ) : (
-                                                            <div className="inline-flex gap-2 justify-end w-full">
-                                                                <button 
-                                                                    onClick={() => handleOpenEditItem(item)}
-                                                                    className="px-3 py-1.5 text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 border border-slate-200 hover:border-indigo-100 rounded-xl transition-all font-bold flex items-center gap-1.5 active:scale-95"
-                                                                >
-                                                                    <Edit size={13} />
-                                                                    <span>Edit</span>
-                                                                </button>
-                                                                <button 
-                                                                    onClick={() => setConfirmItemDeleteId(item.id)}
-                                                                    className="px-3 py-1.5 text-slate-600 hover:text-red-800 hover:bg-red-50 border border-slate-200 hover:border-red-100 rounded-xl transition-all font-bold flex items-center gap-1.5 active:scale-95"
-                                                                >
-                                                                    <Trash2 size={13} />
-                                                                    <span>Delete</span>
-                                                                </button>
-                                                            </div>
-                                                        )}
-                                                    </td>
-                                                </tr>
-                                            ))}
+                                            {groupedItems.map((group) => {
+                                                const isExpanded = expandedCategories[group.category.id];
+                                                return (
+                                                    <React.Fragment key={group.category.id}>
+                                                        <tr 
+                                                            className="bg-indigo-50/30 cursor-pointer hover:bg-indigo-50/60 transition-colors"
+                                                            onClick={() => toggleCategoryExpansion(group.category.id)}
+                                                        >
+                                                            <td colSpan={5} className="px-6 py-3 font-bold text-sm text-indigo-900">
+                                                                <div className="flex items-center gap-2">
+                                                                    {isExpanded ? <ChevronDown size={16} className="text-indigo-500" /> : <ChevronRight size={16} className="text-indigo-400" />}
+                                                                    <span>{group.category.name}</span>
+                                                                    <span className="bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full text-[10px] ml-2">
+                                                                        {group.items.length} items
+                                                                    </span>
+                                                                </div>
+                                                            </td>
+                                                        </tr>
+                                                        {isExpanded && group.items.map((item, index) => (
+                                                            <tr key={item.id} className="hover:bg-slate-50/20 transition-colors">
+                                                                <td className="px-6 py-4 font-bold text-sm text-slate-800">
+                                                                    <div className="flex items-center gap-3">
+                                                                        <div className="flex flex-col gap-0.5 text-slate-300">
+                                                                            <button 
+                                                                                onClick={(e) => { e.stopPropagation(); handleMoveItem(item, 'up'); }}
+                                                                                disabled={index === 0}
+                                                                                className="hover:text-indigo-600 disabled:opacity-30 disabled:hover:text-slate-300 transition-colors p-0.5"
+                                                                            >
+                                                                                <ChevronUp size={14} />
+                                                                            </button>
+                                                                            <button 
+                                                                                onClick={(e) => { e.stopPropagation(); handleMoveItem(item, 'down'); }}
+                                                                                disabled={index === group.items.length - 1}
+                                                                                className="hover:text-indigo-600 disabled:opacity-30 disabled:hover:text-slate-300 transition-colors p-0.5"
+                                                                            >
+                                                                                <ChevronDown size={14} />
+                                                                            </button>
+                                                                        </div>
+                                                                        <span>{item.name}</span>
+                                                                    </div>
+                                                                </td>
+                                                                <td className="px-6 py-4 text-xs text-slate-500 font-semibold">
+                                                                    {departments.find(d => d.id === item.departmentId)?.name} / {group.category.name}
+                                                                </td>
+                                                                <td className="px-6 py-4 text-xs font-bold text-indigo-650 uppercase">
+                                                                    <span className="bg-indigo-50/80 px-2.5 py-1 rounded-full text-[10px] border border-indigo-100/30">
+                                                                        {item.inputType}
+                                                                    </span>
+                                                                </td>
+                                                                <td className="px-6 py-4 text-xs font-bold text-slate-700 text-center">
+                                                                    <span className="bg-emerald-50 text-emerald-700 border border-emerald-100 px-2.5 py-1 rounded-md text-xs font-extrabold">
+                                                                        {item.points ?? 5} pts
+                                                                    </span>
+                                                                </td>
+                                                                <td className="px-6 py-4 whitespace-nowrap text-right text-xs">
+                                                                    {confirmItemDeleteId === item.id ? (
+                                                                        <div className="inline-flex items-center gap-2 bg-red-50/85 px-3 py-1.5 rounded-xl border border-red-105 text-left animate-fadeIn">
+                                                                            <span className="text-[10px] text-red-600 font-bold whitespace-nowrap">Are you sure?</span>
+                                                                            <button 
+                                                                                onClick={() => handleDeleteItem(item.id)}
+                                                                                className="bg-red-600 hover:bg-red-700 text-white px-2.5 py-1 rounded-lg text-[10px] font-bold tracking-wide transition-all"
+                                                                            >
+                                                                                Yes, delete
+                                                                            </button>
+                                                                            <button 
+                                                                                onClick={() => setConfirmItemDeleteId(null)}
+                                                                                className="bg-slate-200 hover:bg-slate-300 text-slate-700 px-2.5 py-1 rounded-lg text-[10px] font-bold tracking-wide transition-all"
+                                                                            >
+                                                                                Cancel
+                                                                            </button>
+                                                                        </div>
+                                                                    ) : (
+                                                                        <div className="inline-flex gap-2 justify-end w-full">
+                                                                            <button 
+                                                                                onClick={() => handleOpenEditItem(item)}
+                                                                                className="px-3 py-1.5 text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 border border-slate-200 hover:border-indigo-100 rounded-xl transition-all font-bold flex items-center gap-1.5 active:scale-95"
+                                                                            >
+                                                                                <Edit size={13} />
+                                                                                <span>Edit</span>
+                                                                            </button>
+                                                                            <button 
+                                                                                onClick={() => setConfirmItemDeleteId(item.id)}
+                                                                                className="px-3 py-1.5 text-slate-600 hover:text-red-800 hover:bg-red-50 border border-slate-200 hover:border-red-100 rounded-xl transition-all font-bold flex items-center gap-1.5 active:scale-95"
+                                                                            >
+                                                                                <Trash2 size={13} />
+                                                                                <span>Delete</span>
+                                                                            </button>
+                                                                        </div>
+                                                                    )}
+                                                                </td>
+                                                            </tr>
+                                                        ))}
+                                                    </React.Fragment>
+                                                );
+                                            })}
                                          </tbody>
                                      </table>
                         </div>

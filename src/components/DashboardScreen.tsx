@@ -1,13 +1,37 @@
-import { Menu, CheckCircle, Clock, Edit3, Building, ChevronRight, PlusCircle, LayoutDashboard, History, User, LogOut } from 'lucide-react';
+import { Menu, CheckCircle, Clock, Edit3, Building, ChevronRight, PlusCircle, LayoutDashboard, History, User, LogOut, FileText } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { supabase } from '../lib/supabase';
 
 interface DashboardProps {
-  onStartAudit: () => void;
   onViewPending: () => void;
   userProfile?: any;
   onLogout: () => void;
 }
 
-export default function DashboardScreen({ onStartAudit, onViewPending, userProfile, onLogout }: DashboardProps) {
+export default function DashboardScreen({ onViewPending, userProfile, onLogout }: DashboardProps) {
+  const [auditItems, setAuditItems] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchAuditItems = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('audit_items')
+          .select('*, audit_departments(name), audit_categories(name)')
+          .order('name');
+          
+        if (error) throw error;
+        setAuditItems(data || []);
+      } catch (err) {
+        console.error('Error fetching audit items:', err);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchAuditItems();
+  }, []);
+
   return (
     <div className="min-h-screen pb-24 md:pb-0 pt-20 md:pt-16 bg-transparent">
       <header className="fixed top-0 z-40 w-full flex justify-between items-center px-4 py-3 bg-white/80 backdrop-blur-md border-b border-slate-200">
@@ -60,9 +84,6 @@ export default function DashboardScreen({ onStartAudit, onViewPending, userProfi
                         </p>
                     )}
                 </div>
-                <button onClick={onStartAudit} className="bg-indigo-600 text-white px-6 py-2.5 rounded-full text-sm font-semibold flex items-center gap-2 hover:bg-slate-900 transition-all">
-                    <PlusCircle size={18} /> New Audit
-                </button>
             </div>
         </section>
 
@@ -93,31 +114,45 @@ export default function DashboardScreen({ onStartAudit, onViewPending, userProfi
         </section>
 
         <section>
-            <h3 className="text-lg font-bold mb-4 text-slate-900">Active Audit Submissions</h3>
+            <h3 className="text-lg font-bold mb-4 text-slate-900">Audit List</h3>
             <div className="space-y-4">
-                {[
-                    {name: 'Lobby & Reception', code: 'LOB-JUN-2025', progress: 75},
-                    {name: 'Guest Rooms', code: 'GRM-JUN-2025', progress: 32},
-                    {name: 'F&B Outlets', code: 'FNB-JUN-2025', progress: 90},
-                ].map(audit => (
-                    <div key={audit.code} className="bg-white p-5 rounded-2xl border border-slate-200 flex items-center justify-between hover:border-indigo-300 transition-colors">
-                        <div className="flex items-center gap-4">
-                            <Building className="text-indigo-600" />
-                            <div>
-                                <p className="font-semibold text-slate-900 text-sm">{audit.name}</p>
-                                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Code: {audit.code}</p>
+                {isLoading ? (
+                    <div className="text-center py-8 text-slate-400 font-bold text-sm animate-pulse">Loading audit items...</div>
+                ) : auditItems.length === 0 ? (
+                    <div className="text-center py-8 text-slate-400 font-bold text-sm">No audit items found.</div>
+                ) : (
+                    auditItems.map(item => (
+                        <div key={item.id} className="bg-white p-5 rounded-2xl border border-slate-200 flex flex-col hover:border-indigo-300 transition-colors cursor-pointer group">
+                            <div className="flex items-start justify-between gap-4">
+                                <div className="flex items-start gap-3">
+                                    <div className="mt-0.5 p-2 bg-indigo-50 rounded-lg text-indigo-600">
+                                        <FileText size={18} />
+                                    </div>
+                                    <div>
+                                        <p className="font-semibold text-slate-900 text-sm leading-tight">{item.name}</p>
+                                        <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                                            {item.audit_departments?.name && (
+                                                <span className="text-[9px] text-slate-600 font-bold uppercase tracking-wider bg-slate-100 px-2 py-0.5 rounded-md">
+                                                    {item.audit_departments.name}
+                                                </span>
+                                            )}
+                                            {item.audit_categories?.name && (
+                                                <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider">
+                                                    {item.audit_categories.name}
+                                                </span>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="flex-shrink-0">
+                                    <span className="text-[10px] font-bold text-indigo-700 bg-indigo-100 px-2 py-1 rounded-md whitespace-nowrap">
+                                        {item.points || 0} PTS
+                                    </span>
+                                </div>
                             </div>
                         </div>
-                        <div className="w-32">
-                            <div className="flex justify-between text-[10px] mb-1 font-bold text-slate-500">
-                                <span>Progress</span>
-                                <span>{audit.progress}%</span>
-                            </div>
-                            <div className="h-1.5 bg-slate-100 rounded-full"><div className="h-full bg-indigo-600 rounded-full" style={{width: `${audit.progress}%`}}></div></div>
-                        </div>
-                        <ChevronRight className="text-slate-400" size={18} />
-                    </div>
-                ))}
+                    ))
+                )}
             </div>
         </section>
       </main>
@@ -125,7 +160,6 @@ export default function DashboardScreen({ onStartAudit, onViewPending, userProfi
       {/* Mobile nav */}
       <nav className="md:hidden fixed bottom-0 w-full bg-white border-t border-slate-100 flex justify-around p-4 text-[10px] font-bold text-slate-400">
         <button className="flex flex-col items-center gap-1 text-slate-900"><LayoutDashboard size={20} /> Dashboard</button>
-        <button className="flex flex-col items-center gap-1"><PlusCircle size={20} /> New</button>
         <button className="flex flex-col items-center gap-1"><History size={20} /> History</button>
         <button className="flex flex-col items-center gap-1"><User size={20} /> Profile</button>
       </nav>

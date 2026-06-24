@@ -203,7 +203,6 @@ export default function App() {
 
       {currentScreen === 'dashboard' && (
         <DashboardScreen 
-          onStartAudit={() => setCurrentScreen('step1')} 
           onViewPending={() => setCurrentScreen('pendingCategories')} 
           userProfile={userProfile}
           onLogout={handleLogout}
@@ -216,7 +215,6 @@ export default function App() {
       {currentScreen === 'brandingPropertyIdentification' && <BrandingPropertyIdentificationScreen onBack={() => setCurrentScreen('pendingCategories')} />}
       {currentScreen === 'adminPanel' && (userProfile?.access_level === 'auditee' ? (
         <DashboardScreen 
-          onStartAudit={() => setCurrentScreen('step1')} 
           onViewPending={() => setCurrentScreen('pendingCategories')} 
           userProfile={userProfile}
           onLogout={handleLogout}
