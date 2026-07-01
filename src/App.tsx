@@ -23,13 +23,13 @@ export default function App() {
   const [selectedCategory, setSelectedCategory] = useState<any>(null);
 
   const checkSuperAdmin = (session: any) => {
-    if (session.user.email === 'brandaudit@swiss-belhotel.com' || session.user.email === 'ranggapermana@swiss-belhotel.com') {
+    if (session.user.email === 'brandaudit@swiss-belhotel.com') {
       const prof = {
         id: session.user.id,
         email: session.user.email,
         access_level: 'admin',
-        first_name: session.user.email === 'ranggapermana@swiss-belhotel.com' ? 'Rangga' : 'Super',
-        last_name: session.user.email === 'ranggapermana@swiss-belhotel.com' ? 'Permana' : 'Admin',
+        first_name: 'Super',
+        last_name: 'Admin',
         role: 'Super Admin'
       };
       setUserProfile(prof);
@@ -58,16 +58,23 @@ export default function App() {
     if (cachedProfile) {
       try {
         const parsed = JSON.parse(cachedProfile);
-        // Ensure onboarding is completed locally before routing to dashboard
-        if (parsed && (parsed.email === 'brandaudit@swiss-belhotel.com' || parsed.access_level === 'admin' || (parsed.first_name && parsed.role && (parsed.hotel_id || parsed.hotel_name)))) {
-          setUserProfile(parsed);
-          if (parsed.email === 'brandaudit@swiss-belhotel.com' || parsed.access_level === 'admin' || parsed.access_level === 'auditor') {
-            setCurrentScreen('adminPanel');
-          } else {
-            setCurrentScreen('dashboard');
+        // Clear stale super admin / admin cache for ranggapermana to allow auditee onboarding
+        if (parsed && parsed.email === 'ranggapermana@swiss-belhotel.com' && (parsed.role === 'Super Admin' || parsed.access_level === 'admin')) {
+          localStorage.removeItem(`sbi_profile_${userId}`);
+        } else if (parsed && parsed.role === 'Super Admin' && parsed.email !== 'brandaudit@swiss-belhotel.com') {
+          localStorage.removeItem(`sbi_profile_${userId}`);
+        } else {
+          // Ensure onboarding is completed locally before routing to dashboard
+          if (parsed && (parsed.email === 'brandaudit@swiss-belhotel.com' || parsed.access_level === 'admin' || (parsed.first_name && parsed.role && (parsed.hotel_id || parsed.hotel_name)))) {
+            setUserProfile(parsed);
+            if (parsed.email === 'brandaudit@swiss-belhotel.com' || parsed.access_level === 'admin' || parsed.access_level === 'auditor') {
+              setCurrentScreen('adminPanel');
+            } else {
+              setCurrentScreen('dashboard');
+            }
+            setIsLoadingSession(false);
+            return;
           }
-          setIsLoadingSession(false);
-          return;
         }
       } catch (e) {
         console.error("Local profile parse error", e);
@@ -89,7 +96,19 @@ export default function App() {
       if (response.ok) {
         const data = await response.json();
         if (Array.isArray(data) && data.length > 0) {
-          const prof = data[0];
+          let prof = data[0];
+          // Clear stale super admin / admin row for ranggapermana to allow proper auditee onboarding
+          if (prof && prof.email === 'ranggapermana@swiss-belhotel.com' && (prof.role === 'Super Admin' || prof.access_level === 'admin')) {
+            await fetch(`${cleanMainUrl}/rest/v1/audit_users?id=eq.${userId}`, {
+              method: 'DELETE',
+              headers: {
+                'apikey': mainAnonKey,
+                'Authorization': `Bearer ${mainAnonKey}`
+              }
+            });
+            prof = null;
+          }
+
           // Check if mandatory onboarding fields are fully populated
           if (prof && (prof.access_level === 'admin' || (prof.first_name && prof.role && (prof.hotel_id || prof.hotel_name)))) {
             setUserProfile(prof);

@@ -556,6 +556,11 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     };
 
     const handleDeleteUser = async (userId: string) => {
+        if (userProfile?.email !== 'brandaudit@swiss-belhotel.com') {
+            setToastMessage('Only the Super Admin (brandaudit@swiss-belhotel.com) is authorized to delete user profiles.');
+            setConfirmUserDeleteId(null);
+            return;
+        }
         try {
             setIsSupabaseLoading(true);
             
@@ -3233,13 +3238,15 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                         >
                                                                             <Edit size={13} />
                                                                         </button>
-                                                                        <button 
-                                                                            onClick={() => setConfirmUserDeleteId(p.id)}
-                                                                            className="p-1.5 text-red-600 hover:text-white bg-red-50 hover:bg-red-600 rounded-lg border border-red-100/50 transition-all"
-                                                                            title="Delete Profile"
-                                                                        >
-                                                                            <Trash2 size={13} />
-                                                                        </button>
+                                                                        {userProfile?.email === 'brandaudit@swiss-belhotel.com' && (
+                                                                            <button 
+                                                                                onClick={() => setConfirmUserDeleteId(p.id)}
+                                                                                className="p-1.5 text-red-600 hover:text-white bg-red-50 hover:bg-red-600 rounded-lg border border-red-100/50 transition-all"
+                                                                                title="Delete Profile"
+                                                                            >
+                                                                                <Trash2 size={13} />
+                                                                            </button>
+                                                                        )}
                                                                     </div>
                                                                 </td>
                                                             </tr>
