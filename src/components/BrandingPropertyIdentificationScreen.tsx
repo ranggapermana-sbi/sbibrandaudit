@@ -606,8 +606,8 @@ export default function BrandingPropertyIdentificationScreen({ selectedCategory,
     const [isLoading, setIsLoading] = useState(true);
     const [hotels, setHotels] = useState<any[]>([]);
     
-    // Get actual hotel ID from user profile or fallback to demo
-    const initialHotelId = userProfile?.hotel_id || localStorage.getItem('selected_hotel_id') || 'demo-hotel-123';
+    // Get actual hotel ID from user profile or fallback
+    const initialHotelId = userProfile?.hotel_id || localStorage.getItem('selected_hotel_id') || '';
     const [selectedHotelId, setSelectedHotelId] = useState<string>(initialHotelId);
 
     useEffect(() => {
@@ -619,6 +619,10 @@ export default function BrandingPropertyIdentificationScreen({ selectedCategory,
                 if (!error && data) {
                     const sorted = (data || []).sort((a: any, b: any) => (a.name || '').localeCompare(b.name || ''));
                     setHotels(sorted);
+                    if (sorted.length > 0 && (!selectedHotelId || selectedHotelId === 'demo-hotel-123')) {
+                        setSelectedHotelId(sorted[0].id);
+                        localStorage.setItem('selected_hotel_id', sorted[0].id);
+                    }
                 }
             } catch (err) {
                 console.error("Error loading hotels:", err);
@@ -697,7 +701,6 @@ export default function BrandingPropertyIdentificationScreen({ selectedCategory,
                                 }}
                                 className="w-full px-4 py-3 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white focus:ring-2 focus:ring-indigo-100 rounded-xl text-sm text-slate-800 outline-none transition-all appearance-none cursor-pointer"
                             >
-                                <option value="demo-hotel-123">Demo Hotel (Fall back pool)</option>
                                 {hotels.map(h => (
                                     <option key={h.id} value={h.id}>{h.name} ({h.code || 'CODE'})</option>
                                 ))}

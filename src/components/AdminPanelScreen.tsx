@@ -1092,20 +1092,6 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 });
             }
 
-            // Guarantee Demo Hotel is always present in the hotel lists
-            if (!mapped.some(h => h.id === 'demo-hotel-123')) {
-                mapped.push({
-                    id: 'demo-hotel-123',
-                    name: 'Demo Hotel',
-                    location: 'Jakarta, Indonesia',
-                    code: 'DEMO',
-                    brandClass: 'Swiss-Belinn',
-                    region: 'Asia Pacific',
-                    country: 'Indonesia',
-                    stars: 3
-                });
-            }
-            
             setHotels(mapped);
             setSupabaseConnected(true);
             setSupabaseErrorMsg(null);
@@ -1469,9 +1455,15 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             })
             .subscribe();
 
+        // 3-second background polling interval to guarantee instant updates if WebSocket/real-time replication is disabled
+        const interval = setInterval(() => {
+            fetchSubmissions();
+        }, 3000);
+
         return () => {
             active = false;
             supabase.removeChannel(channel);
+            clearInterval(interval);
         };
     }, [selectedInspectionHotelId]);
 
@@ -4117,15 +4109,8 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                 .select('*')
                                                                 .eq('hotel_id', hotel.id);
                                                             
-                                                            const { data: demoData, error: e2 } = await supabase
-                                                                .from('audit_submissions')
-                                                                .select('*')
-                                                                .eq('hotel_id', 'demo-hotel-123');
-                                                                
-                                                            if (!e1 || !e2) {
+                                                            if (!e1) {
                                                                 const submissionsMap: Record<string, any> = {};
-                                                                // Load demo first, so direct data can override it if both exist
-                                                                if (demoData) demoData.forEach(sub => submissionsMap[sub.item_id] = { ...sub, _is_demo: true });
                                                                 if (directData) directData.forEach(sub => submissionsMap[sub.item_id] = sub);
                                                                 
                                                                 setHotelSubmissions(submissionsMap);
@@ -4353,38 +4338,10 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                             </div>
                                                                                             <h5 className="text-xs font-black text-amber-800 uppercase tracking-tight">Awaiting Property Action</h5>
                                                                                             <p className="text-[11px] text-amber-600 font-bold mt-1">The hotel has not yet uploaded evidence for this criteria.</p>
-                                                                                            <button 
-                                                                                                onClick={async () => {
-                                                                                                    const { data, error } = await supabase
-                                                                                                        .from('audit_submissions')
-                                                                                                        .select('*')
-                                                                                                        .eq('hotel_id', hotel.id)
-                                                                                                        .eq('item_id', item.id);
-                                                                                                    
-                                                                                                    if (!error && data && data.length > 0) {
-                                                                                                        setHotelSubmissions(prev => ({...prev, [item.id]: data[0]}));
-                                                                                                        setToastMessage("Synced successfully!");
-                                                                                                    } else {
-                                                                                                        // Fallback to demo pool check
-                                                                                                        const { data: demoData } = await supabase
-                                                                                                            .from('audit_submissions')
-                                                                                                            .select('*')
-                                                                                                            .eq('hotel_id', 'demo-hotel-123')
-                                                                                                            .eq('item_id', item.id);
-                                                                                                        
-                                                                                                        if (demoData && demoData.length > 0) {
-                                                                                                            setHotelSubmissions(prev => ({...prev, [item.id]: { ...demoData[0], _is_demo: true }}));
-                                                                                                            setToastMessage("Linked from demo pool");
-                                                                                                        } else {
-                                                                                                            setToastMessage("Still no submission found.");
-                                                                                                        }
-                                                                                                    }
-                                                                                                    setTimeout(() => setToastMessage(null), 1500);
-                                                                                                }}
-                                                                                                className="mt-3 text-[10px] font-black text-amber-700 underline underline-offset-2 hover:text-amber-900"
-                                                                                            >
-                                                                                                Check Again
-                                                                                            </button>
+                                                                                            <span className="mt-3 inline-flex items-center gap-1.5 px-3 py-1 bg-amber-50 rounded-full text-[9px] font-black text-amber-700 uppercase tracking-widest animate-pulse border border-amber-200">
+                                                                                                <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                                                                                                Live Sync Active
+                                                                                            </span>
                                                                                         </div>
                                                                                     )}
                                                                                 </div>
