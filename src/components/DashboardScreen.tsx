@@ -436,10 +436,10 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
           </section>
         ) : null}
 
-        <section className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        <section className="mb-8">
             <div 
               onClick={onViewPending} 
-              className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm cursor-pointer hover:border-indigo-300 transition-all duration-200 hover:shadow-md group"
+              className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm cursor-pointer hover:border-indigo-300 transition-all duration-200 hover:shadow-md group max-w-md"
               title="Click to perform self-audit and upload evidence photos"
             >
                 <div className="flex justify-between items-start mb-2">
@@ -450,31 +450,6 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
                 <p className="text-3xl font-extrabold text-slate-900 mt-1 flex items-baseline gap-1.5">
                   {totalItems}
                   <span className="text-xs text-slate-400 font-bold uppercase tracking-wider">items</span>
-                </p>
-            </div>
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-                <div className="flex justify-between items-start mb-2">
-                    <Layers className="text-indigo-600" size={24}/>
-                    <span className="text-slate-500 text-[10px] font-extrabold bg-slate-50 px-2 py-0.5 rounded-md uppercase tracking-wider">Synced</span>
-                </div>
-                <p className="text-slate-500 text-xs font-bold uppercase tracking-wide">Checklist Categories</p>
-                <p className="text-3xl font-extrabold text-slate-900 mt-1 flex items-baseline gap-1.5">
-                  {totalCats}
-                  <span className="text-xs text-slate-400 font-bold uppercase tracking-wider">groups</span>
-                </p>
-            </div>
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-                <div className="flex justify-between items-start mb-2">
-                    <Building className="text-indigo-600" size={24}/>
-                    <span className="text-emerald-600 text-[10px] font-extrabold bg-emerald-50 px-2 py-0.5 rounded-md uppercase tracking-wider flex items-center gap-1">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping inline-block" />
-                      Live
-                    </span>
-                </div>
-                <p className="text-slate-500 text-xs font-bold uppercase tracking-wide">Property Departments</p>
-                <p className="text-3xl font-extrabold text-slate-900 mt-1 flex items-baseline gap-1.5">
-                  {totalDepts}
-                  <span className="text-xs text-slate-400 font-bold uppercase tracking-wider">areas</span>
                 </p>
             </div>
         </section>
