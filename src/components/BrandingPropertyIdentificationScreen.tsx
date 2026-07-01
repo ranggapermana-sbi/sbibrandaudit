@@ -723,7 +723,7 @@ export default function BrandingPropertyIdentificationScreen({ selectedCategory,
                 
                 if (error) throw error;
                 
-                const filtered = (data || []).filter((item: any) => item.filled_by_hotel !== false);
+                const filtered = (data || []).filter((item: any) => item.filled_by_hotel !== false && item.filled_by_hotel !== 'false');
                 
                 const sorted = filtered.sort((a: any, b: any) => {
                     if (a.sort_order !== undefined && a.sort_order !== null && b.sort_order !== undefined && b.sort_order !== null) {

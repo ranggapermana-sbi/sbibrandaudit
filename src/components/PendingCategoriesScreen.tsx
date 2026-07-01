@@ -31,7 +31,7 @@ export default function PendingCategoriesScreen({ onBack, onNavigate }: PendingC
             const mapped = (catsData || []).map((cat: any) => {
                 const catItems = (itemsData || []).filter((item: any) => 
                     item.category_id === cat.id && 
-                    item.filled_by_hotel !== false
+                    item.filled_by_hotel !== false && item.filled_by_hotel !== 'false'
                 );
                 
                 // Retrieve completed count from localStorage mock-progress

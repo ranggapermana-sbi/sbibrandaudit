@@ -67,7 +67,7 @@ export default function App() {
           // Ensure onboarding is completed locally before routing to dashboard
           if (parsed && (parsed.email === 'brandaudit@swiss-belhotel.com' || parsed.access_level === 'admin' || (parsed.first_name && parsed.role && (parsed.hotel_id || parsed.hotel_name)))) {
             setUserProfile(parsed);
-            if (parsed.email === 'brandaudit@swiss-belhotel.com' || parsed.access_level === 'admin' || parsed.access_level === 'auditor') {
+            if (parsed.email === 'brandaudit@swiss-belhotel.com' || parsed.access_level === 'admin') {
               setCurrentScreen('adminPanel');
             } else {
               setCurrentScreen('dashboard');
@@ -113,7 +113,7 @@ export default function App() {
           if (prof && (prof.access_level === 'admin' || (prof.first_name && prof.role && (prof.hotel_id || prof.hotel_name)))) {
             setUserProfile(prof);
             localStorage.setItem(`sbi_profile_${userId}`, JSON.stringify(prof));
-            if (prof.access_level === 'admin' || prof.access_level === 'auditor') {
+            if (prof.access_level === 'admin') {
               setCurrentScreen('adminPanel');
             } else {
               setCurrentScreen('dashboard');
@@ -216,7 +216,7 @@ export default function App() {
         <SignupScreen 
           onComplete={(profile) => {
             setUserProfile(profile);
-            if (profile?.access_level === 'admin' || profile?.access_level === 'auditor' || profile?.role === 'Auditor') {
+            if (profile?.access_level === 'admin') {
               setCurrentScreen('adminPanel');
             } else {
               setCurrentScreen('dashboard');
@@ -253,15 +253,15 @@ export default function App() {
           onBack={() => setCurrentScreen('pendingCategories')} 
         />
       )}
-      {currentScreen === 'adminPanel' && (userProfile?.access_level === 'auditee' ? (
+      {currentScreen === 'adminPanel' && (userProfile?.access_level === 'admin' ? (
+        <AdminPanelScreen userProfile={userProfile} onBack={() => setCurrentScreen('dashboard')} onLogout={handleLogout} />
+      ) : (
         <DashboardScreen 
           onViewPending={() => setCurrentScreen('pendingCategories')} 
           userProfile={userProfile}
           onProfileUpdate={setUserProfile}
           onLogout={handleLogout}
         />
-      ) : (
-        <AdminPanelScreen userProfile={userProfile} onBack={() => setCurrentScreen('dashboard')} onLogout={handleLogout} />
       ))}
     </div>
   );
