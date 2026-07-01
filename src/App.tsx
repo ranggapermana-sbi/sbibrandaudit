@@ -181,6 +181,10 @@ export default function App() {
   const handleLogout = async () => {
     setIsLoadingSession(true);
     await supabase.auth.signOut();
+    // Clear profile cache
+    if (userProfile?.id) {
+      localStorage.removeItem(`sbi_profile_${userProfile.id}`);
+    }
     setUserProfile(null);
     setCurrentScreen('login');
     setIsLoadingSession(false);
