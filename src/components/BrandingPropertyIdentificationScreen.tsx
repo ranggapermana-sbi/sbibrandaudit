@@ -612,18 +612,17 @@ const AuditItemCard: React.FC<{ item: any, hotelId: string }> = ({ item, hotelId
                     </button>
                 </div>
                 
-                {isNa && (
-                    <div className="animate-fadeIn mb-5">
-                        <textarea 
-                            className="w-full px-4 py-3.5 bg-amber-50/50 border border-amber-200 focus:border-amber-400 rounded-xl text-sm text-slate-800 outline-none transition-all resize-none placeholder-amber-500/60 shadow-inner"
-                            placeholder="Please provide a reason why this is not available..."
-                            rows={2}
-                            value={naReason}
-                            onChange={(e) => setNaReason(e.target.value)}
-                            disabled={isSubmitted}
-                        />
-                    </div>
-                )}
+                <div className="mb-5">
+                    <label className="text-xs font-black text-slate-500 uppercase tracking-widest block mb-1.5">Remark/Notes</label>
+                    <textarea 
+                        className={`w-full px-4 py-3 bg-slate-50 border ${isNa ? 'border-amber-200 focus:border-amber-400 focus:bg-amber-50/20' : 'border-slate-200 focus:border-indigo-400'} focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all resize-none shadow-sm`}
+                        placeholder={isNa ? "Please provide a reason why this is not available..." : "Enter any comments, observations, or notes here..."}
+                        rows={2}
+                        value={naReason}
+                        onChange={(e) => setNaReason(e.target.value)}
+                        disabled={isSubmitted}
+                    />
+                </div>
 
                 {/* Submit Button */}
                 {!isSubmitted ? (
