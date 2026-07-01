@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ChevronRight, Camera, Loader2, CheckCircle2, Image as ImageIcon, FileUp, Hash, Type, CheckSquare, UploadCloud, X, AlertCircle, RefreshCw } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { supabase, HOTELS_URL, HOTELS_KEY } from '../lib/supabase';
 
 interface BrandingPropertyProps {
   selectedCategory: any;
@@ -58,6 +58,15 @@ const resizeImage = (file: File, maxSizeMB: number): Promise<File> => {
     });
 };
 
+const fileToBase64 = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = (err) => reject(err);
+        reader.readAsDataURL(file);
+    });
+};
+
 const uploadToIMGBB = async (file: File): Promise<string> => {
     const IMGBB_API_KEY = '15f299b33841c0f24f364546a6d5ef3c';
     const formData = new FormData();
@@ -73,13 +82,12 @@ const uploadToIMGBB = async (file: File): Promise<string> => {
             return data.data.url;
         }
         console.error("IMGBB Upload Failed:", data);
-        alert("IMGBB Upload failed: Invalid API key. Falling back to local preview.");
-        return URL.createObjectURL(file);
+        console.warn("Falling back to Base64 representation for persistent access.");
+        return await fileToBase64(file);
     } catch (err) {
         console.error("Upload failed", err);
-        alert("IMGBB Upload failed. Falling back to local preview.");
-        // Fallback for demo purposes
-        return URL.createObjectURL(file); 
+        console.warn("Falling back to Base64 representation for persistent access.");
+        return await fileToBase64(file); 
     }
 }
 
@@ -162,21 +170,61 @@ const AuditItemCard: React.FC<{ item: any, hotelId: string }> = ({ item, hotelId
         };
     }, []);
 
-    // Initialize from local storage
+    // Initialize from Supabase with local storage fallback
     useEffect(() => {
-        const stored = localStorage.getItem(`sbi_audit_${hotelId}_${item.id}`);
-        if (stored) {
+        let active = true;
+        const fetchExistingSubmission = async () => {
+            if (!hotelId || !item.id) return;
             try {
-                const data = JSON.parse(stored);
-                setValue(data.value || '');
-                setIsNa(data.is_na || false);
-                setNaReason(data.na_reason || '');
-                setIsSubmitted(data.isSubmitted || false);
-                if (data.value && (item.input_type === 'camera' || item.input_type === 'image')) {
-                    setPreviewUrl(data.value);
+                const { data, error } = await supabase
+                    .from('audit_submissions')
+                    .select('*')
+                    .eq('hotel_id', hotelId)
+                    .eq('item_id', item.id);
+                
+                if (!error && data && data.length > 0 && active) {
+                    const submission = data[0];
+                    setValue(submission.value || '');
+                    setIsNa(submission.is_na || false);
+                    setNaReason(submission.na_reason || '');
+                    setIsSubmitted(true);
+                    if (submission.value && (item.input_type === 'camera' || item.input_type === 'image')) {
+                        setPreviewUrl(submission.value);
+                    }
+                    // Sync to local storage
+                    localStorage.setItem(`sbi_audit_${hotelId}_${item.id}`, JSON.stringify({
+                        ...submission,
+                        isSubmitted: true
+                    }));
+                } else {
+                    // Fall back to local storage if no cloud record
+                    const stored = localStorage.getItem(`sbi_audit_${hotelId}_${item.id}`);
+                    if (stored && active) {
+                        try {
+                            const localData = JSON.parse(stored);
+                            setValue(localData.value || '');
+                            setIsNa(localData.is_na || false);
+                            setNaReason(localData.na_reason || '');
+                            setIsSubmitted(localData.isSubmitted || false);
+                            if (localData.value && (item.input_type === 'camera' || item.input_type === 'image')) {
+                                setPreviewUrl(localData.value);
+                            }
+                        } catch (e) {}
+                    } else if (active) {
+                        // Reset to default empty state if neither exists
+                        setValue('');
+                        setIsNa(false);
+                        setNaReason('');
+                        setIsSubmitted(false);
+                        setPreviewUrl(null);
+                    }
                 }
-            } catch (e) {}
-        }
+            } catch (err) {
+                console.error("Error fetching submission from Supabase:", err);
+            }
+        };
+        fetchExistingSubmission();
+        return () => { active = false; };
     }, [hotelId, item.id, item.input_type]);
 
     const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -208,8 +256,10 @@ const AuditItemCard: React.FC<{ item: any, hotelId: string }> = ({ item, hotelId
                 if (item.input_type === 'camera' || item.input_type === 'image') {
                     if (selectedFile) {
                         let fileToUpload = selectedFile;
-                        if (item.input_type === 'image') {
+                        try {
                             fileToUpload = await resizeImage(selectedFile, 1);
+                        } catch (resizeErr) {
+                            console.warn("Resize failed, using original file", resizeErr);
                         }
                         finalValue = await uploadToIMGBB(fileToUpload);
                     } else if (!finalValue) {
@@ -337,7 +387,7 @@ const AuditItemCard: React.FC<{ item: any, hotelId: string }> = ({ item, hotelId
                         
                         {previewUrl ? (
                             <div className="relative inline-block group w-full sm:w-auto">
-                                <img src={previewUrl} alt="Preview" className="w-full sm:w-48 h-48 object-cover rounded-xl border border-slate-200 shadow-sm" />
+                                <img src={previewUrl} alt="Preview" referrerPolicy="no-referrer" className="w-full sm:w-48 h-48 object-cover rounded-xl border border-slate-200 shadow-sm" />
                                 {!isSubmitted && (
                                     <button 
                                         onClick={() => { setPreviewUrl(null); setSelectedFile(null); setValue(''); }}
@@ -365,7 +415,7 @@ const AuditItemCard: React.FC<{ item: any, hotelId: string }> = ({ item, hotelId
                     <div className="mt-3">
                         {previewUrl ? (
                             <div className="relative inline-block group w-full sm:w-auto">
-                                <img src={previewUrl} alt="Preview" className="w-full sm:w-48 h-48 object-cover rounded-xl border border-slate-200 shadow-sm" />
+                                <img src={previewUrl} alt="Preview" referrerPolicy="no-referrer" className="w-full sm:w-48 h-48 object-cover rounded-xl border border-slate-200 shadow-sm" />
                                 {!isSubmitted && (
                                     <button 
                                         onClick={() => { setPreviewUrl(null); setSelectedFile(null); setValue(''); }}
@@ -606,22 +656,49 @@ export default function BrandingPropertyIdentificationScreen({ selectedCategory,
     const [isLoading, setIsLoading] = useState(true);
     const [hotels, setHotels] = useState<any[]>([]);
     
+    const isAuditee = !!userProfile && userProfile.access_level !== 'admin' && userProfile.access_level !== 'auditor';
+    
     // Get actual hotel ID from user profile or fallback
-    const initialHotelId = userProfile?.hotel_id || localStorage.getItem('selected_hotel_id') || '';
+    const initialHotelId = isAuditee ? (userProfile?.hotel_id || '') : (userProfile?.hotel_id || localStorage.getItem('selected_hotel_id') || '');
     const [selectedHotelId, setSelectedHotelId] = useState<string>(initialHotelId);
+
+    useEffect(() => {
+        if (isAuditee && userProfile?.hotel_id) {
+            setSelectedHotelId(userProfile.hotel_id);
+        }
+    }, [isAuditee, userProfile?.hotel_id]);
 
     useEffect(() => {
         const loadHotels = async () => {
             try {
-                const { data, error } = await supabase
-                    .from('hotels')
-                    .select('*');
-                if (!error && data) {
-                    const sorted = (data || []).sort((a: any, b: any) => (a.name || '').localeCompare(b.name || ''));
-                    setHotels(sorted);
-                    if (sorted.length > 0 && (!selectedHotelId || selectedHotelId === 'demo-hotel-123')) {
-                        setSelectedHotelId(sorted[0].id);
-                        localStorage.setItem('selected_hotel_id', sorted[0].id);
+                const response = await fetch(`${HOTELS_URL}hotels?select=*`, {
+                    headers: {
+                        'apikey': HOTELS_KEY,
+                        'Authorization': `Bearer ${HOTELS_KEY}`
+                    }
+                });
+                if (response.ok) {
+                    const data = await response.json();
+                    if (Array.isArray(data)) {
+                        const mapped = data.map((item: any) => {
+                            const rawId = item.id !== undefined && item.id !== null ? String(item.id) : '';
+                            const fallbackId = item.hotel_id !== undefined && item.hotel_id !== null ? String(item.hotel_id) : '';
+                            const finalId = rawId || fallbackId || item.code || String(item.name || '').replace(/\s+/g, '-').toLowerCase();
+                            return {
+                                id: finalId,
+                                name: item.name || item.hotel_name || '',
+                                location: item.location || item.city_country || '',
+                                code: item.code || ''
+                            };
+                        });
+                        const sorted = mapped.sort((a: any, b: any) => (a.name || '').localeCompare(b.name || ''));
+                        setHotels(sorted);
+                        if (sorted.length > 0 && (!selectedHotelId || selectedHotelId === 'demo-hotel-123')) {
+                            if (!isAuditee) {
+                                setSelectedHotelId(sorted[0].id);
+                                localStorage.setItem('selected_hotel_id', sorted[0].id);
+                            }
+                        }
                     }
                 }
             } catch (err) {
@@ -684,8 +761,33 @@ export default function BrandingPropertyIdentificationScreen({ selectedCategory,
             </header>
             
             <main className="max-w-2xl mx-auto p-4 space-y-5">
-                {/* Property selector for Admin/Auditor or unassigned users */}
-                {(!userProfile?.hotel_id || userProfile?.access_level === 'admin' || userProfile?.access_level === 'auditor') && (
+                {/* For Auditees, show their assigned hotel property in read-only mode */}
+                {isAuditee && (
+                    userProfile?.hotel_id ? (
+                        <div className="bg-white rounded-3xl border border-slate-200 p-5 shadow-sm space-y-1.5 animate-fadeIn">
+                            <div className="flex items-center gap-2">
+                                <span className="w-2.5 h-2.5 rounded-full bg-indigo-600" />
+                                <span className="text-[10px] font-black text-indigo-700 uppercase tracking-widest block">Representing Property (Auditee Mode)</span>
+                            </div>
+                            <p className="text-base font-bold text-slate-800">
+                                {userProfile?.hotel_name || hotels.find(h => h.id === selectedHotelId)?.name || 'Your Assigned Hotel'}
+                            </p>
+                            {userProfile?.hotel_code && (
+                                <span className="inline-block bg-indigo-50 text-indigo-700 text-[10px] font-black px-2.5 py-1 rounded-lg uppercase tracking-wider border border-indigo-100">
+                                    {userProfile.hotel_code}
+                                </span>
+                            )}
+                        </div>
+                    ) : (
+                        <div className="bg-amber-50 border border-amber-200 rounded-3xl p-5 shadow-sm text-center animate-fadeIn">
+                            <p className="text-sm font-bold text-amber-800">No Assigned Property</p>
+                            <p className="text-xs text-amber-600 mt-1">Your user profile is not currently assigned to any hotel. Please contact an administrator to set up your hotel assignment.</p>
+                        </div>
+                    )
+                )}
+
+                {/* Property selector for Admin/Auditor or unassigned non-auditee users */}
+                {!isAuditee && (!userProfile?.hotel_id || userProfile?.access_level === 'admin' || userProfile?.access_level === 'auditor') && (
                     <div className="bg-white rounded-3xl border border-slate-200 p-5 shadow-sm space-y-3 animate-fadeIn">
                         <div className="flex items-center gap-2">
                             <span className="w-2.5 h-2.5 rounded-full bg-indigo-500 animate-pulse" />

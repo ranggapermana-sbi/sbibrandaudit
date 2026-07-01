@@ -95,8 +95,9 @@ export default function SignupScreen({ onComplete, onLogout }: SignupScreenProps
                         const mapped: Hotel[] = data.map((item: any) => {
                             const rawId = item.id !== undefined && item.id !== null ? String(item.id) : '';
                             const fallbackId = item.hotel_id !== undefined && item.hotel_id !== null ? String(item.hotel_id) : '';
+                            const finalId = rawId || fallbackId || item.code || String(item.name || '').replace(/\s+/g, '-').toLowerCase();
                             return {
-                                id: rawId || fallbackId,
+                                id: finalId,
                                 name: item.name || item.hotel_name || '',
                                 location: item.location || item.city_country || 'Indonesia',
                                 code: item.code || '',

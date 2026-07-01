@@ -628,21 +628,44 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     }, []);
 
     useEffect(() => {
-        if (subView === 'inspection') {
-            const fetchAllSubmissions = async () => {
-                try {
-                    const { data, error } = await supabase
-                        .from('audit_submissions')
-                        .select('hotel_id, item_id');
-                    if (!error && data) {
-                        setAllSubmissions(data);
-                    }
-                } catch (e) {
-                    console.error("Error fetching all submissions:", e);
+        if (subView !== 'inspection') return;
+
+        let active = true;
+        const fetchAllSubmissions = async () => {
+            try {
+                const { data, error } = await supabase
+                    .from('audit_submissions')
+                    .select('hotel_id, item_id');
+                if (!error && data && active) {
+                    setAllSubmissions(data);
                 }
-            };
+            } catch (e) {
+                console.error("Error fetching all submissions:", e);
+            }
+        };
+
+        fetchAllSubmissions();
+
+        const channel = supabase
+            .channel('all-submissions-realtime')
+            .on('postgres_changes', {
+                event: '*',
+                schema: 'public',
+                table: 'audit_submissions'
+            }, () => {
+                fetchAllSubmissions();
+            })
+            .subscribe();
+
+        const interval = setInterval(() => {
             fetchAllSubmissions();
-        }
+        }, 3000);
+
+        return () => {
+            active = false;
+            supabase.removeChannel(channel);
+            clearInterval(interval);
+        };
     }, [subView]);
 
     const fetchCategoriesFromSupabase = async () => {
@@ -1062,8 +1085,12 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                     }
                 }
 
+                const rawId = item.id !== undefined && item.id !== null ? String(item.id) : '';
+                const fallbackId = item.hotel_id !== undefined && item.hotel_id !== null ? String(item.hotel_id) : '';
+                const finalId = rawId || fallbackId || item.code || String(item.name || '').replace(/\s+/g, '-').toLowerCase();
+
                 return {
-                    id: item.id ? String(item.id) : Date.now().toString() + Math.random().toString(),
+                    id: finalId,
                     name: item.name || item.hotel_name || '',
                     location: item.location || item.city_country || '',
                     code: item.code || '',
@@ -1413,6 +1440,31 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         return stored ? JSON.parse(stored) : {};
     });
 
+    const isSubmissionForHotel = (submissionHotelId: string, hotel: Hotel) => {
+        if (!submissionHotelId || !hotel) return false;
+        
+        const subIdLower = String(submissionHotelId).toLowerCase();
+        const hotelIdLower = String(hotel.id).toLowerCase();
+        
+        if (subIdLower === hotelIdLower) return true;
+        
+        if (hotel.code && subIdLower === String(hotel.code).toLowerCase()) return true;
+        
+        const associatedIds = new Set<string>();
+        profilesList.forEach(p => {
+            const matchesCode = p.hotel_code && hotel.code && String(p.hotel_code).toLowerCase() === String(hotel.code).toLowerCase();
+            const matchesName = p.hotel_name && hotel.name && String(p.hotel_name).toLowerCase() === String(hotel.name).toLowerCase();
+            const matchesId = p.hotel_id && hotel.id && String(p.hotel_id).toLowerCase() === String(hotel.id).toLowerCase();
+            if (matchesCode || matchesName || matchesId) {
+                if (p.hotel_id) associatedIds.add(String(p.hotel_id).toLowerCase());
+            }
+        });
+        
+        if (associatedIds.has(subIdLower)) return true;
+        
+        return false;
+    };
+
     useEffect(() => {
         let active = true;
         const fetchSubmissions = async () => {
@@ -1421,10 +1473,29 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 return;
             }
             try {
+                const hotel = hotels.find(h => h.id === selectedInspectionHotelId);
+                const associatedIds = new Set<string>();
+                if (hotel) {
+                    associatedIds.add(hotel.id);
+                    if (hotel.code) associatedIds.add(hotel.code);
+                    associatedIds.add(hotel.name);
+                    
+                    profilesList.forEach(p => {
+                        const matchesCode = p.hotel_code && hotel.code && String(p.hotel_code).toLowerCase() === String(hotel.code).toLowerCase();
+                        const matchesName = p.hotel_name && hotel.name && String(p.hotel_name).toLowerCase() === String(hotel.name).toLowerCase();
+                        const matchesId = p.hotel_id && hotel.id && String(p.hotel_id).toLowerCase() === String(hotel.id).toLowerCase();
+                        if (matchesCode || matchesName || matchesId) {
+                            if (p.hotel_id) associatedIds.add(String(p.hotel_id));
+                        }
+                    });
+                } else {
+                    associatedIds.add(selectedInspectionHotelId);
+                }
+
                 const { data, error } = await supabase
                     .from('audit_submissions')
                     .select('*')
-                    .eq('hotel_id', selectedInspectionHotelId);
+                    .in('hotel_id', Array.from(associatedIds));
                 
                 if (error) throw error;
                 
@@ -1447,8 +1518,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             .on('postgres_changes', {
                 event: '*',
                 schema: 'public',
-                table: 'audit_submissions',
-                filter: `hotel_id=eq.${selectedInspectionHotelId}`
+                table: 'audit_submissions'
             }, (payload) => {
                 console.log('Real-time database submission event:', payload);
                 fetchSubmissions();
@@ -1465,7 +1535,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             supabase.removeChannel(channel);
             clearInterval(interval);
         };
-    }, [selectedInspectionHotelId]);
+    }, [selectedInspectionHotelId, profilesList, hotels]);
 
     const safeFormatDate = (dateStr: any) => {
         if (!dateStr) return 'Recent';
@@ -4034,7 +4104,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                    <span>Hotel Submissions:</span>
                                                                </div>
                                                                <span className="text-blue-600 bg-blue-50 px-2 py-0.5 rounded border border-blue-100/50">
-                                                                   {allSubmissions.filter(s => s.hotel_id === hotel.id).length} ITEMS RECEIVED
+                                                                   {allSubmissions.filter(s => isSubmissionForHotel(s.hotel_id, hotel)).length} ITEMS RECEIVED
                                                                 </span>
                                                             </div>
                                                         </div>
@@ -4107,7 +4177,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                             const { data: directData, error: e1 } = await supabase
                                                                 .from('audit_submissions')
                                                                 .select('*')
-                                                                .eq('hotel_id', hotel.id);
+                                                                .in('hotel_id', [hotel.id, hotel.code || '', ...(profilesList.filter(p => (p.hotel_code && hotel.code && String(p.hotel_code).toLowerCase() === String(hotel.code).toLowerCase()) || (p.hotel_name && hotel.name && String(p.hotel_name).toLowerCase() === String(hotel.name).toLowerCase())).map(p => p.hotel_id).filter(Boolean))]);
                                                             
                                                             if (!e1) {
                                                                 const submissionsMap: Record<string, any> = {};
@@ -4279,7 +4349,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                                     {/* Visual Evidence */}
                                                                                                     {(item.inputType === 'camera' || item.inputType === 'image') && submission.value && (
                                                                                                         <div className="group/img relative rounded-2xl border border-slate-200 overflow-hidden bg-white cursor-zoom-in" onClick={() => window.open(submission.value, '_blank')}>
-                                                                                                            <img src={submission.value} alt="Submission" className="w-full h-auto max-h-[400px] object-contain" />
+                                                                                                            <img src={submission.value} alt="Submission" referrerPolicy="no-referrer" className="w-full h-auto max-h-[400px] object-contain" />
                                                                                                             <div className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center text-white font-black text-xs uppercase tracking-widest">
                                                                                                                 <Eye size={20} className="mb-1" />
                                                                                                                 Click to enlarge
