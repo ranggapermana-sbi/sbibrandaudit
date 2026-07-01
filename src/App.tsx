@@ -33,7 +33,6 @@ export default function App() {
         role: 'Super Admin'
       };
       setUserProfile(prof);
-      localStorage.setItem(`sbi_profile_${session.user.id}`, JSON.stringify(prof));
       setCurrentScreen('adminPanel');
       setIsLoadingSession(false);
       return true;
@@ -53,35 +52,7 @@ export default function App() {
 
     const userId = session.user.id;
     
-    // 1. Check local storage cache
-    const cachedProfile = localStorage.getItem(`sbi_profile_${userId}`);
-    if (cachedProfile) {
-      try {
-        const parsed = JSON.parse(cachedProfile);
-        // Clear stale super admin / admin cache for ranggapermana to allow auditee onboarding
-        if (parsed && parsed.email === 'ranggapermana@swiss-belhotel.com' && (parsed.role === 'Super Admin' || parsed.access_level === 'admin')) {
-          localStorage.removeItem(`sbi_profile_${userId}`);
-        } else if (parsed && parsed.role === 'Super Admin' && parsed.email !== 'brandaudit@swiss-belhotel.com') {
-          localStorage.removeItem(`sbi_profile_${userId}`);
-        } else {
-          // Ensure onboarding is completed locally before routing to dashboard
-          if (parsed && (parsed.email === 'brandaudit@swiss-belhotel.com' || parsed.access_level === 'admin' || (parsed.first_name && parsed.role && (parsed.hotel_id || parsed.hotel_name)))) {
-            setUserProfile(parsed);
-            if (parsed.email === 'brandaudit@swiss-belhotel.com' || parsed.access_level === 'admin') {
-              setCurrentScreen('adminPanel');
-            } else {
-              setCurrentScreen('dashboard');
-            }
-            setIsLoadingSession(false);
-            return;
-          }
-        }
-      } catch (e) {
-        console.error("Local profile parse error", e);
-      }
-    }
-
-    // 2. Fetch from main Supabase database profiles table
+    // Fetch from main Supabase database profiles table
     try {
       const mainUrl = import.meta.env.MAIN_SUPABASE_URL || 'https://gvnwxrejgdkixbszhxkw.supabase.co/rest/v1/';
       const cleanMainUrl = mainUrl.replace(/\/rest\/v1\/?$/, '').trim();
@@ -112,7 +83,6 @@ export default function App() {
           // Check if mandatory onboarding fields are fully populated
           if (prof && (prof.access_level === 'admin' || (prof.first_name && prof.role && (prof.hotel_id || prof.hotel_name)))) {
             setUserProfile(prof);
-            localStorage.setItem(`sbi_profile_${userId}`, JSON.stringify(prof));
             if (prof.access_level === 'admin') {
               setCurrentScreen('adminPanel');
             } else {
@@ -181,10 +151,6 @@ export default function App() {
   const handleLogout = async () => {
     setIsLoadingSession(true);
     await supabase.auth.signOut();
-    // Clear profile cache
-    if (userProfile?.id) {
-      localStorage.removeItem(`sbi_profile_${userProfile.id}`);
-    }
     setUserProfile(null);
     setCurrentScreen('login');
     setIsLoadingSession(false);
