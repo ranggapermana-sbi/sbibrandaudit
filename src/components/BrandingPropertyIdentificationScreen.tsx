@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase';
 
 interface BrandingPropertyProps {
   selectedCategory: any;
+  userProfile: any;
   onBack: () => void;
 }
 
@@ -597,12 +598,12 @@ const AuditItemCard: React.FC<{ item: any, hotelId: string }> = ({ item, hotelId
     );
 };
 
-export default function BrandingPropertyIdentificationScreen({ selectedCategory, onBack }: BrandingPropertyProps) {
+export default function BrandingPropertyIdentificationScreen({ selectedCategory, userProfile, onBack }: BrandingPropertyProps) {
     const [items, setItems] = useState<any[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     
-    // Fallback hotel ID for demo purposes
-    const hotelId = localStorage.getItem('selected_hotel_id') || 'demo-hotel-123';
+    // Get actual hotel ID from user profile or fallback to demo
+    const hotelId = userProfile?.hotel_id || localStorage.getItem('selected_hotel_id') || 'demo-hotel-123';
 
     useEffect(() => {
         if (!selectedCategory?.id) {

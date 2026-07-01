@@ -229,6 +229,7 @@ export default function App() {
       {currentScreen === 'brandingPropertyIdentification' && (
         <BrandingPropertyIdentificationScreen 
           selectedCategory={selectedCategory}
+          userProfile={userProfile}
           onBack={() => setCurrentScreen('pendingCategories')} 
         />
       )}

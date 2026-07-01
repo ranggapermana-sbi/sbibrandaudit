@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, CheckCircle, Clock, Building, BarChart3, ChevronRight, Plus, Trash2, Edit, Search, X, AlertCircle, MapPin, Settings2, Calendar, Star, Briefcase, ClipboardList, FileCheck, Layers, Package, Camera, ImageIcon, FileText, Hash, Type, CheckSquare, Users, ShieldCheck, Percent, GripVertical, ChevronUp, ChevronDown, Eye, User, RefreshCw } from 'lucide-react';
+import { ArrowLeft, CheckCircle, Clock, Building, BarChart3, ChevronRight, Plus, Trash2, Edit, Search, X, AlertCircle, MapPin, Settings2, Calendar, Star, Briefcase, ClipboardList, FileCheck, Layers, Package, Camera, ImageIcon, FileText, Hash, Type, CheckSquare, Users, ShieldCheck, Percent, GripVertical, ChevronUp, ChevronDown, Eye, User, RefreshCw, CheckCircle2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
 interface Department {
@@ -613,6 +613,26 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     const [catList, setCatList] = useState<AuditCategory[]>([]);
 
     // Fetch categories function
+    const [allSubmissions, setAllSubmissions] = useState<any[]>([]);
+
+    useEffect(() => {
+        if (subView === 'inspection') {
+            const fetchAllSubmissions = async () => {
+                try {
+                    const { data, error } = await supabase
+                        .from('audit_submissions')
+                        .select('hotel_id, item_id');
+                    if (!error && data) {
+                        setAllSubmissions(data);
+                    }
+                } catch (e) {
+                    console.error("Error fetching all submissions:", e);
+                }
+            };
+            fetchAllSubmissions();
+        }
+    }, [subView]);
+
     const fetchCategoriesFromSupabase = async () => {
         setIsSupabaseLoading(true);
         setSupabaseErrorMsg(null);
@@ -2809,22 +2829,21 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                             </div>
                                         </div>
 
-                                        {/* Audit Inspection */}
-                                        <div 
-                                            onClick={() => { setSubView('inspection'); setSelectedInspectionHotelId(''); setSelectedInspectionCategoryId(''); setSearchQuery(''); }}
-                                            className="flex items-center justify-between p-5 bg-white hover:bg-slate-50/80 rounded-[20px] border border-slate-150/80 cursor-pointer hover:border-indigo-200 active:scale-[0.99] transition-all duration-200 group shadow-[0_4px_24px_rgba(15,23,42,0.01)] hover:shadow-[0_8px_32px_rgba(15,23,42,0.02)]"
-                                        >
-                                            <div className="flex items-center gap-4">
-                                                <div className="w-11 h-11 rounded-2xl bg-indigo-50 text-indigo-700 flex items-center justify-center shrink-0 transition-transform duration-300 group-hover:scale-105">
-                                                    <Search size={22} />
+                                            <div 
+                                                onClick={() => { setSubView('inspection'); setSelectedInspectionHotelId(''); setSelectedInspectionCategoryId(''); setSearchQuery(''); }}
+                                                className="flex items-center justify-between p-5 bg-white hover:bg-slate-50/80 rounded-[20px] border border-slate-150/80 cursor-pointer hover:border-indigo-200 active:scale-[0.99] transition-all duration-200 group shadow-[0_4px_24px_rgba(15,23,42,0.01)] hover:shadow-[0_8px_32px_rgba(15,23,42,0.02)]"
+                                            >
+                                                <div className="flex items-center gap-4">
+                                                    <div className="w-11 h-11 rounded-2xl bg-indigo-50 text-indigo-700 flex items-center justify-center shrink-0 transition-transform duration-300 group-hover:scale-105">
+                                                        <Search size={22} />
+                                                    </div>
+                                                    <div>
+                                                        <p className="text-sm font-bold text-slate-800 tracking-tight">Audit Inspection</p>
+                                                        <p className="text-xs text-slate-400 mt-0.5">Review submissions and score all audit criteria</p>
+                                                    </div>
                                                 </div>
-                                                <div>
-                                                    <p className="text-sm font-bold text-slate-800 tracking-tight">Audit Inspection</p>
-                                                    <p className="text-xs text-slate-400 mt-0.5">Perform audit inspection on Auditor-Only items</p>
-                                                </div>
+                                                <ChevronRight className="text-slate-300 group-hover:text-indigo-600 group-hover:translate-x-1 transition-all" size={18} />
                                             </div>
-                                            <ChevronRight className="text-slate-300 group-hover:text-indigo-600 group-hover:translate-x-1 transition-all" size={18} />
-                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -3877,9 +3896,10 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                             .map(hotel => {
                                                 // Calculate overall scored auditor items for this hotel
                                                 const auditorItems = items.filter(i => i.filled_by_hotel === false);
-                                                const totalAuditorItems = auditorItems.length;
-                                                const scoredAuditorItems = auditorItems.filter(i => inspectionScores[`${hotel.id}_${i.id}`] !== undefined).length;
-                                                const completionPercent = totalAuditorItems > 0 ? Math.round((scoredAuditorItems / totalAuditorItems) * 100) : 0;
+                                                const allHotelItems = items;
+                                                const totalItems = allHotelItems.length;
+                                                const scoredItems = allHotelItems.filter(i => inspectionScores[`${hotel.id}_${i.id}`] !== undefined).length;
+                                                const completionPercent = totalItems > 0 ? Math.round((scoredItems / totalItems) * 100) : 0;
 
                                                 return (
                                                     <div 
@@ -3903,14 +3923,27 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                         </div>
 
                                                         {/* Stats progress */}
-                                                        <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-slate-400">
-                                                            <div className="flex items-center gap-1.5">
-                                                                <FileCheck size={14} className={completionPercent === 100 ? 'text-emerald-500' : 'text-slate-400'} />
-                                                                <span>Inspection Progress:</span>
+                                                        <div className="pt-3 border-t border-slate-100 flex flex-col gap-2">
+                                                            <div className="flex items-center justify-between text-[11px] font-bold">
+                                                               <div className="flex items-center gap-1.5 text-slate-400">
+                                                                   <FileCheck size={13} className={completionPercent === 100 ? 'text-emerald-500' : 'text-slate-400'} />
+                                                                   <span>Scoring Progress:</span>
+                                                               </div>
+                                                               <span className={completionPercent === 100 ? 'text-emerald-600' : 'text-slate-700'}>
+                                                                   {scoredItems} / {totalItems} ({completionPercent}%)
+                                                               </span>
                                                             </div>
-                                                            <span className={completionPercent === 100 ? 'text-emerald-600' : 'text-slate-700'}>
-                                                                {scoredAuditorItems} / {totalAuditorItems} criteria ({completionPercent}%)
-                                                            </span>
+                                                            
+                                                            {/* Submission info */}
+                                                            <div className="flex items-center justify-between text-[11px] font-bold">
+                                                               <div className="flex items-center gap-1.5 text-slate-400">
+                                                                   <Layers size={13} className="text-blue-500" />
+                                                                   <span>Hotel Submissions:</span>
+                                                               </div>
+                                                               <span className="text-blue-600 bg-blue-50 px-2 py-0.5 rounded border border-blue-100/50">
+                                                                   {allSubmissions.filter(s => s.hotel_id === hotel.id).length} ITEMS RECEIVED
+                                                                </span>
+                                                            </div>
                                                         </div>
                                                     </div>
                                                 );
@@ -3925,325 +3958,406 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                 </div>
                             </div>
                         ) : (
-                            /* STEP 2: ACTIVE INSPECTION FOR SELECTED HOTEL */
-                            (() => {
-                                const hotel = hotels.find(h => h.id === selectedInspectionHotelId);
-                                if (!hotel) return null;
+                            <React.Fragment>
+                                {(() => {
+                                    const hotel = hotels.find(h => h.id === selectedInspectionHotelId);
+                                if (!hotel) return (
+                                    <div className="flex flex-col items-center justify-center py-20 bg-white rounded-[32px] border border-slate-100 shadow-sm">
+                                        <AlertCircle size={48} className="text-amber-500 mb-4" />
+                                        <h3 className="text-lg font-bold text-slate-800">Hotel Not Found</h3>
+                                        <p className="text-slate-400 text-sm mt-1">Please go back and select a property again.</p>
+                                        <button onClick={() => setSelectedInspectionHotelId('')} className="mt-6 px-6 py-2 bg-indigo-600 text-white rounded-full font-bold text-xs">Return to Property List</button>
+                                    </div>
+                                );
 
-                                const allHotelItems = items.filter(i => true); // Get all items
-                                const auditorItems = items.filter(i => i.filled_by_hotel === false);
+                                const allHotelItems = items;
                                 const scoredItems = allHotelItems.filter(i => inspectionScores[`${hotel.id}_${i.id}`] !== undefined);
                                 const totalPointsScored = scoredItems.reduce((sum, i) => sum + Number(inspectionScores[`${hotel.id}_${i.id}`] || 0), 0);
                                 const totalPointsMax = allHotelItems.reduce((sum, i) => sum + (i.points ?? 5), 0);
+                                
+                                const hotelSubs = Object.values(hotelSubmissions);
+                                const subCount = hotelSubs.length;
 
-                                // Filter categories that actually have any items
                                 const categoriesWithItems = catList.filter(cat => 
                                     allHotelItems.some(item => item.categoryId === cat.id)
                                 );
 
-                                // Group items by selected category or show all
-                                const activeCategoryId = selectedInspectionCategoryId || (categoriesWithItems[0]?.id || '');
-                                const filteredItems = allHotelItems.filter(item => item.categoryId === activeCategoryId);
-
                                 return (
-                                    <div className="space-y-6 animate-fadeIn">
-                                        {/* Hotel Header Card */}
-                                        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 text-white shadow-xl relative overflow-hidden">
-                                            <div className="absolute right-0 top-0 w-32 h-32 bg-indigo-500/10 rounded-full blur-3xl" />
-                                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                                                <div>
+                                    <div className="flex flex-col gap-6 animate-fadeIn pb-24">
+                                        {/* INSPECTION HEADER: PROPERTY & CONTEXT */}
+                                        <div className="bg-slate-900 rounded-[32px] p-6 sm:p-8 text-white shadow-2xl relative overflow-hidden ring-1 ring-white/10">
+                                            <div className="absolute -right-20 -top-20 w-80 h-80 bg-indigo-600/20 rounded-full blur-[100px] pointer-events-none" />
+                                            <div className="absolute -left-20 -bottom-20 w-60 h-60 bg-emerald-500/10 rounded-full blur-[80px] pointer-events-none" />
+                                            
+                                            <div className="relative z-10 flex flex-col md:flex-row md:items-end justify-between gap-6">
+                                                <div className="space-y-4">
                                                     <div className="flex items-center gap-2">
-                                                        <span className="text-[9px] font-extrabold uppercase tracking-widest px-2.5 py-1 bg-indigo-500/20 text-indigo-200 rounded-full border border-indigo-400/15">
-                                                            {hotel.code || 'Active Hotel'}
+                                                        <span className="px-3 py-1 bg-white/10 backdrop-blur-md rounded-full text-[10px] font-black uppercase tracking-widest text-indigo-300 border border-white/5">
+                                                            {hotel.code || 'AUDIT_ACTIVE'}
                                                         </span>
-                                                        <span className="text-[10px] font-extrabold uppercase tracking-widest bg-amber-500/20 text-amber-300 border border-amber-400/10 px-2 py-0.5 rounded">
-                                                            Audit Inspection mode
-                                                        </span>
-                                                    </div>
-                                                    <h3 className="text-xl font-extrabold tracking-tight mt-2.5 text-slate-50">{hotel.name}</h3>
-                                                    <p className="text-xs text-slate-400 font-semibold mt-1 uppercase tracking-wide">
-                                                        {hotel.brand || 'Swiss-Belhotel'} • {hotel.location || 'Global'}
-                                                    </p>
-                                                </div>
-                                                <button
-                                                    onClick={() => { setSelectedInspectionHotelId(''); setSelectedInspectionCategoryId(''); }}
-                                                    className="px-4 py-2 bg-slate-800 hover:bg-slate-750 text-slate-200 hover:text-white rounded-full font-bold text-xs transition-all border border-slate-700/80 self-start sm:self-auto active:scale-95 outline-none"
-                                                >
-                                                    Change Property
-                                                </button>
-                                            </div>
-
-                                            {/* Completion Progress Bar */}
-                                            <div className="mt-6 pt-5 border-t border-slate-800 grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                                <div>
-                                                    <div className="flex items-center justify-between text-xs font-bold mb-1.5 text-slate-350">
-                                                        <span>Auditor Criteria Progress</span>
-                                                        <span className="text-indigo-300 font-extrabold">
-                                                            {scoredItems.length} / {allHotelItems.length} scored
+                                                        <span className="px-3 py-1 bg-amber-500/10 backdrop-blur-md rounded-full text-[10px] font-black uppercase tracking-widest text-amber-400 border border-amber-500/20">
+                                                            Inspection Mode
                                                         </span>
                                                     </div>
-                                                    <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
-                                                        <div 
-                                                            className="bg-indigo-500 h-full rounded-full transition-all duration-500"
-                                                            style={{ width: `${allHotelItems.length > 0 ? (scoredItems.length / allHotelItems.length) * 100 : 0}%` }}
-                                                        />
-                                                    </div>
-                                                </div>
-                                                <div className="flex items-center justify-end sm:text-right">
                                                     <div>
-                                                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Total Scored Points</p>
-                                                        <p className="text-lg font-extrabold text-emerald-400 tracking-tight mt-0.5">
-                                                            {totalPointsScored} <span className="text-xs text-slate-400 font-bold">/ {totalPointsMax} max pts</span>
+                                                        <h2 className="text-3xl font-black tracking-tight leading-none">{hotel.name}</h2>
+                                                        <p className="text-slate-400 font-bold text-xs mt-2 uppercase tracking-widest flex items-center gap-2">
+                                                            <MapPin size={12} className="text-indigo-400" />
+                                                            {hotel.location || 'Swiss-Belhotel Property'} • {hotel.brand || 'Luxury Standards'}
                                                         </p>
                                                     </div>
+                                                </div>
+
+                                                <div className="flex flex-wrap gap-3">
+                                                    <button 
+                                                        onClick={async () => {
+                                                            const { data, error } = await supabase
+                                                                .from('audit_submissions')
+                                                                .select('*')
+                                                                .eq('hotel_id', hotel.id);
+                                                            if (!error && data) {
+                                                                const submissionsMap: Record<string, any> = {};
+                                                                data.forEach(sub => submissionsMap[sub.item_id] = sub);
+                                                                setHotelSubmissions(submissionsMap);
+                                                                setToastMessage("Data Sync Successful");
+                                                                setTimeout(() => setToastMessage(null), 2000);
+                                                            }
+                                                        }}
+                                                        className="h-11 px-5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-2xl flex items-center gap-2 text-xs font-black uppercase tracking-widest transition-all active:scale-95"
+                                                    >
+                                                        <RefreshCw size={14} className="text-indigo-400" />
+                                                        Sync Submissions
+                                                    </button>
+                                                    <button 
+                                                        onClick={() => { setSelectedInspectionHotelId(''); setSelectedInspectionCategoryId(''); }}
+                                                        className="h-11 px-5 bg-slate-800 hover:bg-slate-700 border border-white/5 rounded-2xl flex items-center gap-2 text-xs font-black uppercase tracking-widest transition-all active:scale-95"
+                                                    >
+                                                        <ArrowLeft size={14} />
+                                                        Exit Audit
+                                                    </button>
+                                                </div>
+                                            </div>
+
+                                            {/* LIVE ANALYTICS HUD */}
+                                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-8 pt-8 border-t border-white/5">
+                                                <div className="bg-white/5 rounded-2xl p-4 border border-white/5">
+                                                    <div className="flex items-center justify-between mb-1.5">
+                                                        <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Scoring Progress</span>
+                                                        <span className="text-xs font-black text-indigo-400">{Math.round((scoredItems.length / allHotelItems.length) * 100) || 0}%</span>
+                                                    </div>
+                                                    <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
+                                                        <div 
+                                                            className="h-full bg-indigo-500 rounded-full transition-all duration-700"
+                                                            style={{ width: `${(scoredItems.length / allHotelItems.length) * 100 || 0}%` }}
+                                                        />
+                                                    </div>
+                                                    <p className="text-[10px] font-bold text-slate-500 mt-2">{scoredItems.length} of {allHotelItems.length} criteria reviewed</p>
+                                                </div>
+
+                                                <div className="bg-white/5 rounded-2xl p-4 border border-white/5">
+                                                    <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 block mb-1">Hotel Submissions</span>
+                                                    <div className="flex items-end gap-2">
+                                                        <span className="text-2xl font-black text-blue-400 leading-none">{subCount}</span>
+                                                        <span className="text-[10px] font-bold text-slate-500 pb-1">items received from property</span>
+                                                    </div>
+                                                    <p className="text-[10px] font-bold text-blue-500/60 mt-1 flex items-center gap-1">
+                                                        <CheckCircle size={10} /> Live Linked Data
+                                                    </p>
+                                                </div>
+
+                                                <div className="bg-white/5 rounded-2xl p-4 border border-white/5">
+                                                    <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 block mb-1">Live Score Calculation</span>
+                                                    <div className="flex items-end gap-2">
+                                                        <span className="text-2xl font-black text-emerald-400 leading-none">{totalPointsScored}</span>
+                                                        <span className="text-[10px] font-bold text-slate-500 pb-1">/ {totalPointsMax} Points</span>
+                                                    </div>
+                                                    <p className="text-[10px] font-bold text-emerald-500/60 mt-1">Weighted average: {totalPointsMax > 0 ? ((totalPointsScored / totalPointsMax) * 100).toFixed(1) : 0}%</p>
                                                 </div>
                                             </div>
                                         </div>
 
-                                        {/* Categories horizontal tabs selection */}
-                                        {categoriesWithItems.length > 0 ? (
-                                            <div className="bg-white p-3.5 rounded-2xl border border-slate-150/80 shadow-sm flex items-center gap-1.5 overflow-x-auto scrollbar-none">
-                                                {categoriesWithItems.map(cat => {
-                                                    const isActive = activeCategoryId === cat.id;
-                                                    const catItems = allHotelItems.filter(i => i.categoryId === cat.id);
-                                                    const scoredCatItems = catItems.filter(i => inspectionScores[`${hotel.id}_${i.id}`] !== undefined).length;
+                                        {/* AUDIT WORKSPACE: CATEGORIES & CRITERIA */}
+                                        <div className="space-y-12">
+                                            {categoriesWithItems.map((cat, catIdx) => {
+                                                const catItems = allHotelItems.filter(i => i.categoryId === cat.id);
+                                                const scoredInCat = catItems.filter(i => inspectionScores[`${hotel.id}_${i.id}`] !== undefined).length;
+                                                const isCatComplete = scoredInCat === catItems.length;
 
-                                                    return (
-                                                        <button
-                                                            key={cat.id}
-                                                            onClick={() => setSelectedInspectionCategoryId(cat.id)}
-                                                            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap outline-none shrink-0 ${
-                                                                isActive 
-                                                                    ? 'bg-indigo-600 text-white shadow-md shadow-indigo-500/10'
-                                                                    : 'bg-slate-50 hover:bg-slate-100 text-slate-600'
-                                                            }`}
-                                                        >
-                                                            {cat.name} 
-                                                            <span className={`ml-1.5 text-[10px] font-extrabold px-1.5 py-0.5 rounded ${
-                                                                isActive ? 'bg-indigo-700/80 text-white' : 'bg-slate-200/80 text-slate-500'
-                                                            }`}>
-                                                                {scoredCatItems}/{catItems.length}
-                                                            </span>
-                                                        </button>
-                                                    );
-                                                })}
-                                            </div>
-                                        ) : (
-                                            <div className="bg-amber-50 border border-amber-100/60 p-6 rounded-2xl text-amber-805 text-xs text-center font-bold">
-                                                No checklist items are available in the master database. Please go back and configure your criteria first.
-                                            </div>
-                                        )}
-
-                                        {/* Audit Items Scoring Card List */}
-                                        {categoriesWithItems.length > 0 && (
-                                            <div className="space-y-4">
-                                                {filteredItems.length === 0 ? (
-                                                    <div className="bg-white p-12 text-center rounded-2xl border border-slate-150">
-                                                        <ClipboardList size={32} className="text-slate-300 mx-auto mb-2" />
-                                                        <p className="text-slate-400 font-bold text-xs">No criteria items under this category.</p>
-                                                    </div>
-                                                ) : (
-                                                    filteredItems.map(item => {
-                                                        const scoreKey = `${hotel.id}_${item.id}`;
-                                                        const currentScore = inspectionScores[scoreKey];
-                                                        const currentComment = inspectionComments[scoreKey] || '';
-                                                        const maxPoints = item.points ?? 5;
-                                                        const submission = hotelSubmissions[item.id];
-
-                                                        return (
-                                                            <div key={item.id} className="bg-white p-5 sm:p-6 rounded-[22px] border border-slate-200 hover:border-slate-300 shadow-sm transition-all flex flex-col md:flex-row gap-5">
-                                                                {/* Column 1: Info */}
-                                                                <div className="flex-1 space-y-2">
-                                                                    <div className="flex items-center gap-2 flex-wrap">
-                                                                        <span className="text-[10px] font-extrabold uppercase tracking-widest bg-indigo-50 text-indigo-700 border border-indigo-100/30 px-2.5 py-0.5 rounded-md whitespace-nowrap">
-                                                                            {maxPoints} Max Points
-                                                                        </span>
-                                                                        {item.filled_by_hotel ? (
-                                                                            <span className="text-[10px] font-extrabold bg-blue-50 text-blue-700 border border-blue-100 px-2 py-0.5 rounded-md">
-                                                                                Submitted by Hotel
-                                                                            </span>
-                                                                        ) : (
-                                                                            <span className="text-[10px] font-extrabold bg-slate-100 text-slate-600 border border-slate-200 px-2 py-0.5 rounded-md">
-                                                                                Auditor Only
-                                                                            </span>
-                                                                        )}
-                                                                        {currentScore !== undefined ? (
-                                                                            <span className="text-[10px] font-extrabold bg-emerald-50 text-emerald-700 border border-emerald-100 px-2 py-0.5 rounded-md flex items-center gap-1">
-                                                                                <CheckCircle size={10} />
-                                                                                Scored
-                                                                            </span>
-                                                                        ) : (
-                                                                            <span className="text-[10px] font-extrabold bg-amber-50 text-amber-700 border border-amber-100 px-2 py-0.5 rounded-md flex items-center gap-1 animate-pulse">
-                                                                                <Clock size={10} />
-                                                                                Pending Auditor Score
-                                                                            </span>
-                                                                        )}
-                                                                    </div>
-                                                                    <h4 className="text-sm sm:text-base font-extrabold text-slate-850 leading-relaxed pr-2">
-                                                                        {item.name}
-                                                                    </h4>
-                                                                    {item.description && (
-                                                                        <p className="text-xs text-slate-400 font-medium">
-                                                                            {item.description}
-                                                                        </p>
-                                                                    )}
-
-                                                                    {/* Hotel Submission Display */}
-                                                                    {item.filled_by_hotel && (
-                                                                        <div className="mt-4 p-4 bg-slate-50 border border-slate-100 rounded-xl">
-                                                                            <h5 className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">Hotel Submission</h5>
-                                                                            {submission ? (
-                                                                                <div className="space-y-2">
-                                                                                    {submission.is_na ? (
-                                                                                        <p className="text-sm text-slate-700"><strong>N/A:</strong> {submission.na_reason}</p>
-                                                                                    ) : (
-                                                                                        <>
-                                                                                            {(item.inputType === 'camera' || item.inputType === 'image') && submission.value ? (
-                                                                                                <div className="mt-2">
-                                                                                                    <img src={submission.value} alt="Submission" className="w-full sm:w-64 h-auto object-cover rounded-xl border border-slate-200 shadow-sm" />
-                                                                                                </div>
-                                                                                            ) : item.inputType === 'document' && submission.value ? (
-                                                                                                <div className="mt-2">
-                                                                                                    <a href={submission.value} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 px-3 py-2 bg-indigo-50 text-indigo-700 font-bold text-xs rounded-lg border border-indigo-100 hover:bg-indigo-100 transition-colors">
-                                                                                                        <FileText size={16} /> View Document
-                                                                                                    </a>
-                                                                                                </div>
-                                                                                            ) : item.inputType === 'checkbox' && submission.value !== undefined ? (
-                                                                                                <div className="mt-2">
-                                                                                                    {submission.value === 'true' || submission.value === true || submission.value === 'Yes' || submission.value === 'yes' ? (
-                                                                                                        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 text-emerald-700 font-bold text-sm rounded-lg border border-emerald-100">
-                                                                                                            <CheckCircle size={16} /> Checked (Yes)
-                                                                                                        </span>
-                                                                                                    ) : (
-                                                                                                        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 text-slate-600 font-bold text-sm rounded-lg border border-slate-200">
-                                                                                                            <X size={16} /> Unchecked (No)
-                                                                                                        </span>
-                                                                                                    )}
-                                                                                                </div>
-                                                                                            ) : item.inputType === 'numeric' && submission.value ? (
-                                                                                                <div className="mt-2">
-                                                                                                    <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white text-slate-800 font-extrabold text-lg rounded-lg border border-slate-200 shadow-sm">
-                                                                                                        <Hash size={18} className="text-slate-400" /> {submission.value}
-                                                                                                    </span>
-                                                                                                </div>
-                                                                                            ) : submission.value ? (
-                                                                                                <div className="mt-2 p-3 bg-white border border-slate-200 rounded-lg shadow-sm">
-                                                                                                    <p className="text-sm text-slate-800 whitespace-pre-wrap">{submission.value}</p>
-                                                                                                </div>
-                                                                                            ) : (
-                                                                                                <p className="text-sm text-slate-500 italic">No value provided.</p>
-                                                                                            )}
-                                                                                            
-                                                                                            {submission.notes && (
-                                                                                                <div className="mt-3 bg-white p-3 rounded-lg border border-slate-200">
-                                                                                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Hotel Notes</p>
-                                                                                                    <p className="text-xs text-slate-700">{submission.notes}</p>
-                                                                                                </div>
-                                                                                            )}
-                                                                                        </>
-                                                                                    )}
-                                                                                </div>
-                                                                            ) : (
-                                                                                <p className="text-sm text-amber-600 italic">No submission provided by hotel yet.</p>
-                                                                            )}
-                                                                        </div>
-                                                                    )}
-
-                                                                    {/* Observations Text Input */}
-                                                                    <div className="pt-3">
-                                                                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
-                                                                            Auditor Observations & Notes
-                                                                        </label>
-                                                                        <input
-                                                                            type="text"
-                                                                            value={currentComment}
-                                                                            onChange={(e) => saveInspectionComment(hotel.id, item.id, e.target.value)}
-                                                                            placeholder="Type compliance observations or reason for score..."
-                                                                            className="w-full bg-slate-50/50 hover:bg-slate-50 focus:bg-white border border-slate-200 focus:border-indigo-300 rounded-xl px-3.5 py-2 text-slate-700 text-xs outline-none transition-all"
-                                                                        />
-                                                                    </div>
+                                                return (
+                                                    <div key={cat.id} className="space-y-6">
+                                                        {/* CATEGORY BAR */}
+                                                        <div className="sticky top-20 z-30 flex items-center justify-between p-4 bg-white/90 backdrop-blur-xl border border-slate-200 rounded-[24px] shadow-sm">
+                                                            <div className="flex items-center gap-4">
+                                                                <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-sm font-black shadow-inner ${isCatComplete ? 'bg-emerald-500 text-white' : 'bg-slate-900 text-white'}`}>
+                                                                    {catIdx + 1}
                                                                 </div>
-
-                                                                {/* Column 2: Score Selector */}
-                                                                <div className="md:w-60 md:shrink-0 flex flex-col justify-center border-t md:border-t-0 md:border-l border-slate-100 pt-4 md:pt-0 md:pl-5 space-y-3">
-                                                                    <div className="text-center md:text-left">
-                                                                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                                                                            Assign Score
-                                                                        </span>
-                                                                        <p className="text-xl font-extrabold text-slate-850 mt-0.5">
-                                                                            {currentScore !== undefined ? currentScore : '—'}{' '}
-                                                                            <span className="text-xs text-slate-400 font-bold">/ {maxPoints} pts</span>
-                                                                        </p>
-                                                                    </div>
-
-                                                                    {/* Score Button Presets */}
-                                                                    <div className="flex flex-wrap gap-1.5 justify-center md:justify-start">
-                                                                        {Array.from({ length: maxPoints + 1 }).map((_, idx) => {
-                                                                            const scoreVal = idx;
-                                                                            const isSelected = currentScore === scoreVal;
-
-                                                                            return (
-                                                                                <button
-                                                                                    key={idx}
-                                                                                    onClick={() => saveInspectionScore(hotel.id, item.id, scoreVal)}
-                                                                                    className={`w-9 h-9 rounded-xl font-extrabold text-xs transition-all flex items-center justify-center border active:scale-95 outline-none ${
-                                                                                        isSelected
-                                                                                            ? 'bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-500/10 scale-105'
-                                                                                            : 'bg-slate-50 border-slate-200 hover:bg-slate-100 hover:border-slate-300 text-slate-700'
-                                                                                    }`}
-                                                                                >
-                                                                                    {scoreVal}
-                                                                                </button>
-                                                                            );
-                                                                        })}
-                                                                    </div>
-
-                                                                    {/* Quick Pass/Fail buttons for speed */}
-                                                                    <div className="flex gap-2">
-                                                                        <button
-                                                                            onClick={() => saveInspectionScore(hotel.id, item.id, maxPoints)}
-                                                                            className="flex-1 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-150 rounded-lg text-[10px] font-bold transition-all active:scale-95"
-                                                                        >
-                                                                            Pass (Max)
-                                                                        </button>
-                                                                        <button
-                                                                            onClick={() => saveInspectionScore(hotel.id, item.id, 0)}
-                                                                            className="flex-1 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 border border-red-150 rounded-lg text-[10px] font-bold transition-all active:scale-95"
-                                                                        >
-                                                                            Fail (0)
-                                                                        </button>
-                                                                    </div>
+                                                                <div>
+                                                                    <h3 className="text-base font-black text-slate-800 tracking-tight leading-none">{cat.name}</h3>
+                                                                    <p className="text-[10px] font-bold text-slate-400 mt-1 uppercase tracking-widest">{catItems.length} Inspection Points</p>
                                                                 </div>
                                                             </div>
-                                                        );
-                                                    })
-                                                )}
+                                                            <div className="flex items-center gap-3">
+                                                                <div className="hidden sm:flex flex-col items-end mr-2">
+                                                                    <div className="flex items-center gap-1.5">
+                                                                        <div className="w-24 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                                                                            <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${(scoredInCat/catItems.length)*100}%` }} />
+                                                                        </div>
+                                                                        <span className="text-[10px] font-black text-slate-500">{Math.round((scoredInCat/catItems.length)*100)}%</span>
+                                                                    </div>
+                                                                </div>
+                                                                <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border ${isCatComplete ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-indigo-50 text-indigo-700 border-indigo-200'}`}>
+                                                                    {scoredInCat} / {catItems.length} REVIEWED
+                                                                </span>
+                                                            </div>
+                                                        </div>
 
-                                                {/* Submit / Finish Actions */}
-                                                <div className="bg-white p-5 rounded-2xl border border-slate-150/80 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                                                    <div>
-                                                        <h4 className="font-extrabold text-slate-800 text-sm">Completed All Items in this Category?</h4>
-                                                        <p className="text-xs text-slate-400 font-medium">Verify your scoring before proceeding. Scores are automatically autosaved.</p>
+                                                        {/* INSPECTION CARDS */}
+                                                        <div className="grid grid-cols-1 gap-6">
+                                                            {catItems.map((item) => {
+                                                                const scoreKey = `${hotel.id}_${item.id}`;
+                                                                const currentScore = inspectionScores[scoreKey];
+                                                                const currentComment = inspectionComments[scoreKey] || '';
+                                                                const submission = hotelSubmissions[item.id];
+                                                                const hasSubmission = !!submission;
+
+                                                                return (
+                                                                    <div 
+                                                                        key={item.id} 
+                                                                        className={`group bg-white rounded-[32px] border transition-all duration-300 overflow-hidden ${
+                                                                            currentScore !== undefined 
+                                                                                ? 'border-slate-200 shadow-sm opacity-90 grayscale-[0.3]' 
+                                                                                : 'border-indigo-200 shadow-md ring-4 ring-indigo-50/50'
+                                                                        }`}
+                                                                    >
+                                                                        <div className="flex flex-col lg:flex-row">
+                                                                            {/* LEFT SIDE: CRITERIA & HOTEL DATA */}
+                                                                            <div className="flex-1 p-6 sm:p-8 space-y-6">
+                                                                                <div className="space-y-3">
+                                                                                    <div className="flex items-center gap-3">
+                                                                                        <span className="px-2.5 py-1 bg-slate-900 text-white text-[9px] font-black rounded-lg uppercase tracking-widest">
+                                                                                            {item.points ?? 5} Points Max
+                                                                                        </span>
+                                                                                        {item.filled_by_hotel && (
+                                                                                            <span className={`px-2.5 py-1 text-[9px] font-black rounded-lg uppercase tracking-widest border ${hasSubmission ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-amber-50 text-amber-700 border-amber-200 animate-pulse'}`}>
+                                                                                                {hasSubmission ? 'Submission Received' : 'Waiting for Hotel'}
+                                                                                            </span>
+                                                                                        )}
+                                                                                    </div>
+                                                                                    <h4 className="text-lg font-black text-slate-800 leading-tight tracking-tight group-hover:text-indigo-600 transition-colors">
+                                                                                        {item.name}
+                                                                                    </h4>
+                                                                                    {item.description && (
+                                                                                        <p className="text-sm text-slate-500 font-medium leading-relaxed italic">
+                                                                                            {item.description}
+                                                                                        </p>
+                                                                                    )}
+                                                                                </div>
+
+                                                                                {/* SUBMISSION BENTO BOX */}
+                                                                                <div className={`rounded-3xl border overflow-hidden transition-all ${
+                                                                                    hasSubmission 
+                                                                                        ? 'bg-slate-50 border-slate-200 shadow-inner' 
+                                                                                        : 'bg-amber-50/30 border-amber-100/50 border-dashed py-8'
+                                                                                }`}>
+                                                                                    {hasSubmission ? (
+                                                                                        <div className="p-5 space-y-4">
+                                                                                            <div className="flex items-center justify-between">
+                                                                                                <div className="flex items-center gap-2">
+                                                                                                    <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
+                                                                                                    <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Property Evidence</span>
+                                                                                                </div>
+                                                                                                <span className="text-[9px] font-bold text-slate-400">Received {new Date(submission.submitted_at).toLocaleString()}</span>
+                                                                                            </div>
+
+                                                                                            {submission.is_na ? (
+                                                                                                <div className="bg-amber-100/50 p-4 rounded-2xl border border-amber-200 flex items-start gap-3">
+                                                                                                    <AlertCircle size={18} className="text-amber-600 shrink-0 mt-0.5" />
+                                                                                                    <div>
+                                                                                                        <p className="text-xs font-black text-amber-800 uppercase tracking-tight">Marked as N/A by Property</p>
+                                                                                                        <p className="text-sm text-amber-700 mt-1 font-medium">{submission.na_reason || "No reason provided."}</p>
+                                                                                                    </div>
+                                                                                                </div>
+                                                                                            ) : (
+                                                                                                <div className="space-y-4">
+                                                                                                    {/* Visual Evidence */}
+                                                                                                    {(item.inputType === 'camera' || item.inputType === 'image') && submission.value && (
+                                                                                                        <div className="group/img relative rounded-2xl border border-slate-200 overflow-hidden bg-white cursor-zoom-in" onClick={() => window.open(submission.value, '_blank')}>
+                                                                                                            <img src={submission.value} alt="Submission" className="w-full h-auto max-h-[400px] object-contain" />
+                                                                                                            <div className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center text-white font-black text-xs uppercase tracking-widest">
+                                                                                                                <Eye size={20} className="mb-1" />
+                                                                                                                Click to enlarge
+                                                                                                            </div>
+                                                                                                        </div>
+                                                                                                    )}
+
+                                                                                                    {/* Document Evidence */}
+                                                                                                    {item.inputType === 'document' && submission.value && (
+                                                                                                        <a href={submission.value} target="_blank" rel="noreferrer" className="flex items-center gap-4 p-4 bg-white border border-slate-200 rounded-2xl hover:border-indigo-300 hover:shadow-md transition-all group/doc">
+                                                                                                            <div className="w-12 h-12 bg-indigo-50 rounded-xl flex items-center justify-center text-indigo-600 group-hover/doc:bg-indigo-600 group-hover/doc:text-white transition-colors">
+                                                                                                                <FileText size={24} />
+                                                                                                            </div>
+                                                                                                            <div className="flex-1 min-w-0">
+                                                                                                                <p className="text-sm font-black text-slate-800 truncate">Inspection Document</p>
+                                                                                                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">Click to Open in New Tab</p>
+                                                                                                            </div>
+                                                                                                            <ChevronRight size={18} className="text-slate-300" />
+                                                                                                        </a>
+                                                                                                    )}
+
+                                                                                                    {/* Text/Numeric/Check Evidence */}
+                                                                                                    {['text', 'numeric', 'checkbox'].includes(item.inputType) && (
+                                                                                                        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
+                                                                                                            <div>
+                                                                                                                <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-1">Submitted Value</span>
+                                                                                                                <p className="text-xl font-black text-slate-900 leading-none">
+                                                                                                                    {item.inputType === 'checkbox' 
+                                                                                                                        ? (String(submission.value).toLowerCase() === 'true' ? 'YES / COMPLIANT' : 'NO / NON-COMPLIANT')
+                                                                                                                        : (submission.value || 'N/A')}
+                                                                                                                </p>
+                                                                                                            </div>
+                                                                                                            {item.inputType === 'numeric' && item.min_value !== undefined && (
+                                                                                                                <div className="text-right">
+                                                                                                                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-1">Min. Required</span>
+                                                                                                                    <p className="text-lg font-black text-indigo-600 leading-none">{item.min_value}</p>
+                                                                                                                </div>
+                                                                                                            )}
+                                                                                                        </div>
+                                                                                                    )}
+
+                                                                                                    {/* Hotel Remarks */}
+                                                                                                    {submission.notes && (
+                                                                                                        <div className="bg-indigo-50/50 p-4 rounded-2xl border border-indigo-100/50 border-l-4 border-l-indigo-500">
+                                                                                                            <span className="text-[9px] font-black text-indigo-400 uppercase tracking-widest block mb-1">Hotel Remarks</span>
+                                                                                                            <p className="text-sm text-slate-700 font-medium leading-relaxed italic">"{submission.notes}"</p>
+                                                                                                        </div>
+                                                                                                    )}
+                                                                                                </div>
+                                                                                            )}
+                                                                                        </div>
+                                                                                    ) : (
+                                                                                        <div className="flex flex-col items-center justify-center text-center px-6">
+                                                                                            <div className="w-12 h-12 rounded-full bg-amber-100 flex items-center justify-center text-amber-600 mb-3">
+                                                                                                <Clock size={24} />
+                                                                                            </div>
+                                                                                            <h5 className="text-xs font-black text-amber-800 uppercase tracking-tight">Awaiting Property Action</h5>
+                                                                                            <p className="text-[11px] text-amber-600 font-bold mt-1">The hotel has not yet uploaded evidence for this criteria.</p>
+                                                                                            <button 
+                                                                                                onClick={async () => {
+                                                                                                    const { data, error } = await supabase
+                                                                                                        .from('audit_submissions')
+                                                                                                        .select('*')
+                                                                                                        .eq('hotel_id', hotel.id)
+                                                                                                        .eq('item_id', item.id);
+                                                                                                    if (!error && data && data.length > 0) {
+                                                                                                        setHotelSubmissions(prev => ({...prev, [item.id]: data[0]}));
+                                                                                                        setToastMessage("Synced successfully!");
+                                                                                                        setTimeout(() => setToastMessage(null), 1500);
+                                                                                                    } else {
+                                                                                                        setToastMessage("Still no submission found.");
+                                                                                                        setTimeout(() => setToastMessage(null), 1500);
+                                                                                                    }
+                                                                                                }}
+                                                                                                className="mt-3 text-[10px] font-black text-amber-700 underline underline-offset-2 hover:text-amber-900"
+                                                                                            >
+                                                                                                Check Again
+                                                                                            </button>
+                                                                                        </div>
+                                                                                    )}
+                                                                                </div>
+                                                                            </div>
+
+                                                                            {/* RIGHT SIDE: AUDITOR CONTROLS */}
+                                                                            <div className="lg:w-80 lg:shrink-0 bg-slate-50/50 border-t lg:border-t-0 lg:border-l border-slate-100 p-6 sm:p-8 flex flex-col justify-between space-y-8">
+                                                                                <div className="space-y-6">
+                                                                                    <div className="space-y-1">
+                                                                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Assign Auditor Score</label>
+                                                                                        <div className="flex items-baseline gap-2">
+                                                                                            <span className={`text-4xl font-black ${currentScore !== undefined ? 'text-slate-900' : 'text-slate-300'}`}>
+                                                                                                {currentScore !== undefined ? currentScore : '—'}
+                                                                                            </span>
+                                                                                            <span className="text-sm font-black text-slate-400">/ {item.points ?? 5} PTS</span>
+                                                                                        </div>
+                                                                                    </div>
+
+                                                                                    {/* SCORE GRID */}
+                                                                                    <div className="grid grid-cols-3 sm:grid-cols-6 lg:grid-cols-3 gap-2">
+                                                                                        {Array.from({ length: (item.points ?? 5) + 1 }).map((_, idx) => {
+                                                                                            const isSelected = currentScore === idx;
+                                                                                            return (
+                                                                                                <button
+                                                                                                    key={idx}
+                                                                                                    onClick={() => saveInspectionScore(hotel.id, item.id, idx)}
+                                                                                                    className={`h-12 rounded-2xl font-black text-sm transition-all flex items-center justify-center border-2 active:scale-95 outline-none ${
+                                                                                                        isSelected
+                                                                                                            ? 'bg-indigo-600 text-white border-indigo-600 shadow-lg shadow-indigo-200'
+                                                                                                            : 'bg-white text-slate-600 border-slate-100 hover:border-indigo-300 hover:text-indigo-600 shadow-sm'
+                                                                                                    }`}
+                                                                                                >
+                                                                                                    {idx}
+                                                                                                </button>
+                                                                                            );
+                                                                                        })}
+                                                                                    </div>
+
+                                                                                    <div className="flex gap-2">
+                                                                                        <button onClick={() => saveInspectionScore(hotel.id, item.id, item.points ?? 5)} className="flex-1 py-3 bg-emerald-500 text-white text-[10px] font-black uppercase tracking-widest rounded-2xl shadow-sm shadow-emerald-200 hover:bg-emerald-600 transition-all active:scale-95 outline-none">MAX PASS</button>
+                                                                                        <button onClick={() => saveInspectionScore(hotel.id, item.id, 0)} className="flex-1 py-3 bg-red-500 text-white text-[10px] font-black uppercase tracking-widest rounded-2xl shadow-sm shadow-red-200 hover:bg-red-600 transition-all active:scale-95 outline-none">FAIL (0)</button>
+                                                                                    </div>
+                                                                                </div>
+
+                                                                                <div className="space-y-2">
+                                                                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Compliance Observations</label>
+                                                                                    <textarea 
+                                                                                        value={currentComment}
+                                                                                        onChange={(e) => saveInspectionComment(hotel.id, item.id, e.target.value)}
+                                                                                        placeholder="Describe non-compliance or specific findings..."
+                                                                                        className="w-full h-32 bg-white border border-slate-200 focus:border-indigo-400 focus:ring-4 focus:ring-indigo-50/50 rounded-2xl p-4 text-sm text-slate-700 outline-none transition-all resize-none placeholder:text-slate-300"
+                                                                                    />
+                                                                                </div>
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+                                                                );
+                                                            })}
+                                                        </div>
                                                     </div>
-                                                    <button
-                                                        onClick={() => {
-                                                            setToastMessage("Inspection scores saved successfully!");
-                                                            setTimeout(() => setToastMessage(null), 3000);
-                                                            // Go back to step 1
-                                                            setSelectedInspectionHotelId('');
-                                                            setSelectedInspectionCategoryId('');
-                                                        }}
-                                                        className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full font-bold text-xs uppercase tracking-wider transition-all shadow-md active:scale-95 outline-none flex items-center justify-center gap-1.5"
-                                                    >
-                                                        <CheckCircle size={14} />
-                                                        Finalize & Save Property
-                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+
+                                        {/* FINALIZE FOOTER */}
+                                        <div className="bg-slate-900 rounded-[32px] p-8 text-white shadow-2xl flex flex-col md:flex-row md:items-center justify-between gap-8 border border-white/5">
+                                            <div className="flex items-center gap-5">
+                                                <div className="w-16 h-16 rounded-[22px] bg-emerald-500/10 text-emerald-400 flex items-center justify-center shrink-0 border border-emerald-500/20">
+                                                    <ShieldCheck size={32} />
+                                                </div>
+                                                <div>
+                                                    <h3 className="text-xl font-black tracking-tight">Finalize Internal Brand Audit</h3>
+                                                    <p className="text-slate-400 font-bold text-xs mt-1 uppercase tracking-widest">
+                                                        Property: {hotel.name} • Total Scored: {scoredItems.length}/{allHotelItems.length} Items
+                                                    </p>
                                                 </div>
                                             </div>
-                                        )}
+
+                                            <div className="flex items-center gap-4">
+                                                <button 
+                                                    onClick={() => {
+                                                        setToastMessage("Audit Finalized Successfully!");
+                                                        setTimeout(() => setToastMessage(null), 3000);
+                                                        setSelectedInspectionHotelId('');
+                                                        setSelectedInspectionCategoryId('');
+                                                    }}
+                                                    className="h-16 px-10 bg-indigo-600 hover:bg-indigo-500 text-white rounded-[22px] font-black text-sm uppercase tracking-widest transition-all shadow-xl shadow-indigo-600/20 active:scale-95 outline-none flex items-center gap-3 group"
+                                                >
+                                                    <FileCheck size={20} className="group-hover:scale-110 transition-transform" />
+                                                    Submit Full Report
+                                                </button>
+                                            </div>
+                                        </div>
                                     </div>
                                 );
-                            })()
+                            })()}
+                            </React.Fragment>
                         )}
                     </div>
                 ) : (
