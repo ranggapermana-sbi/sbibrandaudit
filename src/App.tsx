@@ -23,12 +23,13 @@ export default function App() {
   const [selectedCategory, setSelectedCategory] = useState<any>(null);
 
   const checkSuperAdmin = (session: any) => {
-    if (session.user.email === 'brandaudit@swiss-belhotel.com') {
+    if (session.user.email === 'brandaudit@swiss-belhotel.com' || session.user.email === 'ranggapermana@swiss-belhotel.com') {
       const prof = {
         id: session.user.id,
         email: session.user.email,
         access_level: 'admin',
-        first_name: 'Super',
+        first_name: session.user.email === 'ranggapermana@swiss-belhotel.com' ? 'Rangga' : 'Super',
+        last_name: session.user.email === 'ranggapermana@swiss-belhotel.com' ? 'Permana' : 'Admin',
         role: 'Super Admin'
       };
       setUserProfile(prof);

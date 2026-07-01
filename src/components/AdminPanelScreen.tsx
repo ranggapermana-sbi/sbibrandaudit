@@ -244,11 +244,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     }, []);
     
     const canAccessSubView = (view: string) => {
-        if (userProfile?.access_level === 'admin') return true;
-        if (userProfile?.access_level === 'auditor') {
-            // Auditor: Show ONLY Audit Report & Inspection and Recent Submission sections on dashboard
-            return ['dashboard'].includes(view);
-        }
+        if (userProfile?.access_level === 'admin' || userProfile?.access_level === 'auditor') return true;
         return false;
     };
 
@@ -613,7 +609,23 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     const [catList, setCatList] = useState<AuditCategory[]>([]);
 
     // Fetch categories function
+    const [recentSubmissionsData, setRecentSubmissionsData] = useState<any[]>([]);
     const [allSubmissions, setAllSubmissions] = useState<any[]>([]);
+
+    useEffect(() => {
+        const fetchRecent = async () => {
+            const { data, error } = await supabase
+                .from('audit_submissions')
+                .select('*, hotels(name, code)')
+                .order('submitted_at', { ascending: false })
+                .limit(10);
+            
+            if (!error && data) {
+                setRecentSubmissionsData(data);
+            }
+        };
+        fetchRecent();
+    }, []);
 
     useEffect(() => {
         if (subView === 'inspection') {
@@ -1079,6 +1091,20 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                     stars: 5
                 });
             }
+
+            // Guarantee Demo Hotel is always present in the hotel lists
+            if (!mapped.some(h => h.id === 'demo-hotel-123')) {
+                mapped.push({
+                    id: 'demo-hotel-123',
+                    name: 'Demo Hotel',
+                    location: 'Jakarta, Indonesia',
+                    code: 'DEMO',
+                    brandClass: 'Swiss-Belinn',
+                    region: 'Asia Pacific',
+                    country: 'Indonesia',
+                    stars: 3
+                });
+            }
             
             setHotels(mapped);
             setSupabaseConnected(true);
@@ -1402,9 +1428,10 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     });
 
     useEffect(() => {
+        let active = true;
         const fetchSubmissions = async () => {
             if (!selectedInspectionHotelId) {
-                setHotelSubmissions({});
+                if (active) setHotelSubmissions({});
                 return;
             }
             try {
@@ -1419,19 +1446,64 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 data?.forEach(sub => {
                     submissionsMap[sub.item_id] = sub;
                 });
-                setHotelSubmissions(submissionsMap);
+                if (active) setHotelSubmissions(submissionsMap);
             } catch (err) {
                 console.error("Error fetching hotel submissions:", err);
             }
         };
         fetchSubmissions();
+
+        if (!selectedInspectionHotelId) return;
+
+        // Set up real-time subscription to update auditor dashboard instantly when auditee submits evidence
+        const channel = supabase
+            .channel(`submissions-realtime-${selectedInspectionHotelId}`)
+            .on('postgres_changes', {
+                event: '*',
+                schema: 'public',
+                table: 'audit_submissions',
+                filter: `hotel_id=eq.${selectedInspectionHotelId}`
+            }, (payload) => {
+                console.log('Real-time database submission event:', payload);
+                fetchSubmissions();
+            })
+            .subscribe();
+
+        return () => {
+            active = false;
+            supabase.removeChannel(channel);
+        };
     }, [selectedInspectionHotelId]);
 
-    const saveInspectionScore = (hotelId: string, itemId: string, score: number) => {
-        const updated = {
-            ...inspectionScores,
-            [`${hotelId}_${itemId}`]: score
-        };
+    const safeFormatDate = (dateStr: any) => {
+        if (!dateStr) return 'Recent';
+        try {
+            const d = new Date(dateStr);
+            if (isNaN(d.getTime())) return 'Recent';
+            return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+        } catch (e) {
+            return 'Recent';
+        }
+    };
+
+    const safeFormatDateTime = (dateStr: any) => {
+        if (!dateStr) return 'Recently synced';
+        try {
+            const d = new Date(dateStr);
+            if (isNaN(d.getTime())) return 'Recent';
+            return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+        } catch (e) {
+            return 'Recent';
+        }
+    };
+
+    const saveInspectionScore = (hotelId: string, itemId: string, score: number | undefined) => {
+        const updated = { ...inspectionScores };
+        if (score === undefined) {
+            delete updated[`${hotelId}_${itemId}`];
+        } else {
+            updated[`${hotelId}_${itemId}`] = score;
+        }
         setInspectionScores(updated);
         localStorage.setItem('sbi_inspection_scores', JSON.stringify(updated));
     };
@@ -2594,7 +2666,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 {subView === 'dashboard' ? (
                     <>
                         {/* Stats Row */}
-                        {userProfile?.access_level !== 'auditor' && (
+                        {(userProfile?.access_level === 'admin' || userProfile?.access_level === 'auditor') && (
                             <section className="grid grid-cols-1 md:grid-cols-3 gap-5">
                                 {stats.map((stat, i) => {
                                     const Icon = stat.icon;
@@ -2622,7 +2694,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                         )}
 
                         {/* Config Area */}
-                        {userProfile?.access_level !== 'auditor' && (
+                        {(userProfile?.access_level === 'admin' || userProfile?.access_level === 'auditor') && (
                             <section className="bg-white p-6 sm:p-8 rounded-[28px] border border-slate-150/80 shadow-[0_12px_40px_rgba(15,23,42,0.02)]">
                                 <h2 className="text-lg font-bold text-slate-900 mb-6 flex items-center justify-between gap-3 flex-wrap">
                                     <div className="flex items-center gap-2.5">
@@ -2755,7 +2827,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                         )}
 
                         {/* User & Access Setup Area */}
-                        {userProfile?.access_level !== 'auditor' && (
+                        {(userProfile?.access_level === 'admin' || userProfile?.access_level === 'auditor') && (
                             <section className="bg-white p-6 sm:p-8 rounded-[28px] border border-slate-150/80 shadow-[0_12px_40px_rgba(15,23,42,0.02)] mt-6">
                                 <h2 className="text-lg font-bold text-slate-900 mb-6 flex items-center gap-2.5">
                                     <Users size={20} className="text-indigo-600" />
@@ -2856,26 +2928,55 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                 <span className="tracking-tight">Recent Submissions</span>
                             </h2>
                             <div className="space-y-4">
-                                {recentSubmissions.map((sub, i) => (
-                                    <div key={i} className="flex items-center justify-between p-5 bg-slate-50/60 rounded-[20px] border border-slate-100/85 hover:bg-slate-150/30 transition-all duration-200">
-                                        <div>
-                                            <p className="text-sm font-bold text-slate-800 tracking-tight">{sub.property}</p>
-                                            <p className="text-xs text-slate-400 mt-0.5 font-medium">{sub.audit} • {sub.date}</p>
+                                {recentSubmissionsData.length > 0 ? (
+                                    recentSubmissionsData.map((sub, i) => (
+                                        <div key={sub.id || i} className="group flex items-center justify-between p-5 bg-slate-50/60 rounded-[20px] border border-slate-100/85 hover:bg-white hover:border-indigo-100 hover:shadow-lg transition-all duration-300 cursor-pointer"
+                                            onClick={() => {
+                                                setSelectedInspectionHotelId(sub.hotel_id);
+                                                setSubView('inspection');
+                                            }}
+                                        >
+                                            <div className="flex items-center gap-4">
+                                                <div className="w-12 h-12 rounded-xl bg-white border border-slate-100 flex items-center justify-center text-indigo-600 font-black text-sm group-hover:bg-indigo-600 group-hover:text-white transition-all shadow-sm">
+                                                    {(sub.hotels?.name || sub.hotel_id || '?').charAt(0).toUpperCase()}
+                                                </div>
+                                                <div>
+                                                    <p className="text-sm font-black text-slate-800 tracking-tight">{sub.hotels?.name || sub.hotel_id || 'Unknown Property'}</p>
+                                                    <div className="flex items-center gap-2 mt-1">
+                                                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{safeFormatDate(sub.submitted_at)}</span>
+                                                        <span className="w-1 h-1 rounded-full bg-slate-300" />
+                                                        <span className="text-[10px] font-black text-indigo-500 uppercase tracking-widest">
+                                                            {items.find(it => it.id === sub.item_id)?.name.substring(0, 30) || 'Linked Item'}...
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div className="flex items-center gap-3">
+                                                <div className="text-right hidden sm:block">
+                                                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-0.5">Audit Sync</span>
+                                                    <span className="text-[10px] font-black text-emerald-600 flex items-center gap-1">
+                                                        <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                                                        LIVE DATA
+                                                    </span>
+                                                </div>
+                                                <ChevronRight size={18} className="text-slate-300 group-hover:text-indigo-600 group-hover:translate-x-1 transition-all" />
+                                            </div>
                                         </div>
-                                        <span className={`text-[11px] font-bold px-3 py-1 rounded-full border ${
-                                            sub.status === 'Approved' 
-                                                ? 'bg-emerald-50 text-emerald-600 border-emerald-100' 
-                                                : 'bg-amber-50 text-amber-600 border-amber-100'
-                                        }`}>
-                                            {sub.status}
-                                        </span>
+                                    ))
+                                ) : (
+                                    <div className="py-16 text-center bg-slate-50/50 rounded-3xl border border-dashed border-slate-200">
+                                        <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 mx-auto mb-3">
+                                            <Search size={20} />
+                                        </div>
+                                        <p className="text-slate-400 text-sm font-black uppercase tracking-widest">No Submissions Found</p>
+                                        <p className="text-[11px] text-slate-300 font-bold mt-1">Property data will appear here once submitted.</p>
                                     </div>
-                                ))}
+                                )}
                             </div>
                         </section>
                     </>
                 ) : subView === 'users' ? (
-                    userProfile?.access_level !== 'admin' ? (
+                    (userProfile?.access_level !== 'admin' && userProfile?.access_level !== 'auditor') ? (
                         <div className="bg-red-50/50 border border-red-100 p-8 rounded-[28px] text-center max-w-lg mx-auto my-12 animate-fadeIn shadow-sm">
                             <ShieldCheck className="text-red-500 mx-auto mb-4" size={48} />
                             <h3 className="text-lg font-bold text-slate-800">Access Restricted</h3>
@@ -4011,13 +4112,22 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                 <div className="flex flex-wrap gap-3">
                                                     <button 
                                                         onClick={async () => {
-                                                            const { data, error } = await supabase
+                                                            const { data: directData, error: e1 } = await supabase
                                                                 .from('audit_submissions')
                                                                 .select('*')
                                                                 .eq('hotel_id', hotel.id);
-                                                            if (!error && data) {
+                                                            
+                                                            const { data: demoData, error: e2 } = await supabase
+                                                                .from('audit_submissions')
+                                                                .select('*')
+                                                                .eq('hotel_id', 'demo-hotel-123');
+                                                                
+                                                            if (!e1 || !e2) {
                                                                 const submissionsMap: Record<string, any> = {};
-                                                                data.forEach(sub => submissionsMap[sub.item_id] = sub);
+                                                                // Load demo first, so direct data can override it if both exist
+                                                                if (demoData) demoData.forEach(sub => submissionsMap[sub.item_id] = { ...sub, _is_demo: true });
+                                                                if (directData) directData.forEach(sub => submissionsMap[sub.item_id] = sub);
+                                                                
                                                                 setHotelSubmissions(submissionsMap);
                                                                 setToastMessage("Data Sync Successful");
                                                                 setTimeout(() => setToastMessage(null), 2000);
@@ -4163,10 +4273,12 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                         <div className="p-5 space-y-4">
                                                                                             <div className="flex items-center justify-between">
                                                                                                 <div className="flex items-center gap-2">
-                                                                                                    <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
-                                                                                                    <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Property Evidence</span>
+                                                                                                    <div className={`w-2 h-2 rounded-full ${submission._is_demo ? 'bg-amber-500' : 'bg-blue-500 animate-pulse'}`} />
+                                                                                                    <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
+                                                                                                        {submission._is_demo ? 'Demo Pool Evidence' : 'Property Evidence'}
+                                                                                                    </span>
                                                                                                 </div>
-                                                                                                <span className="text-[9px] font-bold text-slate-400">Received {new Date(submission.submitted_at).toLocaleString()}</span>
+                                                                                                <span className="text-[9px] font-bold text-slate-400">Received {safeFormatDateTime(submission.submitted_at)}</span>
                                                                                             </div>
 
                                                                                             {submission.is_na ? (
@@ -4248,14 +4360,26 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                                         .select('*')
                                                                                                         .eq('hotel_id', hotel.id)
                                                                                                         .eq('item_id', item.id);
+                                                                                                    
                                                                                                     if (!error && data && data.length > 0) {
                                                                                                         setHotelSubmissions(prev => ({...prev, [item.id]: data[0]}));
                                                                                                         setToastMessage("Synced successfully!");
-                                                                                                        setTimeout(() => setToastMessage(null), 1500);
                                                                                                     } else {
-                                                                                                        setToastMessage("Still no submission found.");
-                                                                                                        setTimeout(() => setToastMessage(null), 1500);
+                                                                                                        // Fallback to demo pool check
+                                                                                                        const { data: demoData } = await supabase
+                                                                                                            .from('audit_submissions')
+                                                                                                            .select('*')
+                                                                                                            .eq('hotel_id', 'demo-hotel-123')
+                                                                                                            .eq('item_id', item.id);
+                                                                                                        
+                                                                                                        if (demoData && demoData.length > 0) {
+                                                                                                            setHotelSubmissions(prev => ({...prev, [item.id]: { ...demoData[0], _is_demo: true }}));
+                                                                                                            setToastMessage("Linked from demo pool");
+                                                                                                        } else {
+                                                                                                            setToastMessage("Still no submission found.");
+                                                                                                        }
                                                                                                     }
+                                                                                                    setTimeout(() => setToastMessage(null), 1500);
                                                                                                 }}
                                                                                                 className="mt-3 text-[10px] font-black text-amber-700 underline underline-offset-2 hover:text-amber-900"
                                                                                             >
@@ -4279,24 +4403,30 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                         </div>
                                                                                     </div>
 
-                                                                                    {/* SCORE GRID */}
-                                                                                    <div className="grid grid-cols-3 sm:grid-cols-6 lg:grid-cols-3 gap-2">
-                                                                                        {Array.from({ length: (item.points ?? 5) + 1 }).map((_, idx) => {
-                                                                                            const isSelected = currentScore === idx;
-                                                                                            return (
-                                                                                                <button
-                                                                                                    key={idx}
-                                                                                                    onClick={() => saveInspectionScore(hotel.id, item.id, idx)}
-                                                                                                    className={`h-12 rounded-2xl font-black text-sm transition-all flex items-center justify-center border-2 active:scale-95 outline-none ${
-                                                                                                        isSelected
-                                                                                                            ? 'bg-indigo-600 text-white border-indigo-600 shadow-lg shadow-indigo-200'
-                                                                                                            : 'bg-white text-slate-600 border-slate-100 hover:border-indigo-300 hover:text-indigo-600 shadow-sm'
-                                                                                                    }`}
-                                                                                                >
-                                                                                                    {idx}
-                                                                                                </button>
-                                                                                            );
-                                                                                        })}
+                                                                                    {/* FREE-TYPE SCORE INPUT */}
+                                                                                    <div className="relative">
+                                                                                        <input
+                                                                                            type="number"
+                                                                                            min="0"
+                                                                                            max={item.points ?? 5}
+                                                                                            step="0.5"
+                                                                                            value={currentScore !== undefined ? currentScore : ''}
+                                                                                            onChange={(e) => {
+                                                                                                const valStr = e.target.value;
+                                                                                                if (valStr === '') {
+                                                                                                    saveInspectionScore(hotel.id, item.id, undefined);
+                                                                                                } else {
+                                                                                                    const val = Number(valStr);
+                                                                                                    if (!isNaN(val)) {
+                                                                                                        const capped = Math.min(Math.max(val, 0), item.points ?? 5);
+                                                                                                        saveInspectionScore(hotel.id, item.id, capped);
+                                                                                                    }
+                                                                                                }
+                                                                                            }}
+                                                                                            className="w-full h-14 bg-white border-2 border-slate-200 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-50/50 rounded-2xl text-center text-xl font-black text-slate-800 outline-none transition-all placeholder:text-slate-300"
+                                                                                            placeholder={`Score (0-${item.points ?? 5})`}
+                                                                                        />
+                                                                                        <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-black text-slate-400 select-none">PTS</span>
                                                                                     </div>
 
                                                                                     <div className="flex gap-2">

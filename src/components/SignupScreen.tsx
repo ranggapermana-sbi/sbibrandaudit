@@ -26,6 +26,7 @@ const FALLBACK_HOTELS: Hotel[] = [
 ];
 
 const ROLES = [
+    'Admin',
     'Auditor',
     'General Manager',
     'GM Secretary',
@@ -204,7 +205,7 @@ export default function SignupScreen({ onComplete, onLogout }: SignupScreenProps
                 hotel_name: selectedHotel?.name || null,
                 hotel_code: selectedHotel?.code || null,
                 role: role,
-                access_level: role === 'Auditor' ? 'auditor' : 'auditee',
+                access_level: (role === 'Admin' || isAuditLead) ? 'admin' : (role === 'Auditor' ? 'auditor' : 'auditee'),
                 is_brand_audit_lead: isAuditLead,
                 updated_at: new Date().toISOString()
             };

@@ -271,7 +271,10 @@ const AuditItemCard: React.FC<{ item: any, hotelId: string }> = ({ item, hotelId
                 input_type: item.input_type,
                 value: finalValue,
                 is_na: isNa,
-                na_reason: naReason
+                na_reason: naReason,
+                submitted_at: new Date().toISOString(),
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString()
             };
 
             try {
@@ -601,9 +604,28 @@ const AuditItemCard: React.FC<{ item: any, hotelId: string }> = ({ item, hotelId
 export default function BrandingPropertyIdentificationScreen({ selectedCategory, userProfile, onBack }: BrandingPropertyProps) {
     const [items, setItems] = useState<any[]>([]);
     const [isLoading, setIsLoading] = useState(true);
+    const [hotels, setHotels] = useState<any[]>([]);
     
     // Get actual hotel ID from user profile or fallback to demo
-    const hotelId = userProfile?.hotel_id || localStorage.getItem('selected_hotel_id') || 'demo-hotel-123';
+    const initialHotelId = userProfile?.hotel_id || localStorage.getItem('selected_hotel_id') || 'demo-hotel-123';
+    const [selectedHotelId, setSelectedHotelId] = useState<string>(initialHotelId);
+
+    useEffect(() => {
+        const loadHotels = async () => {
+            try {
+                const { data, error } = await supabase
+                    .from('hotels')
+                    .select('*');
+                if (!error && data) {
+                    const sorted = (data || []).sort((a: any, b: any) => (a.name || '').localeCompare(b.name || ''));
+                    setHotels(sorted);
+                }
+            } catch (err) {
+                console.error("Error loading hotels:", err);
+            }
+        };
+        loadHotels();
+    }, []);
 
     useEffect(() => {
         if (!selectedCategory?.id) {
@@ -658,6 +680,35 @@ export default function BrandingPropertyIdentificationScreen({ selectedCategory,
             </header>
             
             <main className="max-w-2xl mx-auto p-4 space-y-5">
+                {/* Property selector for Admin/Auditor or unassigned users */}
+                {(!userProfile?.hotel_id || userProfile?.access_level === 'admin' || userProfile?.access_level === 'auditor') && (
+                    <div className="bg-white rounded-3xl border border-slate-200 p-5 shadow-sm space-y-3 animate-fadeIn">
+                        <div className="flex items-center gap-2">
+                            <span className="w-2.5 h-2.5 rounded-full bg-indigo-500 animate-pulse" />
+                            <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block">Select Representing Property (Auditor Mode)</label>
+                        </div>
+                        <div className="relative">
+                            <select
+                                value={selectedHotelId}
+                                onChange={(e) => {
+                                    const val = e.target.value;
+                                    setSelectedHotelId(val);
+                                    localStorage.setItem('selected_hotel_id', val);
+                                }}
+                                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white focus:ring-2 focus:ring-indigo-100 rounded-xl text-sm text-slate-800 outline-none transition-all appearance-none cursor-pointer"
+                            >
+                                <option value="demo-hotel-123">Demo Hotel (Fall back pool)</option>
+                                {hotels.map(h => (
+                                    <option key={h.id} value={h.id}>{h.name} ({h.code || 'CODE'})</option>
+                                ))}
+                            </select>
+                            <span className="absolute right-4 top-4 text-slate-400 pointer-events-none">
+                                <ChevronRight className="rotate-90" size={16} />
+                            </span>
+                        </div>
+                    </div>
+                )}
+
                 {isLoading ? (
                     <div className="text-center py-16 text-slate-500 font-bold text-sm animate-pulse flex flex-col items-center justify-center gap-3 bg-white rounded-3xl border border-slate-200 shadow-sm">
                         <Loader2 className="animate-spin text-indigo-600" size={32} />
@@ -669,7 +720,7 @@ export default function BrandingPropertyIdentificationScreen({ selectedCategory,
                     </div>
                 ) : (
                     items.map((item) => (
-                        <AuditItemCard key={item.id} item={item} hotelId={hotelId} />
+                        <AuditItemCard key={item.id} item={item} hotelId={selectedHotelId} />
                     ))
                 )}
             </main>
