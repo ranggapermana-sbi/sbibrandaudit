@@ -455,30 +455,17 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
         </section>
 
         <section>
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-5">
-                <div>
-                    <h3 className="text-lg font-bold text-slate-900 tracking-tight flex items-center gap-2">
-                        <span className="w-2 h-5 bg-indigo-600 rounded-full" />
+            <div className="flex flex-col gap-4 mb-5">
+                <div className="flex flex-col gap-1">
+                    <h3 className="text-2xl font-extrabold text-slate-950 tracking-tight flex items-center gap-2">
+                        <span className="w-2 h-6 bg-indigo-600 rounded-full" />
                         Audit Checklist Directory
                     </h3>
-                    <p className="text-slate-400 text-xs mt-0.5 font-medium">Organized by Department and Category</p>
+                    <p className="text-slate-500 text-sm font-medium">Organized by Department and Category</p>
                 </div>
                 
                 {!isLoading && groupedData.length > 0 && (
-                    <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
-                        <button 
-                            onClick={() => fetchAuditItems(true)}
-                            disabled={isSyncing}
-                            className={`p-1.5 px-3 rounded-full text-[11px] font-bold transition-all flex items-center gap-1.5 outline-none active:scale-95 border ${
-                                isSyncing 
-                                    ? 'bg-indigo-50 text-indigo-500 border-indigo-100/50 cursor-not-allowed' 
-                                    : 'bg-white hover:bg-indigo-50 text-indigo-600 border-indigo-100/50 shadow-sm'
-                            }`}
-                            title="Sync checklist directory in real-time with remote database"
-                        >
-                            <RefreshCw size={12} className={isSyncing ? 'animate-spin' : ''} />
-                            {isSyncing ? 'Syncing...' : 'Sync with DB'}
-                        </button>
+                    <div className="flex items-center gap-2 flex-wrap">
                         <button 
                             onClick={() => expandAll(groupedData)}
                             className="p-1.5 px-3 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-full text-[11px] font-bold transition-all flex items-center gap-1.5 outline-none active:scale-95 border border-indigo-100/30"

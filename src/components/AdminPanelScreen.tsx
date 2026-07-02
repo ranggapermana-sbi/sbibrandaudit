@@ -202,9 +202,19 @@ const getAlignedMainUrl = (rawUrl: string, key: string): string => {
 const MAIN_URL = getAlignedMainUrl(MAIN_URL_RAW, MAIN_KEY);
 
 export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { userProfile: any, onBack: () => void, onLogout: () => void }) {
-    const [subView, setSubView] = useState<'dashboard' | 'departments' | 'hotels' | 'batches' | 'categories' | 'items' | 'groups' | 'users' | 'access' | 'inspection'>('dashboard');
+    const [subView, setSubView] = useState<'dashboard' | 'departments' | 'hotels' | 'batches' | 'categories' | 'items' | 'groups' | 'users' | 'access' | 'inspection' | 'auditor_assignment'>('dashboard');
     const [auditorAccess, setAuditorAccess] = useState<Record<string, boolean>>({});
+    const [auditorAssignments, setAuditorAssignments] = useState<any[]>([]);
 
+    useEffect(() => {
+        const fetchAuditorAssignments = async () => {
+            const { data, error } = await supabase
+                .from('auditor_assignments')
+                .select('*');
+            if (data) setAuditorAssignments(data);
+        };
+        fetchAuditorAssignments();
+    }, []);
     useEffect(() => {
         const fetchAccess = async () => {
             try {
@@ -284,12 +294,23 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     const handleSaveAccess = async () => {
         setIsSupabaseLoading(true);
         try {
-            // Use upsert-like logic directly without pre-deleting to avoid race conditions or unnecessary deletes
+            // 1. Delete existing auditor access rules
+            const delResponse = await fetch(`${MAIN_URL}access_rights?access_level=eq.auditor`, {
+                method: 'DELETE',
+                headers: {
+                    'apikey': MAIN_KEY,
+                    'Authorization': `Bearer ${MAIN_KEY}`
+                }
+            });
+            if (!delResponse.ok && delResponse.status !== 404) {
+                const err = await delResponse.text();
+                throw new Error(`Failed to delete existing access rules: ${err}`);
+            }
             
             // Prepare new entries based on normalized keys
             const subviewMap: Record<string, string> = {
                 'Dashboard': 'dashboard',
-                'Audit Report & Inspection': 'dashboard', 
+                'Audit Report & Inspection': 'inspection', 
                 'Recent Submissions': 'dashboard',
                 'Hotels': 'hotels',
                 'Departments': 'departments',
@@ -320,7 +341,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                         'apikey': MAIN_KEY,
                         'Authorization': `Bearer ${MAIN_KEY}`,
                         'Content-Type': 'application/json',
-                        'Prefer': 'return=minimal, resolution=merge-duplicates'
+                        'Prefer': 'return=minimal'
                     },
                     body: JSON.stringify(newEntries)
                 });
@@ -622,7 +643,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             const { data, error } = await supabase
                 .from('audit_submissions')
                 .select('*, hotels(name, code)')
-                .order('submitted_at', { ascending: false })
+                .order('created_at', { ascending: false })
                 .limit(10);
             
             if (!error && data) {
@@ -1434,6 +1455,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
 
     // Auditor scoring & inspection states
     const [selectedInspectionHotelId, setSelectedInspectionHotelId] = useState<string>('');
+    const [selectedAuditorId, setSelectedAuditorId] = useState<string>('');
     const [selectedInspectionCategoryId, setSelectedInspectionCategoryId] = useState<string>('');
     const [hotelSubmissions, setHotelSubmissions] = useState<Record<string, any>>({});
     const [inspectionScores, setInspectionScores] = useState<Record<string, number>>(() => {
@@ -2684,13 +2706,15 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             {/* Header */}
             <header className="fixed top-0 z-40 w-full flex items-center justify-between px-6 py-4 bg-white/85 backdrop-blur-md border-b border-slate-100/80 shadow-sm">
                 <div className="flex items-center">
-                    <button 
-                        onClick={subView !== 'dashboard' ? () => { setSubView('dashboard'); setSearchQuery(''); } : onBack} 
-                        className="p-2.5 hover:bg-slate-100 rounded-full text-slate-700 active:scale-95 transition-all outline-none"
-                        aria-label="Back"
-                    >
-                        <ArrowLeft size={20} />
-                    </button>
+                    {userProfile?.access_level !== 'auditor' && (
+                        <button 
+                            onClick={subView !== 'dashboard' ? () => { setSubView('dashboard'); setSearchQuery(''); } : onBack} 
+                            className="p-2.5 hover:bg-slate-100 rounded-full text-slate-700 active:scale-95 transition-all outline-none"
+                            aria-label="Back"
+                        >
+                            <ArrowLeft size={20} />
+                        </button>
+                    )}
                     <h1 className="text-xl font-bold text-slate-900 tracking-tight ml-3">
                         {subView === 'departments' ? 'Audit Departments' : subView === 'hotels' ? 'Master Hotel List' : subView === 'batches' ? 'Audit Batch' : subView === 'categories' ? 'Audit Category' : subView === 'items' ? 'Audit Items' : subView === 'groups' ? 'Audit Groups' : subView === 'users' ? 'User Management' : subView === 'inspection' ? 'Audit Inspection' : 'Admin Dashboard'}
                     </h1>
@@ -2733,7 +2757,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 {subView === 'dashboard' ? (
                     <>
                         {/* Stats Row */}
-                        {(userProfile?.access_level === 'admin' || userProfile?.access_level === 'auditor') && (
+                        {userProfile?.access_level === 'admin' && (
                             <section className="grid grid-cols-1 md:grid-cols-3 gap-5">
                                 {stats.map((stat, i) => {
                                     const Icon = stat.icon;
@@ -2761,7 +2785,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                         )}
 
                         {/* Config Area */}
-                        {(userProfile?.access_level === 'admin' || userProfile?.access_level === 'auditor') && (
+                        {userProfile?.access_level === 'admin' && (
                             <section className="bg-white p-6 sm:p-8 rounded-[28px] border border-slate-150/80 shadow-[0_12px_40px_rgba(15,23,42,0.02)]">
                                 <h2 className="text-lg font-bold text-slate-900 mb-6 flex items-center justify-between gap-3 flex-wrap">
                                     <div className="flex items-center gap-2.5">
@@ -2894,7 +2918,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                         )}
 
                         {/* User & Access Setup Area */}
-                        {(userProfile?.access_level === 'admin' || userProfile?.access_level === 'auditor') && (
+                        {userProfile?.access_level === 'admin' && (
                             <section className="bg-white p-6 sm:p-8 rounded-[28px] border border-slate-150/80 shadow-[0_12px_40px_rgba(15,23,42,0.02)] mt-6">
                                 <h2 className="text-lg font-bold text-slate-900 mb-6 flex items-center gap-2.5">
                                     <Users size={20} className="text-indigo-600" />
@@ -2904,6 +2928,23 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                     <div>
                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-fadeIn">
                                             
+                                            {/* Auditor Assignment */}
+                                            <div 
+                                                onClick={() => { handleSetSubView('auditor_assignment'); setSearchQuery(''); }}
+                                                className="flex items-center justify-between p-5 bg-slate-50/60 hover:bg-slate-100/80 rounded-[20px] border border-slate-100 cursor-pointer hover:border-indigo-200 active:scale-[0.99] transition-all duration-200 group"
+                                            >
+                                                <div className="flex items-center gap-4">
+                                                    <div className="w-11 h-11 rounded-2xl bg-indigo-50 text-indigo-700 flex items-center justify-center shrink-0 transition-transform duration-300 group-hover:scale-105">
+                                                        <Briefcase size={22} />
+                                                    </div>
+                                                    <div>
+                                                        <p className="text-sm font-bold text-slate-800 tracking-tight">Auditor Assignment</p>
+                                                        <p className="text-xs text-slate-400 mt-0.5">Assign auditors to hotels</p>
+                                                    </div>
+                                                </div>
+                                                <ChevronRight className="text-slate-300 group-hover:text-indigo-600 group-hover:translate-x-1 transition-all" size={18} />
+                                            </div>
+
                                             {/* User Management */}
                                             <div 
                                                 onClick={() => { handleSetSubView('users'); setSearchQuery(''); fetchProfilesFromSupabase(); }}
@@ -3010,7 +3051,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                 <div>
                                                     <p className="text-sm font-black text-slate-800 tracking-tight">{sub.hotels?.name || sub.hotel_id || 'Unknown Property'}</p>
                                                     <div className="flex items-center gap-2 mt-1">
-                                                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{safeFormatDate(sub.submitted_at)}</span>
+                                                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{safeFormatDate(sub.created_at)}</span>
                                                         <span className="w-1 h-1 rounded-full bg-slate-300" />
                                                         <span className="text-[10px] font-black text-indigo-500 uppercase tracking-widest">
                                                             {items.find(it => it.id === sub.item_id)?.name.substring(0, 30) || 'Linked Item'}...
@@ -4010,6 +4051,77 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                      </table>
                         </div>
                     </div>
+                ) : subView === 'auditor_assignment' ? (
+                    <div className="space-y-6">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                            <button 
+                                onClick={() => { setSubView('dashboard'); }} 
+                                className="inline-flex items-center gap-1.5 text-xs font-bold text-indigo-600 bg-indigo-50/50 hover:bg-slate-100 px-3.5 py-1.5 rounded-full border border-indigo-100/50 mb-3 hover:shadow-sm active:scale-95 transition-all outline-none"
+                            >
+                                <ArrowLeft size={12} /> Back to Dashboard
+                            </button>
+                            <h2 className="text-2xl font-extrabold text-slate-900 tracking-tight">Auditor Assignment</h2>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                            <div className="bg-white p-6 rounded-2xl border border-slate-150 shadow-sm col-span-1">
+                                <h3 className="font-bold text-sm text-slate-700 mb-4">Auditors</h3>
+                                <div className="space-y-2">
+                                    {profilesList.filter(p => p.access_level === 'auditor').map(auditor => (
+                                        <button 
+                                            key={auditor.id}
+                                            onClick={() => setSelectedAuditorId(auditor.id)}
+                                            className={`w-full text-left p-3 rounded-xl text-sm font-bold ${selectedAuditorId === auditor.id ? 'bg-indigo-50 text-indigo-700' : 'text-slate-600 hover:bg-slate-50'}`}
+                                        >
+                                            {auditor.display_name || `${auditor.first_name} ${auditor.last_name}`}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                            <div className="bg-white p-6 rounded-2xl border border-slate-150 shadow-sm col-span-2">
+                                <h3 className="font-bold text-sm text-slate-700 mb-4">Assigned Hotels</h3>
+                                {selectedAuditorId ? (
+                                    <div className="space-y-2">
+                                        {hotels.map(hotel => {
+                                            const assignment = auditorAssignments.find(a => a.hotel_id === hotel.id);
+                                            const isAssignedToSelected = assignment?.user_id === selectedAuditorId;
+                                            const isAssignedToOther = assignment && assignment.user_id !== selectedAuditorId;
+                                            
+                                            return (
+                                                <div key={hotel.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl">
+                                                    <span className="text-sm font-medium text-slate-700">{hotel.name}</span>
+                                                    <button 
+                                                        onClick={async (e) => {
+                                                            e.stopPropagation();
+                                                            console.log('Assign button clicked', { isAssignedToSelected, selectedAuditorId, hotelId: hotel.id });
+                                                            if (isAssignedToSelected) {
+                                                                const { error } = await supabase.from('auditor_assignments').delete().eq('user_id', selectedAuditorId).eq('hotel_id', hotel.id);
+                                                                if (error) console.error('Delete error', error);
+                                                            } else {
+                                                                if (isAssignedToOther) {
+                                                                    const { error: delError } = await supabase.from('auditor_assignments').delete().eq('hotel_id', hotel.id);
+                                                                    if (delError) console.error('Delete other error', delError);
+                                                                }
+                                                                const { error } = await supabase.from('auditor_assignments').insert({ user_id: selectedAuditorId, hotel_id: hotel.id });
+                                                                if (error) console.error('Insert error details:', error.message, error.details, error.hint);
+                                                            }
+                                                            const { data, error: fetchError } = await supabase.from('auditor_assignments').select('*');
+                                                            if (fetchError) console.error('Fetch error', fetchError);
+                                                            if (data) setAuditorAssignments(data);
+                                                        }}
+                                                        className={`px-3 py-1 text-xs font-bold rounded-lg pointer-events-auto ${isAssignedToSelected ? 'bg-indigo-600 text-white' : isAssignedToOther ? 'bg-amber-100 text-amber-700' : 'bg-white border border-slate-200 text-slate-600'}`}
+                                                    >
+                                                        {isAssignedToSelected ? 'Assigned' : isAssignedToOther ? 'Reassign' : 'Assign'}
+                                                    </button>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                ) : (
+                                    <div className="text-center py-20 text-slate-400 font-bold text-xs">Select an auditor to view assignments</div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
                 ) : subView === 'inspection' ? (
                     <div className="space-y-6 animate-fadeIn">
                         {/* Audit Inspection Subview */}
@@ -4060,67 +4172,68 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                     </div>
 
                                     {/* Hotels List */}
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                        {hotels
-                                            .filter(h => !searchQuery || h.name.toLowerCase().includes(searchQuery.toLowerCase()) || (h.code && h.code.toLowerCase().includes(searchQuery.toLowerCase())))
-                                            .map(hotel => {
-                                                // Calculate overall scored auditor items for this hotel
-                                                const auditorItems = items.filter(i => i.filled_by_hotel === false);
-                                                const allHotelItems = items;
-                                                const totalItems = allHotelItems.length;
-                                                const scoredItems = allHotelItems.filter(i => inspectionScores[`${hotel.id}_${i.id}`] !== undefined).length;
-                                                const completionPercent = totalItems > 0 ? Math.round((scoredItems / totalItems) * 100) : 0;
+                                    <div className="overflow-x-auto bg-white rounded-3xl border border-slate-200 shadow-sm">
+                                        <table className="w-full text-left text-sm text-slate-700">
+                                            <thead className="bg-slate-50 text-slate-500 font-bold uppercase text-[10px] tracking-wider">
+                                                <tr>
+                                                    <th className="px-6 py-4">Property</th>
+                                                    <th className="px-6 py-4">Brand</th>
+                                                    <th className="px-6 py-4">Region</th>
+                                                    <th className="px-6 py-4">Assigned Group</th>
+                                                    <th className="px-6 py-4">Scoring Progress</th>
+                                                    <th className="px-6 py-4">Evidence</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-slate-100">
+                                                {hotels
+                                                    .filter(h => {
+                                                        const isMatchSearch = !searchQuery || h.name.toLowerCase().includes(searchQuery.toLowerCase()) || (h.code && h.code.toLowerCase().includes(searchQuery.toLowerCase()));
+                                                        if (userProfile?.access_level === 'auditor') {
+                                                            const isAssigned = auditorAssignments.some(a => a.user_id === userProfile.id && a.hotel_id === h.id);
+                                                            return isMatchSearch && isAssigned;
+                                                        }
+                                                        return isMatchSearch;
+                                                    })
+                                                    .map(hotel => {
+                                                        const allHotelItems = items;
+                                                        const totalItems = allHotelItems.length;
+                                                        const scoredItems = allHotelItems.filter(i => inspectionScores[`${hotel.id}_${i.id}`] !== undefined).length;
+                                                        const completionPercent = totalItems > 0 ? Math.round((scoredItems / totalItems) * 100) : 0;
 
-                                                return (
-                                                    <div 
-                                                        key={hotel.id}
-                                                        onClick={() => { setSelectedInspectionHotelId(hotel.id); setSearchQuery(''); }}
-                                                        className="group p-5 bg-slate-50/40 hover:bg-indigo-50/20 rounded-2xl border border-slate-150/60 hover:border-indigo-200 cursor-pointer active:scale-[0.99] transition-all duration-200 flex flex-col justify-between gap-4"
-                                                    >
-                                                        <div className="flex items-start justify-between gap-3">
-                                                            <div>
-                                                                <span className="text-[9px] font-extrabold px-2 py-0.5 bg-indigo-50 text-indigo-700 border border-indigo-100/40 rounded uppercase tracking-wider">
-                                                                    {hotel.code || 'NO-CODE'}
-                                                                </span>
-                                                                <h4 className="font-extrabold text-slate-850 tracking-tight text-sm mt-1.5 group-hover:text-indigo-750 transition-colors">
-                                                                    {hotel.name}
-                                                                </h4>
-                                                                <p className="text-[10px] font-bold text-slate-405 mt-0.5 uppercase tracking-wide">
-                                                                    {hotel.location || 'Not Specified'} • {hotel.brand || 'Swiss-Belhotel'}
-                                                                </p>
-                                                            </div>
-                                                            <ChevronRight className="text-slate-300 group-hover:text-indigo-600 group-hover:translate-x-1 transition-all mt-1" size={18} />
-                                                        </div>
-
-                                                        {/* Stats progress */}
-                                                        <div className="pt-3 border-t border-slate-100 flex flex-col gap-2">
-                                                            <div className="flex items-center justify-between text-[11px] font-bold">
-                                                               <div className="flex items-center gap-1.5 text-slate-400">
-                                                                   <FileCheck size={13} className={completionPercent === 100 ? 'text-emerald-500' : 'text-slate-400'} />
-                                                                   <span>Scoring Progress:</span>
-                                                               </div>
-                                                               <span className={completionPercent === 100 ? 'text-emerald-600' : 'text-slate-700'}>
-                                                                   {scoredItems} / {totalItems} ({completionPercent}%)
-                                                               </span>
-                                                            </div>
-                                                            
-                                                            {/* Submission info */}
-                                                            <div className="flex items-center justify-between text-[11px] font-bold">
-                                                               <div className="flex items-center gap-1.5 text-slate-400">
-                                                                   <Layers size={13} className="text-blue-500" />
-                                                                   <span>Hotel Submissions:</span>
-                                                               </div>
-                                                               <span className="text-blue-600 bg-blue-50 px-2 py-0.5 rounded border border-blue-100/50">
-                                                                   {allSubmissions.filter(s => isSubmissionForHotel(s.hotel_id, hotel)).length} ITEMS RECEIVED
-                                                                </span>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                );
-                                            })
-                                        }
+                                                        return (
+                                                            <tr 
+                                                                key={hotel.id}
+                                                                onClick={() => { setSelectedInspectionHotelId(hotel.id); setSearchQuery(''); }}
+                                                                className="hover:bg-indigo-50/30 cursor-pointer transition-colors duration-200"
+                                                            >
+                                                                <td className="px-6 py-4">
+                                                                    <div className="font-bold text-slate-900">{hotel.name}</div>
+                                                                    <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">{hotel.code || 'NO-CODE'}</div>
+                                                                </td>
+                                                                <td className="px-6 py-4 text-slate-600 font-medium">{hotel.brandClass}</td>
+                                                                <td className="px-6 py-4 text-slate-600 font-medium">{hotel.region || 'N/A'}</td>
+                                                                <td className="px-6 py-4 text-slate-600 font-medium">{batches.find(b => b.hotelIds?.includes(hotel.id))?.name || 'Unassigned'}</td>
+                                                                <td className="px-6 py-4">
+                                                                    <div className="flex items-center gap-2 font-bold text-[11px]">
+                                                                        <div className="w-16 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                                                                            <div className="h-full bg-indigo-500" style={{ width: `${completionPercent}%` }}></div>
+                                                                        </div>
+                                                                        <span className={completionPercent === 100 ? 'text-emerald-600' : 'text-slate-700'}>
+                                                                            {completionPercent}%
+                                                                        </span>
+                                                                    </div>
+                                                                </td>
+                                                                <td className="px-6 py-4 font-bold text-indigo-700">
+                                                                    {allSubmissions.filter(s => isSubmissionForHotel(s.hotel_id, hotel)).length}
+                                                                </td>
+                                                            </tr>
+                                                        );
+                                                    })
+                                                }
+                                            </tbody>
+                                        </table>
                                         {hotels.filter(h => !searchQuery || h.name.toLowerCase().includes(searchQuery.toLowerCase()) || (h.code && h.code.toLowerCase().includes(searchQuery.toLowerCase()))).length === 0 && (
-                                            <div className="col-span-full py-8 text-center text-slate-400 font-bold text-xs">
+                                            <div className="py-8 text-center text-slate-400 font-bold text-xs">
                                                 No properties matched your search.
                                             </div>
                                         )}
@@ -4340,7 +4453,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                                         {submission._is_demo ? 'Demo Pool Evidence' : 'Property Evidence'}
                                                                                                     </span>
                                                                                                 </div>
-                                                                                                <span className="text-[9px] font-bold text-slate-400">Received {safeFormatDateTime(submission.submitted_at)}</span>
+                                                                                                <span className="text-[9px] font-bold text-slate-400">Received {safeFormatDateTime(submission.created_at)}</span>
                                                                                             </div>
 
                                                                                             {submission.is_na ? (

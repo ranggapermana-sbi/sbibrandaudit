@@ -322,7 +322,6 @@ const AuditItemCard: React.FC<{ item: any, hotelId: string }> = ({ item, hotelId
                 value: finalValue,
                 is_na: isNa,
                 na_reason: naReason,
-                submitted_at: new Date().toISOString(),
                 created_at: new Date().toISOString(),
                 updated_at: new Date().toISOString()
             };

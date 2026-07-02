@@ -83,7 +83,7 @@ export default function App() {
           // Check if mandatory onboarding fields are fully populated
           if (prof && (prof.access_level === 'admin' || (prof.first_name && prof.role && (prof.hotel_id || prof.hotel_name)))) {
             setUserProfile(prof);
-            if (prof.access_level === 'admin') {
+            if (prof.access_level === 'admin' || prof.access_level === 'auditor') {
               setCurrentScreen('adminPanel');
             } else {
               setCurrentScreen('dashboard');
@@ -122,6 +122,15 @@ export default function App() {
       window.history.pushState({ screen: currentScreen }, '', `#${currentScreen}`);
     }
   }, [currentScreen]);
+
+  useEffect(() => {
+    if (userProfile?.access_level === 'auditor') {
+      const restrictedScreens = ['dashboard', 'brandingPropertyIdentification', 'pendingCategories', 'step1', 'step2'];
+      if (restrictedScreens.includes(currentScreen)) {
+        setCurrentScreen('adminPanel');
+      }
+    }
+  }, [userProfile, currentScreen]);
 
   useEffect(() => {
     // Check initial active session
@@ -186,7 +195,7 @@ export default function App() {
         <SignupScreen 
           onComplete={(profile) => {
             setUserProfile(profile);
-            if (profile?.access_level === 'admin') {
+            if (profile?.access_level === 'admin' || profile?.access_level === 'auditor') {
               setCurrentScreen('adminPanel');
             } else {
               setCurrentScreen('dashboard');
@@ -223,7 +232,7 @@ export default function App() {
           onBack={() => setCurrentScreen('pendingCategories')} 
         />
       )}
-      {currentScreen === 'adminPanel' && (userProfile?.access_level === 'admin' ? (
+      {currentScreen === 'adminPanel' && (userProfile?.access_level === 'admin' || userProfile?.access_level === 'auditor' ? (
         <AdminPanelScreen userProfile={userProfile} onBack={() => setCurrentScreen('dashboard')} onLogout={handleLogout} />
       ) : (
         <DashboardScreen 

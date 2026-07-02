@@ -17,5 +17,6 @@ INSERT INTO public.access_rights (access_level, subview) VALUES
 ('auditor', 'items'),
 ('auditor', 'groups'),
 ('auditor', 'batches'),
-('auditor', 'hotels')
+('auditor', 'hotels'),
+('auditor', 'inspection')
 ON CONFLICT DO NOTHING;
