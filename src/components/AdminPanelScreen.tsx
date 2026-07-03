@@ -4453,7 +4453,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                                         {submission._is_demo ? 'Demo Pool Evidence' : 'Property Evidence'}
                                                                                                     </span>
                                                                                                 </div>
-                                                                                                <span className="text-[9px] font-bold text-slate-400">Received {safeFormatDateTime(submission.created_at)}</span>
+                                                                                                <span className="text-[9px] font-bold text-slate-400">Submitted by {submission.submitted_by || 'Property User'} • {safeFormatDateTime(submission.created_at)}</span>
                                                                                             </div>
 
                                                                                             {submission.is_na ? (
@@ -4526,12 +4526,8 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                             <div className="w-12 h-12 rounded-full bg-amber-100 flex items-center justify-center text-amber-600 mb-3">
                                                                                                 <Clock size={24} />
                                                                                             </div>
-                                                                                            <h5 className="text-xs font-black text-amber-800 uppercase tracking-tight">Awaiting Property Action</h5>
+                                                                                            <h5 className="text-xs font-black text-amber-800 uppercase tracking-tight">Awaiting for Property Submission.</h5>
                                                                                             <p className="text-[11px] text-amber-600 font-bold mt-1">The hotel has not yet uploaded evidence for this criteria.</p>
-                                                                                            <span className="mt-3 inline-flex items-center gap-1.5 px-3 py-1 bg-amber-50 rounded-full text-[9px] font-black text-amber-700 uppercase tracking-widest animate-pulse border border-amber-200">
-                                                                                                <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-                                                                                                Live Sync Active
-                                                                                            </span>
                                                                                         </div>
                                                                                     )}
                                                                                 </div>
