@@ -1492,6 +1492,53 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         return false;
     };
 
+    const getSubmitterName = (sub: any, currentHotel?: any) => {
+        if (!sub) return 'Property User';
+        if (sub.submitted_by) return sub.submitted_by;
+        if (sub.submitted_by_name) return sub.submitted_by_name;
+        if (sub.user_name) return sub.user_name;
+
+        const uid = sub.user_id || sub.created_by;
+        if (uid && profilesList && profilesList.length > 0) {
+            const foundUser = profilesList.find(p => p.id === uid || p.email === uid);
+            if (foundUser) {
+                const name = `${foundUser.first_name || ''} ${foundUser.last_name || ''}`.trim() || foundUser.display_name || foundUser.email;
+                if (name) return name;
+            }
+        }
+
+        const targetHotelId = sub.hotel_id || currentHotel?.id;
+        const targetHotelCode = currentHotel?.code;
+        const targetHotelName = currentHotel?.name;
+
+        if (profilesList && profilesList.length > 0) {
+            const hotelUsers = profilesList.filter(p => {
+                if (p.access_level === 'admin' || p.access_level === 'auditor') return false;
+                const matchesId = targetHotelId && p.hotel_id && String(p.hotel_id).toLowerCase() === String(targetHotelId).toLowerCase();
+                const matchesCode = targetHotelCode && p.hotel_code && String(p.hotel_code).toLowerCase() === String(targetHotelCode).toLowerCase();
+                const matchesName = targetHotelName && p.hotel_name && String(p.hotel_name).toLowerCase() === String(targetHotelName).toLowerCase();
+                return matchesId || matchesCode || matchesName;
+            });
+
+            if (hotelUsers.length > 0) {
+                const userNames = hotelUsers.map(p => `${p.first_name || ''} ${p.last_name || ''}`.trim() || p.display_name || p.email).filter(Boolean);
+                if (userNames.length > 0) {
+                    return userNames.join(', ');
+                }
+            }
+        }
+
+        if (userProfile && userProfile.access_level === 'auditee') {
+            const name = `${userProfile.first_name || ''} ${userProfile.last_name || ''}`.trim() || userProfile.display_name || userProfile.email;
+            if (name) return name;
+        }
+
+        const storedUserName = localStorage.getItem('sbi_user_name');
+        if (storedUserName) return storedUserName;
+
+        return 'Property User';
+    };
+
     useEffect(() => {
         let active = true;
         const fetchSubmissions = async () => {
@@ -4453,7 +4500,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                                         {submission._is_demo ? 'Demo Pool Evidence' : 'Property Evidence'}
                                                                                                     </span>
                                                                                                 </div>
-                                                                                                <span className="text-[9px] font-bold text-slate-400">Submitted by {submission.submitted_by || 'Property User'} • {safeFormatDateTime(submission.created_at)}</span>
+                                                                                                <span className="text-[9px] font-bold text-slate-400">Submitted by {getSubmitterName(submission, hotel)} • {safeFormatDateTime(submission.created_at)}</span>
                                                                                             </div>
 
                                                                                             {submission.is_na ? (
@@ -4461,7 +4508,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                                     <AlertCircle size={18} className="text-amber-600 shrink-0 mt-0.5" />
                                                                                                     <div>
                                                                                                         <p className="text-xs font-black text-amber-800 uppercase tracking-tight">Marked as N/A by Property</p>
-                                                                                                        <p className="text-sm text-amber-700 mt-1 font-medium">{submission.na_reason || "No reason provided."}</p>
+                                                                                                        <p className="text-sm text-amber-700 mt-1 font-medium">{submission.na_reason || submission.notes || "No reason provided."}</p>
                                                                                                     </div>
                                                                                                 </div>
                                                                                             ) : (
@@ -4511,11 +4558,11 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                                         </div>
                                                                                                     )}
 
-                                                                                                    {/* Hotel Remarks */}
-                                                                                                    {submission.notes && (
+                                                                                                    {/* Hotel Remarks / Notes */}
+                                                                                                    {(submission.notes || submission.na_reason || submission.remark || submission.comments) && (
                                                                                                         <div className="bg-indigo-50/50 p-4 rounded-2xl border border-indigo-100/50 border-l-4 border-l-indigo-500">
-                                                                                                            <span className="text-[9px] font-black text-indigo-400 uppercase tracking-widest block mb-1">Hotel Remarks</span>
-                                                                                                            <p className="text-sm text-slate-700 font-medium leading-relaxed italic">"{submission.notes}"</p>
+                                                                                                            <span className="text-[9px] font-black text-indigo-400 uppercase tracking-widest block mb-1">Hotel Remarks & Notes</span>
+                                                                                                            <p className="text-sm text-slate-700 font-medium leading-relaxed italic">"{submission.notes || submission.na_reason || submission.remark || submission.comments}"</p>
                                                                                                         </div>
                                                                                                     )}
                                                                                                 </div>

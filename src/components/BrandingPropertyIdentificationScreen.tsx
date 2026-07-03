@@ -91,7 +91,7 @@ const uploadToIMGBB = async (file: File): Promise<string> => {
     }
 }
 
-const AuditItemCard: React.FC<{ item: any, hotelId: string }> = ({ item, hotelId }) => {
+const AuditItemCard: React.FC<{ item: any, hotelId: string, userProfile?: any }> = ({ item, hotelId, userProfile }) => {
     const [value, setValue] = useState<string>('');
     const [isNa, setIsNa] = useState<boolean>(false);
     const [naReason, setNaReason] = useState<string>('');
@@ -186,7 +186,7 @@ const AuditItemCard: React.FC<{ item: any, hotelId: string }> = ({ item, hotelId
                     const submission = data[0];
                     setValue(submission.value || '');
                     setIsNa(submission.is_na || false);
-                    setNaReason(submission.na_reason || '');
+                    setNaReason(submission.na_reason || submission.notes || submission.remark || '');
                     setIsSubmitted(true);
                     if (submission.value && (item.input_type === 'camera' || item.input_type === 'image')) {
                         setPreviewUrl(submission.value);
@@ -204,7 +204,7 @@ const AuditItemCard: React.FC<{ item: any, hotelId: string }> = ({ item, hotelId
                             const localData = JSON.parse(stored);
                             setValue(localData.value || '');
                             setIsNa(localData.is_na || false);
-                            setNaReason(localData.na_reason || '');
+                            setNaReason(localData.na_reason || localData.notes || localData.remark || '');
                             setIsSubmitted(localData.isSubmitted || false);
                             if (localData.value && (item.input_type === 'camera' || item.input_type === 'image')) {
                                 setPreviewUrl(localData.value);
@@ -315,25 +315,48 @@ const AuditItemCard: React.FC<{ item: any, hotelId: string }> = ({ item, hotelId
                 }
             }
 
-            const submissionData = {
+            const submitterName = userProfile 
+                ? `${userProfile.first_name || ''} ${userProfile.last_name || ''}`.trim() || userProfile.full_name || userProfile.name || userProfile.email 
+                : (localStorage.getItem('sbi_user_name') || 'Property User');
+
+            const fullSubmissionData = {
                 hotel_id: hotelId,
                 item_id: item.id,
                 input_type: item.input_type,
                 value: finalValue,
                 is_na: isNa,
                 na_reason: naReason,
+                notes: naReason,
+                submitted_by: submitterName,
+                submitted_by_name: submitterName,
                 created_at: new Date().toISOString(),
                 updated_at: new Date().toISOString()
             };
 
             try {
-                const { error } = await supabase.from('audit_submissions').upsert(submissionData, { onConflict: 'hotel_id,item_id' });
+                // Upsert with full schema (includes notes and submitted_by)
+                const { error } = await supabase.from('audit_submissions').upsert(fullSubmissionData, { onConflict: 'hotel_id,item_id' });
                 if (error) {
-                    console.error("Supabase upsert error:", error);
-                    if (error.code === '42P01') { // undefined_table
-                        alert("The audit_submissions table does not exist in Supabase. Please run the SQL script provided.");
-                    } else {
-                        alert("Failed to save to Supabase: " + error.message);
+                    console.warn("Supabase upsert with full fields failed, attempting fallback to core schema fields:", error);
+                    // Fallback to core schema fields if additional columns don't exist in Supabase table
+                    const coreSubmissionData = {
+                        hotel_id: hotelId,
+                        item_id: item.id,
+                        input_type: item.input_type,
+                        value: finalValue,
+                        is_na: isNa,
+                        na_reason: naReason,
+                        created_at: new Date().toISOString(),
+                        updated_at: new Date().toISOString()
+                    };
+                    const { error: fallbackError } = await supabase.from('audit_submissions').upsert(coreSubmissionData, { onConflict: 'hotel_id,item_id' });
+                    if (fallbackError) {
+                        console.error("Supabase upsert fallback error:", fallbackError);
+                        if (fallbackError.code === '42P01') {
+                            alert("The audit_submissions table does not exist in Supabase. Please run the SQL script provided.");
+                        } else {
+                            alert("Failed to save to Supabase: " + fallbackError.message);
+                        }
                     }
                 }
             } catch (err) {
@@ -341,7 +364,7 @@ const AuditItemCard: React.FC<{ item: any, hotelId: string }> = ({ item, hotelId
             }
 
             localStorage.setItem(`sbi_audit_${hotelId}_${item.id}`, JSON.stringify({
-                ...submissionData,
+                ...fullSubmissionData,
                 isSubmitted: true
             }));
 
@@ -823,7 +846,7 @@ export default function BrandingPropertyIdentificationScreen({ selectedCategory,
                     </div>
                 ) : (
                     items.map((item) => (
-                        <AuditItemCard key={item.id} item={item} hotelId={selectedHotelId} />
+                        <AuditItemCard key={item.id} item={item} hotelId={selectedHotelId} userProfile={userProfile} />
                     ))
                 )}
             </main>
