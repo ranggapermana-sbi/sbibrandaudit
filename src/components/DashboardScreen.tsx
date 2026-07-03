@@ -324,13 +324,13 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
   const totalPoints = auditItems.reduce((acc, item) => acc + (item.points || 0), 0);
 
   return (
-    <div className="min-h-screen pb-24 md:pb-0 pt-20 md:pt-16 bg-transparent">
-      <header className="fixed top-0 z-40 w-full flex justify-between items-center px-4 py-3 bg-white/80 backdrop-blur-md border-b border-slate-200">
-        <div className="flex items-center gap-3">
-            <button className="p-2 hover:bg-slate-100 rounded-full text-slate-600"><Menu size={20}/></button>
-            <img src="https://i.ibb.co.com/WNB70XBz/sbi-logo.png" alt="Swiss-Belhotel Logo" className="h-10" />
+    <div className="min-h-screen pb-20 md:pb-8 pt-16 sm:pt-20 md:pt-16 bg-slate-50/50">
+      <header className="fixed top-0 left-0 z-40 w-full flex justify-between items-center px-3 sm:px-4 py-2.5 sm:py-3 bg-white/90 backdrop-blur-md border-b border-slate-200 shadow-xs">
+        <div className="flex items-center gap-2 sm:gap-3">
+            <button className="p-1.5 sm:p-2 hover:bg-slate-100 rounded-full text-slate-600"><Menu size={18} className="sm:w-5 sm:h-5"/></button>
+            <img src="https://i.ibb.co.com/WNB70XBz/sbi-logo.png" alt="Swiss-Belhotel Logo" className="h-8 sm:h-10" />
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3">
             <div 
                 onClick={() => setIsEditProfileOpen(true)}
                 className="text-right hidden sm:block cursor-pointer hover:opacity-80 transition-opacity"
@@ -349,12 +349,12 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
                 className="hover:scale-105 transition-transform duration-150 outline-none"
                 title="Edit Profile"
             >
-                <img src="https://lh3.googleusercontent.com/aida-public/AB6AXuBITBWNBBtIG0rf-g2rSnXVh9VGHDvsAjvLTDjrE23xz1hJrCplqnz6Xn1zrgcgHMUmCMQ3IdgZhZbEuTf1ImpPe7qG_G1XAXu0U8ILiKm-G1yTVcT14BEf-0i6SdQv_STVs2afp2q-qyq_bFuTRUnJiG650ZgShhYGSpaReJ7UOabaT-pWAFjHSmW0zh7U8NDb86GS9JamBquf3kiqH527l8DSi5MchVDfG3Ynr9tQMnoQnBwmDHiGBzXeeSny3uJYmL-hopwk60g" alt="Profile" className="w-8 h-8 rounded-full border border-slate-200" />
+                <img src="https://lh3.googleusercontent.com/aida-public/AB6AXuBITBWNBBtIG0rf-g2rSnXVh9VGHDvsAjvLTDjrE23xz1hJrCplqnz6Xn1zrgcgHMUmCMQ3IdgZhZbEuTf1ImpPe7qG_G1XAXu0U8ILiKm-G1yTVcT14BEf-0i6SdQv_STVs2afp2q-qyq_bFuTRUnJiG650ZgShhYGSpaReJ7UOabaT-pWAFjHSmW0zh7U8NDb86GS9JamBquf3kiqH527l8DSi5MchVDfG3Ynr9tQMnoQnBwmDHiGBzXeeSny3uJYmL-hopwk60g" alt="Profile" className="w-7 h-7 sm:w-8 sm:h-8 rounded-full border border-slate-200" />
             </button>
             
             <button 
                 onClick={onLogout}
-                className="p-1 px-2.5 text-slate-500 hover:text-red-650 hover:bg-slate-100/80 rounded-lg transition-all font-bold text-xs flex items-center gap-1.5"
+                className="p-1 px-2 text-slate-500 hover:text-red-650 hover:bg-slate-100/80 rounded-lg transition-all font-bold text-xs flex items-center gap-1.5"
                 title="Sign Out"
             >
                 <LogOut size={15} />
@@ -363,32 +363,32 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
         </div>
       </header>
 
-      <main className="max-w-[800px] mx-auto px-4 py-8">
-        <section className="mb-8">
+      <main className="max-w-4xl mx-auto px-2.5 sm:px-4 py-4 sm:py-8">
+        <section className="mb-4 sm:mb-8">
             <div className="flex justify-between items-end">
                 <div>
-                    <p className="text-indigo-600 text-[10px] tracking-widest uppercase font-bold">
+                    <p className="text-indigo-600 text-[9px] sm:text-[10px] tracking-widest uppercase font-bold">
                         {userProfile?.hotel_name || 'Swiss-Belhotel International'} 
                         {userProfile?.hotel_code ? ` (${userProfile.hotel_code})` : ''}
                     </p>
-                    <div className="flex items-center gap-2 mt-1">
-                        <h2 className="text-2xl font-bold text-slate-900">
+                    <div className="flex items-center gap-1.5 sm:gap-2 mt-0.5 sm:mt-1">
+                        <h2 className="text-lg sm:text-2xl font-bold text-slate-900">
                             Welcome, {userProfile?.first_name ? `${userProfile.first_name} ${userProfile.last_name || ''}`.trim() : 'Property Team'}
                         </h2>
                         <button 
                             onClick={() => setIsEditProfileOpen(true)}
-                            className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-slate-100 rounded-lg transition-all"
+                            className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-slate-100 rounded-lg transition-all"
                             title="Edit Profile Name"
                         >
-                            <Edit3 size={15} />
+                            <Edit3 size={14} className="sm:w-4 sm:h-4" />
                         </button>
                     </div>
                     {userProfile?.role && (
-                        <p className="text-slate-500 text-[11px] font-bold mt-1 flex items-center gap-1">
+                        <p className="text-slate-500 text-[10px] sm:text-[11px] font-bold mt-0.5 sm:mt-1 flex items-center gap-1">
                             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block animate-pulse" />
                             {userProfile.role}
                             {userProfile.is_brand_audit_lead && (
-                                <span className="ml-1.5 px-1.5 py-0.5 bg-indigo-105 text-indigo-700 text-[9px] font-extrabold uppercase rounded">
+                                <span className="ml-1 px-1.5 py-0.5 bg-indigo-105 text-indigo-700 text-[8px] sm:text-[9px] font-extrabold uppercase rounded">
                                     Audit Lead
                                 </span>
                             )}
@@ -400,84 +400,84 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
 
         {/* Assigned Batches / Schedules program sync */}
         {isFetchingBatches ? (
-          <section className="mb-8 bg-white border border-slate-200/60 p-5 rounded-2xl animate-pulse">
+          <section className="mb-4 sm:mb-8 bg-white border border-slate-200/60 p-3.5 sm:p-5 rounded-xl sm:rounded-2xl animate-pulse">
             <div className="h-4 bg-slate-200 rounded w-1/4 mb-3" />
             <div className="h-10 bg-slate-100 rounded w-full" />
           </section>
         ) : assignedBatches.length > 0 ? (
-          <section className="mb-8">
-            <h3 className="text-xs font-extrabold text-slate-500 uppercase tracking-widest mb-3 flex items-center gap-1.5 pl-1 select-none">
+          <section className="mb-4 sm:mb-8">
+            <h3 className="text-[10px] sm:text-xs font-extrabold text-slate-500 uppercase tracking-widest mb-2.5 sm:mb-3 flex items-center gap-1.5 pl-0.5 select-none">
               <Building size={13} className="text-slate-400" />
               Your Active Brand Audit Schedules ({assignedBatches.length})
             </h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
               {assignedBatches.map((batch) => (
-                <div key={batch.id} className="bg-gradient-to-r from-slate-900 via-slate-850 to-indigo-950 p-5 rounded-[22px] border border-slate-800 text-white shadow-lg relative overflow-hidden group">
+                <div key={batch.id} className="bg-gradient-to-r from-slate-900 via-slate-850 to-indigo-950 p-3.5 sm:p-5 rounded-xl sm:rounded-[22px] border border-slate-800 text-white shadow-lg relative overflow-hidden group">
                   <div className="absolute right-0 top-0 w-24 h-24 bg-indigo-500/10 rounded-full blur-2xl group-hover:bg-indigo-500/20 transition-all duration-300" />
-                  <div className="flex justify-between items-start mb-3">
-                    <span className="text-[9px] font-extrabold uppercase tracking-widest px-2.5 py-1 bg-indigo-500/30 text-indigo-100 rounded-full select-none border border-indigo-400/10">
+                  <div className="flex justify-between items-start mb-2 sm:mb-3">
+                    <span className="text-[8px] sm:text-[9px] font-extrabold uppercase tracking-widest px-2 sm:px-2.5 py-0.5 sm:py-1 bg-indigo-500/30 text-indigo-100 rounded-full select-none border border-indigo-400/10">
                       {batch.status || 'Active'}
                     </span>
-                    <Clock size={15} className="text-slate-400" />
+                    <Clock size={14} className="text-slate-400 sm:w-4 sm:h-4" />
                   </div>
-                  <h4 className="font-extrabold text-sm text-slate-50 tracking-tight mb-1">{batch.name}</h4>
-                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Assigned Property: {userProfile?.hotel_name}</p>
+                  <h4 className="font-extrabold text-xs sm:text-sm text-slate-50 tracking-tight mb-1">{batch.name}</h4>
+                  <p className="text-[9px] sm:text-[10px] text-slate-400 font-bold uppercase tracking-wider">Assigned Property: {userProfile?.hotel_name}</p>
                 </div>
               ))}
             </div>
           </section>
         ) : userProfile?.hotel_id ? (
-          <section className="mb-8 bg-slate-50 border border-slate-200/60 p-5 rounded-2xl flex items-center justify-between gap-4">
+          <section className="mb-4 sm:mb-8 bg-slate-50 border border-slate-200/60 p-3.5 sm:p-5 rounded-xl sm:rounded-2xl flex items-center justify-between gap-3 sm:gap-4">
             <div className="space-y-0.5">
-              <h4 className="font-extrabold text-sm text-slate-800 tracking-tight">No Active Audit Schedule Assigned</h4>
-              <p className="text-xs text-slate-400 font-medium">Please coordinate with the Swiss-Belhotel International brand audit team to schedule your property.</p>
+              <h4 className="font-extrabold text-xs sm:text-sm text-slate-800 tracking-tight">No Active Audit Schedule Assigned</h4>
+              <p className="text-[11px] sm:text-xs text-slate-400 font-medium leading-tight">Please coordinate with the Swiss-Belhotel International brand audit team to schedule your property.</p>
             </div>
-            <span className="text-[9px] font-extrabold px-2.5 py-1.5 bg-slate-200 text-slate-500 rounded-lg uppercase tracking-wider select-none shrink-0">Unassigned</span>
+            <span className="text-[8px] sm:text-[9px] font-extrabold px-2 sm:px-2.5 py-1 sm:py-1.5 bg-slate-200 text-slate-500 rounded-lg uppercase tracking-wider select-none shrink-0">Unassigned</span>
           </section>
         ) : null}
 
-        <section className="mb-8">
+        <section className="mb-4 sm:mb-8">
             <div 
               onClick={onViewPending} 
-              className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm cursor-pointer hover:border-indigo-300 transition-all duration-200 hover:shadow-md group max-w-md"
+              className="bg-white p-4 sm:p-6 rounded-xl sm:rounded-2xl border border-slate-200 shadow-sm cursor-pointer hover:border-indigo-300 transition-all duration-200 hover:shadow-md group max-w-md"
               title="Click to perform self-audit and upload evidence photos"
             >
-                <div className="flex justify-between items-start mb-2">
-                    <CheckCircle className="text-indigo-600" size={24}/>
-                    <span className="text-indigo-600 text-[10px] font-extrabold bg-indigo-50 px-2 py-0.5 rounded-md uppercase tracking-wider group-hover:scale-105 transition-transform">Start Self-Audit</span>
+                <div className="flex justify-between items-start mb-1.5 sm:mb-2">
+                    <CheckCircle className="text-indigo-600" size={20}/>
+                    <span className="text-indigo-600 text-[9px] sm:text-[10px] font-extrabold bg-indigo-50 px-2 py-0.5 rounded-md uppercase tracking-wider group-hover:scale-105 transition-transform">Start Self-Audit</span>
                 </div>
-                <p className="text-slate-500 text-xs font-bold uppercase tracking-wide">Self-Audit Checklist</p>
-                <p className="text-3xl font-extrabold text-slate-900 mt-1 flex items-baseline gap-1.5">
+                <p className="text-slate-500 text-[10px] sm:text-xs font-bold uppercase tracking-wide">Self-Audit Checklist</p>
+                <p className="text-2xl sm:text-3xl font-extrabold text-slate-900 mt-0.5 sm:mt-1 flex items-baseline gap-1.5">
                   {totalItems}
-                  <span className="text-xs text-slate-400 font-bold uppercase tracking-wider">items</span>
+                  <span className="text-[10px] sm:text-xs text-slate-400 font-bold uppercase tracking-wider">items</span>
                 </p>
             </div>
         </section>
 
         <section>
-            <div className="flex flex-col gap-4 mb-5">
-                <div className="flex flex-col gap-1">
-                    <h3 className="text-2xl font-extrabold text-slate-950 tracking-tight flex items-center gap-2">
-                        <span className="w-2 h-6 bg-indigo-600 rounded-full" />
+            <div className="flex flex-col gap-2.5 sm:gap-4 mb-3 sm:mb-5">
+                <div className="flex flex-col gap-0.5 sm:gap-1">
+                    <h3 className="text-lg sm:text-2xl font-extrabold text-slate-950 tracking-tight flex items-center gap-2">
+                        <span className="w-1.5 sm:w-2 h-5 sm:h-6 bg-indigo-600 rounded-full" />
                         Audit Checklist Directory
                     </h3>
-                    <p className="text-slate-500 text-sm font-medium">Organized by Department and Category</p>
+                    <p className="text-slate-500 text-xs sm:text-sm font-medium">Organized by Department and Category</p>
                 </div>
                 
                 {!isLoading && groupedData.length > 0 && (
                     <div className="flex items-center gap-2 flex-wrap">
                         <button 
                             onClick={() => expandAll(groupedData)}
-                            className="p-1.5 px-3 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-full text-[11px] font-bold transition-all flex items-center gap-1.5 outline-none active:scale-95 border border-indigo-100/30"
+                            className="p-1 sm:p-1.5 px-2.5 sm:px-3 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-full text-[10px] sm:text-[11px] font-bold transition-all flex items-center gap-1 sm:gap-1.5 outline-none active:scale-95 border border-indigo-100/30"
                         >
-                            <Maximize2 size={12} />
+                            <Maximize2 size={11} />
                             Expand All
                         </button>
                         <button 
                             onClick={collapseAll}
-                            className="p-1.5 px-3 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-full text-[11px] font-bold transition-all flex items-center gap-1.5 outline-none active:scale-95 border border-slate-200/50"
+                            className="p-1 sm:p-1.5 px-2.5 sm:px-3 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-full text-[10px] sm:text-[11px] font-bold transition-all flex items-center gap-1 sm:gap-1.5 outline-none active:scale-95 border border-slate-200/50"
                         >
-                            <Minimize2 size={12} />
+                            <Minimize2 size={11} />
                             Collapse All
                         </button>
                     </div>
@@ -486,34 +486,34 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
 
             {/* Micro Stats Banner */}
             {!isLoading && groupedData.length > 0 && (
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6 bg-slate-50 p-3.5 rounded-2xl border border-slate-100 text-center select-none">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 mb-4 sm:mb-6 bg-white sm:bg-slate-50 p-2.5 sm:p-3.5 rounded-xl sm:rounded-2xl border border-slate-200/80 sm:border-slate-100 text-center select-none shadow-xs">
                     <div>
-                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Departments</p>
-                        <p className="text-lg font-extrabold text-slate-800 mt-0.5">{totalDepts}</p>
+                        <p className="text-[9px] sm:text-[10px] text-slate-400 font-bold uppercase tracking-wider">Departments</p>
+                        <p className="text-base sm:text-lg font-extrabold text-slate-800 mt-0.5">{totalDepts}</p>
                     </div>
                     <div className="border-l border-slate-200/60">
-                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Categories</p>
-                        <p className="text-lg font-extrabold text-slate-800 mt-0.5">{totalCats}</p>
+                        <p className="text-[9px] sm:text-[10px] text-slate-400 font-bold uppercase tracking-wider">Categories</p>
+                        <p className="text-base sm:text-lg font-extrabold text-slate-800 mt-0.5">{totalCats}</p>
                     </div>
                     <div className="border-l border-slate-200/60">
-                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Audit Items</p>
-                        <p className="text-lg font-extrabold text-indigo-700 mt-0.5">{totalItems}</p>
+                        <p className="text-[9px] sm:text-[10px] text-slate-400 font-bold uppercase tracking-wider">Audit Items</p>
+                        <p className="text-base sm:text-lg font-extrabold text-indigo-700 mt-0.5">{totalItems}</p>
                     </div>
                     <div className="border-l border-slate-200/60">
-                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Total Points</p>
-                        <p className="text-lg font-extrabold text-emerald-700 mt-0.5">{totalPoints} PTS</p>
+                        <p className="text-[9px] sm:text-[10px] text-slate-400 font-bold uppercase tracking-wider">Total Points</p>
+                        <p className="text-base sm:text-lg font-extrabold text-emerald-700 mt-0.5">{totalPoints} PTS</p>
                     </div>
                 </div>
             )}
 
-            <div className="space-y-4">
+            <div className="space-y-3 sm:space-y-4">
                 {isLoading ? (
-                    <div className="text-center py-12 text-slate-400 font-bold text-sm animate-pulse flex flex-col items-center justify-center gap-2">
-                        <div className="w-8 h-8 rounded-full border-2 border-indigo-600 border-t-transparent animate-spin" />
+                    <div className="text-center py-10 sm:py-12 text-slate-400 font-bold text-xs sm:text-sm animate-pulse flex flex-col items-center justify-center gap-2">
+                        <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full border-2 border-indigo-600 border-t-transparent animate-spin" />
                         Loading audit directory...
                     </div>
                 ) : groupedData.length === 0 ? (
-                    <div className="text-center py-12 text-slate-400 font-bold text-sm bg-white rounded-2xl border border-slate-200">No audit items found.</div>
+                    <div className="text-center py-10 sm:py-12 text-slate-400 font-bold text-xs sm:text-sm bg-white rounded-xl sm:rounded-2xl border border-slate-200">No audit items found.</div>
                 ) : (
                     groupedData.map(dept => {
                         const isDeptExpanded = !!expandedDepts[dept.id];

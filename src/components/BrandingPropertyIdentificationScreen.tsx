@@ -409,7 +409,7 @@ const AuditItemCard: React.FC<{ item: any, hotelId: string, userProfile?: any }>
                         
                         {previewUrl ? (
                             <div className="relative inline-block group w-full sm:w-auto">
-                                <img src={previewUrl} alt="Preview" referrerPolicy="no-referrer" className="w-full sm:w-48 h-48 object-cover rounded-xl border border-slate-200 shadow-sm" />
+                                <img src={previewUrl} alt="Preview" referrerPolicy="no-referrer" className="w-full sm:w-48 h-40 sm:h-48 object-cover rounded-xl border border-slate-200 shadow-sm" />
                                 {!isSubmitted && (
                                     <button 
                                         onClick={() => { setPreviewUrl(null); setSelectedFile(null); setValue(''); }}
@@ -423,9 +423,9 @@ const AuditItemCard: React.FC<{ item: any, hotelId: string, userProfile?: any }>
                             <div>
                                 <button 
                                     onClick={() => startCamera(facingMode)}
-                                    className="flex items-center justify-center gap-2 w-full py-5 border-2 border-dashed border-indigo-200 bg-indigo-50/50 hover:bg-indigo-50 text-indigo-600 rounded-xl font-bold transition-colors active:scale-95"
+                                    className="flex items-center justify-center gap-2 w-full py-3.5 sm:py-5 border-2 border-dashed border-indigo-200 bg-indigo-50/50 hover:bg-indigo-50 text-indigo-600 rounded-xl font-bold text-xs sm:text-sm transition-colors active:scale-95"
                                 >
-                                    <Camera size={22} />
+                                    <Camera size={20} className="sm:w-5 sm:h-5" />
                                     Take Photo
                                 </button>
                             </div>
@@ -437,7 +437,7 @@ const AuditItemCard: React.FC<{ item: any, hotelId: string, userProfile?: any }>
                     <div className="mt-3">
                         {previewUrl ? (
                             <div className="relative inline-block group w-full sm:w-auto">
-                                <img src={previewUrl} alt="Preview" referrerPolicy="no-referrer" className="w-full sm:w-48 h-48 object-cover rounded-xl border border-slate-200 shadow-sm" />
+                                <img src={previewUrl} alt="Preview" referrerPolicy="no-referrer" className="w-full sm:w-48 h-40 sm:h-48 object-cover rounded-xl border border-slate-200 shadow-sm" />
                                 {!isSubmitted && (
                                     <button 
                                         onClick={() => { setPreviewUrl(null); setSelectedFile(null); setValue(''); }}
@@ -458,9 +458,9 @@ const AuditItemCard: React.FC<{ item: any, hotelId: string, userProfile?: any }>
                                 />
                                 <button 
                                     onClick={() => fileInputRef.current?.click()}
-                                    className="flex flex-col items-center justify-center gap-2 w-full py-6 border-2 border-dashed border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-xl font-bold transition-colors active:scale-95"
+                                    className="flex flex-col items-center justify-center gap-1.5 w-full py-4 sm:py-6 border-2 border-dashed border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-xl font-bold text-xs sm:text-sm transition-colors active:scale-95"
                                 >
-                                    <ImageIcon size={24} className="text-slate-400" />
+                                    <ImageIcon size={22} className="text-slate-400 sm:w-6 sm:h-6" />
                                     Browse Image
                                     <span className="text-[10px] font-medium text-slate-400">Max size: 1MB</span>
                                 </button>
@@ -472,19 +472,19 @@ const AuditItemCard: React.FC<{ item: any, hotelId: string, userProfile?: any }>
                 return (
                     <div className="mt-3">
                         {selectedFile || value ? (
-                            <div className="flex items-center gap-3 bg-slate-50 border border-slate-200 p-4 rounded-xl shadow-sm">
-                                <FileUp size={24} className="text-indigo-500 shrink-0" />
+                            <div className="flex items-center gap-2.5 sm:gap-3 bg-slate-50 border border-slate-200 p-3 sm:p-4 rounded-xl shadow-sm">
+                                <FileUp size={20} className="text-indigo-500 shrink-0 sm:w-6 sm:h-6" />
                                 <div className="flex-1 min-w-0">
-                                    <p className="text-sm font-bold text-slate-800 truncate">
+                                    <p className="text-xs sm:text-sm font-bold text-slate-800 truncate">
                                         {selectedFile?.name || "Uploaded Document"}
                                     </p>
                                 </div>
                                 {!isSubmitted && (
                                     <button 
                                         onClick={() => { setSelectedFile(null); setValue(''); }}
-                                        className="text-red-500 hover:bg-red-50 p-2 rounded-full shrink-0"
+                                        className="text-red-500 hover:bg-red-50 p-1.5 rounded-full shrink-0"
                                     >
-                                        <X size={18} />
+                                        <X size={16} />
                                     </button>
                                 )}
                             </div>
@@ -499,9 +499,9 @@ const AuditItemCard: React.FC<{ item: any, hotelId: string, userProfile?: any }>
                                 />
                                 <button 
                                     onClick={() => fileInputRef.current?.click()}
-                                    className="flex items-center justify-center gap-2 w-full py-5 border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 shadow-sm rounded-xl font-bold transition-all active:scale-95"
+                                    className="flex items-center justify-center gap-2 w-full py-3.5 sm:py-5 border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 shadow-sm rounded-xl font-bold text-xs sm:text-sm transition-all active:scale-95"
                                 >
-                                    <UploadCloud size={20} className="text-slate-400" />
+                                    <UploadCloud size={18} className="text-slate-400 sm:w-5 sm:h-5" />
                                     Select Document
                                 </button>
                             </div>
@@ -513,15 +513,15 @@ const AuditItemCard: React.FC<{ item: any, hotelId: string, userProfile?: any }>
                     <div className="mt-3">
                         <input 
                             type="number" 
-                            className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200 focus:border-indigo-500 focus:bg-white rounded-xl text-sm font-bold text-slate-800 outline-none transition-all shadow-inner"
+                            className="w-full px-3.5 sm:px-4 py-2.5 sm:py-3.5 bg-slate-50 border border-slate-200 focus:border-indigo-500 focus:bg-white rounded-xl text-xs sm:text-sm font-bold text-slate-800 outline-none transition-all shadow-inner"
                             placeholder="Enter number..."
                             value={value}
                             onChange={(e) => setValue(e.target.value)}
                             disabled={isSubmitted}
                         />
                         {item.min_value !== undefined && item.min_value !== null && (
-                            <p className="text-xs text-slate-500 mt-2 ml-1 font-medium flex items-center gap-1">
-                                <AlertCircle size={14} />
+                            <p className="text-[11px] sm:text-xs text-slate-500 mt-1.5 ml-1 font-medium flex items-center gap-1">
+                                <AlertCircle size={13} />
                                 Minimum required value: <span className="font-bold text-slate-700">{item.min_value}</span>
                             </p>
                         )}
@@ -531,7 +531,7 @@ const AuditItemCard: React.FC<{ item: any, hotelId: string, userProfile?: any }>
                 return (
                     <div className="mt-3">
                         <textarea 
-                            className="w-full px-4 py-3 bg-slate-50 border border-slate-200 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all resize-none shadow-inner"
+                            className="w-full px-3.5 sm:px-4 py-2.5 sm:py-3 bg-slate-50 border border-slate-200 focus:border-indigo-500 focus:bg-white rounded-xl text-xs sm:text-sm text-slate-800 outline-none transition-all resize-none shadow-inner"
                             placeholder="Enter text response..."
                             rows={3}
                             value={value}
@@ -542,11 +542,11 @@ const AuditItemCard: React.FC<{ item: any, hotelId: string, userProfile?: any }>
                 );
             case 'checkbox':
                 return (
-                    <div className="mt-3 flex gap-3">
+                    <div className="mt-3 flex gap-2 sm:gap-3">
                         <button
                             onClick={() => setValue('Yes')}
                             disabled={isSubmitted}
-                            className={`flex-1 py-4 rounded-xl font-bold text-sm border-2 transition-all shadow-sm ${
+                            className={`flex-1 py-3 sm:py-4 rounded-xl font-bold text-xs sm:text-sm border-2 transition-all shadow-sm ${
                                 value === 'Yes' 
                                     ? 'bg-emerald-50 border-emerald-500 text-emerald-700' 
                                     : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'
@@ -557,7 +557,7 @@ const AuditItemCard: React.FC<{ item: any, hotelId: string, userProfile?: any }>
                         <button
                             onClick={() => setValue('No')}
                             disabled={isSubmitted}
-                            className={`flex-1 py-4 rounded-xl font-bold text-sm border-2 transition-all shadow-sm ${
+                            className={`flex-1 py-3 sm:py-4 rounded-xl font-bold text-xs sm:text-sm border-2 transition-all shadow-sm ${
                                 value === 'No' 
                                     ? 'bg-red-50 border-red-500 text-red-700' 
                                     : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'
@@ -569,7 +569,7 @@ const AuditItemCard: React.FC<{ item: any, hotelId: string, userProfile?: any }>
                 );
             default:
                 return (
-                    <div className="mt-3 text-sm font-medium text-slate-400 bg-slate-50 p-4 rounded-xl border border-slate-200 text-center">
+                    <div className="mt-3 text-xs sm:text-sm font-medium text-slate-400 bg-slate-50 p-3 sm:p-4 rounded-xl border border-slate-200 text-center">
                         Unsupported input type ({item.input_type})
                     </div>
                 );
@@ -577,41 +577,43 @@ const AuditItemCard: React.FC<{ item: any, hotelId: string, userProfile?: any }>
     };
 
     return (
-        <div className={`bg-white p-6 rounded-2xl border ${isSubmitted ? 'border-emerald-200 shadow-emerald-100/50' : 'border-slate-200'} shadow-sm transition-all hover:shadow-md`}>
-            <div className="flex items-start justify-between gap-4 mb-4">
-                <div className="space-y-2 min-w-0 flex-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-slate-500 text-[10px] font-extrabold uppercase tracking-widest bg-slate-100 border border-slate-200 px-2 py-0.5 rounded">
-                            {item.points || 0} PTS
-                        </span>
-                        <span className="text-indigo-600 text-[10px] font-extrabold uppercase tracking-widest bg-indigo-50 border border-indigo-100 px-2 py-0.5 rounded">
-                            {item.input_type}
-                        </span>
-                    </div>
-                    <p className="text-base font-bold text-slate-800 leading-relaxed">
-                        {item.name}
-                    </p>
-                    {item.description && (
-                        <p className="text-sm text-slate-500 leading-relaxed bg-slate-50 p-3 rounded-xl border border-slate-100 mt-2">
-                            {item.description}
+        <div className={`bg-white p-3.5 sm:p-5 md:p-6 rounded-xl sm:rounded-2xl border ${isSubmitted ? 'border-emerald-200 shadow-emerald-100/50' : 'border-slate-200'} shadow-sm transition-all hover:shadow-md flex flex-col justify-between h-full`}>
+            <div>
+                <div className="flex items-start justify-between gap-2.5 sm:gap-4 mb-3 sm:mb-4">
+                    <div className="space-y-1 sm:space-y-2 min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+                            <span className="text-slate-500 text-[9px] sm:text-[10px] font-extrabold uppercase tracking-widest bg-slate-100 border border-slate-200 px-2 py-0.5 rounded">
+                                {item.points || 0} PTS
+                            </span>
+                            <span className="text-indigo-600 text-[9px] sm:text-[10px] font-extrabold uppercase tracking-widest bg-indigo-50 border border-indigo-100 px-2 py-0.5 rounded">
+                                {item.input_type}
+                            </span>
+                        </div>
+                        <p className="text-sm sm:text-base font-bold text-slate-800 leading-snug sm:leading-relaxed">
+                            {item.name}
                         </p>
+                        {item.description && (
+                            <p className="text-xs sm:text-sm text-slate-500 leading-normal sm:leading-relaxed bg-slate-50 p-2.5 sm:p-3 rounded-lg sm:rounded-xl border border-slate-100 mt-1.5 sm:mt-2">
+                                {item.description}
+                            </p>
+                        )}
+                    </div>
+                    {isSubmitted && (
+                        <div className="shrink-0 flex items-center justify-center bg-emerald-50 text-emerald-600 p-1.5 sm:p-2 rounded-full border border-emerald-100 shadow-sm">
+                            <CheckCircle2 size={20} className="sm:w-6 sm:h-6" />
+                        </div>
                     )}
                 </div>
-                {isSubmitted && (
-                    <div className="shrink-0 flex items-center justify-center bg-emerald-50 text-emerald-600 p-2 rounded-full border border-emerald-100 shadow-sm">
-                        <CheckCircle2 size={24} />
-                    </div>
-                )}
+
+                {renderInput()}
             </div>
 
-            {renderInput()}
-
             {/* N/A Toggle & Submission */}
-            <div className="mt-6 pt-5 border-t border-slate-100">
-                <div className="flex items-center justify-between mb-4 bg-slate-50 px-4 py-3 rounded-xl border border-slate-100">
+            <div className="mt-4 pt-3.5 sm:mt-6 sm:pt-5 border-t border-slate-100">
+                <div className="flex items-center justify-between mb-3 sm:mb-4 bg-slate-50 px-3 sm:px-4 py-2 sm:py-3 rounded-lg sm:rounded-xl border border-slate-100">
                     <div>
-                        <label className="text-sm font-bold text-slate-800 block">Not Available (N/A)?</label>
-                        <span className="text-xs text-slate-500 font-medium">Mark if item is missing at property</span>
+                        <label className="text-xs sm:text-sm font-bold text-slate-800 block">Not Available (N/A)?</label>
+                        <span className="text-[10px] sm:text-xs text-slate-500 font-medium">Mark if item is missing at property</span>
                     </div>
                     <button
                         type="button"
@@ -622,22 +624,22 @@ const AuditItemCard: React.FC<{ item: any, hotelId: string, userProfile?: any }>
                             }
                         }}
                         disabled={isSubmitted}
-                        className={`relative inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                        className={`relative inline-flex h-6 sm:h-7 w-11 sm:w-12 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
                             isNa ? 'bg-amber-500' : 'bg-slate-300'
                         } ${isSubmitted ? 'opacity-60 cursor-not-allowed' : ''}`}
                     >
                         <span
-                            className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                            className={`pointer-events-none inline-block h-5 sm:h-6 w-5 sm:w-6 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
                                 isNa ? 'translate-x-5' : 'translate-x-0'
                             }`}
                         />
                     </button>
                 </div>
                 
-                <div className="mb-5">
-                    <label className="text-xs font-black text-slate-500 uppercase tracking-widest block mb-1.5">Remark/Notes</label>
+                <div className="mb-3.5 sm:mb-5">
+                    <label className="text-[10px] sm:text-xs font-black text-slate-500 uppercase tracking-widest block mb-1">Remark/Notes</label>
                     <textarea 
-                        className={`w-full px-4 py-3 bg-slate-50 border ${isNa ? 'border-amber-200 focus:border-amber-400 focus:bg-amber-50/20' : 'border-slate-200 focus:border-indigo-400'} focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all resize-none shadow-sm`}
+                        className={`w-full px-3 sm:px-4 py-2 sm:py-3 bg-slate-50 border ${isNa ? 'border-amber-200 focus:border-amber-400 focus:bg-amber-50/20' : 'border-slate-200 focus:border-indigo-400'} focus:bg-white rounded-lg sm:rounded-xl text-xs sm:text-sm text-slate-800 outline-none transition-all resize-none shadow-xs`}
                         placeholder={isNa ? "Please provide a reason why this is not available..." : "Enter any comments, observations, or notes here..."}
                         rows={2}
                         value={naReason}
@@ -651,10 +653,10 @@ const AuditItemCard: React.FC<{ item: any, hotelId: string, userProfile?: any }>
                     <button 
                         onClick={handleSubmit}
                         disabled={isSubmitting}
-                        className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-3.5 rounded-xl text-sm transition-all active:scale-[0.98] disabled:opacity-70 flex justify-center items-center gap-2 shadow-md hover:shadow-lg"
+                        className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 sm:py-3.5 rounded-lg sm:rounded-xl text-xs sm:text-sm transition-all active:scale-[0.98] disabled:opacity-70 flex justify-center items-center gap-2 shadow-sm hover:shadow-md"
                     >
                         {isSubmitting ? (
-                            <><Loader2 size={18} className="animate-spin" /> Saving Submission...</>
+                            <><Loader2 size={16} className="animate-spin" /> Saving Submission...</>
                         ) : (
                             'Submit Evidence'
                         )}
@@ -662,7 +664,7 @@ const AuditItemCard: React.FC<{ item: any, hotelId: string, userProfile?: any }>
                 ) : (
                     <button 
                         onClick={() => setIsSubmitted(false)}
-                        className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-3.5 rounded-xl text-sm transition-all active:scale-[0.98]"
+                        className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2.5 sm:py-3.5 rounded-lg sm:rounded-xl text-xs sm:text-sm transition-all active:scale-[0.98]"
                     >
                         Edit Submission
                     </button>
@@ -766,53 +768,53 @@ export default function BrandingPropertyIdentificationScreen({ selectedCategory,
     }, [selectedCategory]);
 
     return (
-        <div className="min-h-screen pt-20 pb-8 bg-slate-50/50">
-            <header className="fixed top-0 z-40 w-full flex items-center px-4 py-3 bg-white/85 backdrop-blur-md border-b border-slate-200">
-                <button onClick={onBack} className="p-2 hover:bg-slate-100 rounded-full text-slate-600 transition-colors">
-                    <ChevronRight className="rotate-180" />
+        <div className="min-h-screen pt-16 sm:pt-20 pb-8 bg-slate-50/50 px-2 sm:px-4">
+            <header className="fixed top-0 left-0 z-40 w-full flex items-center px-3 sm:px-4 py-2.5 sm:py-3 bg-white/90 backdrop-blur-md border-b border-slate-200 shadow-xs">
+                <button onClick={onBack} className="p-1.5 sm:p-2 hover:bg-slate-100 rounded-full text-slate-600 transition-colors">
+                    <ChevronRight className="rotate-180" size={20} />
                 </button>
-                <div className="ml-3 min-w-0">
-                    <h1 className="text-sm font-bold text-slate-900 tracking-tight truncate">
+                <div className="ml-2.5 sm:ml-3 min-w-0">
+                    <h1 className="text-xs sm:text-sm font-bold text-slate-900 tracking-tight truncate">
                         {selectedCategory?.name || 'Self-Audit Items'}
                     </h1>
-                    <p className="text-[10px] text-slate-500 font-extrabold uppercase tracking-wider mt-0.5">
+                    <p className="text-[9px] sm:text-[10px] text-slate-500 font-extrabold uppercase tracking-wider mt-0.5">
                         Complete all checklist items
                     </p>
                 </div>
             </header>
             
-            <main className="max-w-2xl mx-auto p-4 space-y-5">
+            <main className="max-w-4xl mx-auto py-3 sm:py-5 px-1 sm:px-3 space-y-3 sm:space-y-5">
                 {/* For Auditees, show their assigned hotel property in read-only mode */}
                 {isAuditee && (
                     userProfile?.hotel_id ? (
-                        <div className="bg-white rounded-3xl border border-slate-200 p-5 shadow-sm space-y-1.5 animate-fadeIn">
+                        <div className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200 p-3.5 sm:p-5 shadow-sm space-y-1 sm:space-y-1.5 animate-fadeIn">
                             <div className="flex items-center gap-2">
-                                <span className="w-2.5 h-2.5 rounded-full bg-indigo-600" />
-                                <span className="text-[10px] font-black text-indigo-700 uppercase tracking-widest block">Representing Property (Auditee Mode)</span>
+                                <span className="w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full bg-indigo-600" />
+                                <span className="text-[9px] sm:text-[10px] font-black text-indigo-700 uppercase tracking-widest block">Representing Property (Auditee Mode)</span>
                             </div>
-                            <p className="text-base font-bold text-slate-800">
+                            <p className="text-sm sm:text-base font-bold text-slate-800">
                                 {userProfile?.hotel_name || hotels.find(h => h.id === selectedHotelId)?.name || 'Your Assigned Hotel'}
                             </p>
                             {userProfile?.hotel_code && (
-                                <span className="inline-block bg-indigo-50 text-indigo-700 text-[10px] font-black px-2.5 py-1 rounded-lg uppercase tracking-wider border border-indigo-100">
+                                <span className="inline-block bg-indigo-50 text-indigo-700 text-[9px] sm:text-[10px] font-black px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-lg uppercase tracking-wider border border-indigo-100">
                                     {userProfile.hotel_code}
                                 </span>
                             )}
                         </div>
                     ) : (
-                        <div className="bg-amber-50 border border-amber-200 rounded-3xl p-5 shadow-sm text-center animate-fadeIn">
-                            <p className="text-sm font-bold text-amber-800">No Assigned Property</p>
-                            <p className="text-xs text-amber-600 mt-1">Your user profile is not currently assigned to any hotel. Please contact an administrator to set up your hotel assignment.</p>
+                        <div className="bg-amber-50 border border-amber-200 rounded-2xl sm:rounded-3xl p-3.5 sm:p-5 shadow-sm text-center animate-fadeIn">
+                            <p className="text-xs sm:text-sm font-bold text-amber-800">No Assigned Property</p>
+                            <p className="text-[11px] sm:text-xs text-amber-600 mt-1">Your user profile is not currently assigned to any hotel. Please contact an administrator to set up your hotel assignment.</p>
                         </div>
                     )
                 )}
 
                 {/* Property selector for Admin/Auditor or unassigned non-auditee users */}
                 {!isAuditee && (!userProfile?.hotel_id || userProfile?.access_level === 'admin' || userProfile?.access_level === 'auditor') && (
-                    <div className="bg-white rounded-3xl border border-slate-200 p-5 shadow-sm space-y-3 animate-fadeIn">
+                    <div className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200 p-3.5 sm:p-5 shadow-sm space-y-2 sm:space-y-3 animate-fadeIn">
                         <div className="flex items-center gap-2">
-                            <span className="w-2.5 h-2.5 rounded-full bg-indigo-500 animate-pulse" />
-                            <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block">Select Representing Property (Auditor Mode)</label>
+                            <span className="w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full bg-indigo-500 animate-pulse" />
+                            <label className="text-[9px] sm:text-[10px] font-black text-slate-500 uppercase tracking-widest block">Select Representing Property (Auditor Mode)</label>
                         </div>
                         <div className="relative">
                             <select
@@ -822,13 +824,13 @@ export default function BrandingPropertyIdentificationScreen({ selectedCategory,
                                     setSelectedHotelId(val);
                                     localStorage.setItem('selected_hotel_id', val);
                                 }}
-                                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white focus:ring-2 focus:ring-indigo-100 rounded-xl text-sm text-slate-800 outline-none transition-all appearance-none cursor-pointer"
+                                className="w-full px-3 sm:px-4 py-2.5 sm:py-3 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white focus:ring-2 focus:ring-indigo-100 rounded-xl text-xs sm:text-sm text-slate-800 outline-none transition-all appearance-none cursor-pointer"
                             >
                                 {hotels.map(h => (
                                     <option key={h.id} value={h.id}>{h.name} ({h.code || 'CODE'})</option>
                                 ))}
                             </select>
-                            <span className="absolute right-4 top-4 text-slate-400 pointer-events-none">
+                            <span className="absolute right-3.5 top-3.5 text-slate-400 pointer-events-none">
                                 <ChevronRight className="rotate-90" size={16} />
                             </span>
                         </div>
@@ -836,18 +838,20 @@ export default function BrandingPropertyIdentificationScreen({ selectedCategory,
                 )}
 
                 {isLoading ? (
-                    <div className="text-center py-16 text-slate-500 font-bold text-sm animate-pulse flex flex-col items-center justify-center gap-3 bg-white rounded-3xl border border-slate-200 shadow-sm">
-                        <Loader2 className="animate-spin text-indigo-600" size={32} />
+                    <div className="text-center py-12 sm:py-16 text-slate-500 font-bold text-xs sm:text-sm animate-pulse flex flex-col items-center justify-center gap-3 bg-white rounded-2xl sm:rounded-3xl border border-slate-200 shadow-sm">
+                        <Loader2 className="animate-spin text-indigo-600" size={28} />
                         Syncing items for this category...
                     </div>
                 ) : items.length === 0 ? (
-                    <div className="text-center py-16 text-slate-500 font-bold text-sm bg-white rounded-3xl border border-slate-200 shadow-sm px-6">
+                    <div className="text-center py-12 sm:py-16 text-slate-500 font-bold text-xs sm:text-sm bg-white rounded-2xl sm:rounded-3xl border border-slate-200 shadow-sm px-4 sm:px-6">
                         No active checklist items configured for this category in the database.
                     </div>
                 ) : (
-                    items.map((item) => (
-                        <AuditItemCard key={item.id} item={item} hotelId={selectedHotelId} userProfile={userProfile} />
-                    ))
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
+                        {items.map((item) => (
+                            <AuditItemCard key={item.id} item={item} hotelId={selectedHotelId} userProfile={userProfile} />
+                        ))}
+                    </div>
                 )}
             </main>
         </div>

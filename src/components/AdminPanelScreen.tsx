@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, CheckCircle, Clock, Building, BarChart3, ChevronRight, Plus, Trash2, Edit, Search, X, AlertCircle, MapPin, Settings2, Calendar, Star, Briefcase, ClipboardList, FileCheck, Layers, Package, Camera, ImageIcon, FileText, Hash, Type, CheckSquare, Users, ShieldCheck, Percent, GripVertical, ChevronUp, ChevronDown, Eye, User, RefreshCw, CheckCircle2, Maximize2, ExternalLink, ZoomIn } from 'lucide-react';
+import { ArrowLeft, CheckCircle, Clock, Building, BarChart3, ChevronRight, Plus, Trash2, Edit, Search, X, AlertCircle, MapPin, Settings2, Calendar, Star, Briefcase, ClipboardList, FileCheck, Layers, Package, Camera, ImageIcon, FileText, Hash, Type, CheckSquare, Users, ShieldCheck, Percent, GripVertical, ChevronUp, ChevronDown, Eye, User, RefreshCw, CheckCircle2, Maximize2, ExternalLink, ZoomIn, Database, Copy, Check } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
 interface Department {
@@ -205,11 +205,25 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     const [subView, setSubView] = useState<'dashboard' | 'departments' | 'hotels' | 'batches' | 'categories' | 'items' | 'groups' | 'users' | 'access' | 'inspection' | 'auditor_assignment'>('dashboard');
     const [auditorAccess, setAuditorAccess] = useState<Record<string, boolean>>({});
     const [auditorAssignments, setAuditorAssignments] = useState<any[]>([]);
+    const [auditorCategoryAssignments, setAuditorCategoryAssignments] = useState<any[]>(() => {
+        try {
+            const stored = localStorage.getItem('sbi_auditor_category_assignments');
+            return stored ? JSON.parse(stored) : [];
+        } catch (e) {
+            return [];
+        }
+    });
+    const [assignmentTab, setAssignmentTab] = useState<'hotels' | 'categories'>('hotels');
+    const [categoryAssignmentSearch, setCategoryAssignmentSearch] = useState('');
+    const [showSqlModal, setShowSqlModal] = useState(false);
     const [enlargedImage, setEnlargedImage] = useState<{ url: string; title?: string } | null>(null);
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
-            if (e.key === 'Escape') setEnlargedImage(null);
+            if (e.key === 'Escape') {
+                setEnlargedImage(null);
+                setShowSqlModal(false);
+            }
         };
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
@@ -217,10 +231,36 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
 
     useEffect(() => {
         const fetchAuditorAssignments = async () => {
+            // Hotel assignments
             const { data, error } = await supabase
                 .from('auditor_assignments')
                 .select('*');
             if (data) setAuditorAssignments(data);
+
+            // Category assignments
+            try {
+                const { data: catData, error: catErr } = await supabase
+                    .from('auditor_category_assignments')
+                    .select('*');
+                if (catData && catData.length >= 0) {
+                    setAuditorCategoryAssignments(catData);
+                    localStorage.setItem('sbi_auditor_category_assignments', JSON.stringify(catData));
+                } else if (catErr) {
+                    // Fallback to auditor_assignments if category_id exists there
+                    const { data: altData } = await supabase
+                        .from('auditor_assignments')
+                        .select('*');
+                    if (altData) {
+                        const catOnly = altData.filter((a: any) => a.category_id);
+                        if (catOnly.length > 0) {
+                            setAuditorCategoryAssignments(catOnly);
+                            localStorage.setItem('sbi_auditor_category_assignments', JSON.stringify(catOnly));
+                        }
+                    }
+                }
+            } catch (e) {
+                console.warn('Auditor category assignment fetch warning:', e);
+            }
         };
         fetchAuditorAssignments();
     }, []);
@@ -2111,6 +2151,110 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             setToastMessage('Failed to delete from Database.');
         } finally {
             setIsSupabaseLoading(false);
+        }
+    };
+
+    const [copiedSql, setCopiedSql] = useState(false);
+
+    const handleToggleCategoryAssignment = async (auditorId: string, categoryId: string) => {
+        if (!auditorId || !categoryId) return;
+
+        const existing = auditorCategoryAssignments.find(a => a.category_id === categoryId);
+        const isAssignedToSelected = existing?.user_id === auditorId;
+        const isAssignedToOther = existing && existing.user_id !== auditorId;
+
+        let updated = [...auditorCategoryAssignments];
+        if (isAssignedToSelected) {
+            updated = updated.filter(a => !(a.user_id === auditorId && a.category_id === categoryId));
+        } else {
+            if (isAssignedToOther) {
+                updated = updated.filter(a => a.category_id !== categoryId);
+            }
+            updated.push({ user_id: auditorId, category_id: categoryId });
+        }
+
+        setAuditorCategoryAssignments(updated);
+        localStorage.setItem('sbi_auditor_category_assignments', JSON.stringify(updated));
+
+        try {
+            if (isAssignedToSelected) {
+                const { error } = await supabase
+                    .from('auditor_category_assignments')
+                    .delete()
+                    .eq('user_id', auditorId)
+                    .eq('category_id', categoryId);
+                
+                if (error) {
+                    await supabase
+                        .from('auditor_assignments')
+                        .delete()
+                        .eq('user_id', auditorId)
+                        .eq('category_id', categoryId);
+                }
+            } else {
+                if (isAssignedToOther) {
+                    const { error: delErr } = await supabase
+                        .from('auditor_category_assignments')
+                        .delete()
+                        .eq('category_id', categoryId);
+                    if (delErr) {
+                        await supabase
+                            .from('auditor_assignments')
+                            .delete()
+                            .eq('category_id', categoryId);
+                    }
+                }
+
+                const { error: insErr } = await supabase
+                    .from('auditor_category_assignments')
+                    .insert({ user_id: auditorId, category_id: categoryId });
+
+                if (insErr) {
+                    const { error: fallbackErr } = await supabase
+                        .from('auditor_assignments')
+                        .insert({ user_id: auditorId, category_id: categoryId });
+                    
+                    if (fallbackErr) {
+                        console.log('Category assignment saved locally in state.');
+                    }
+                }
+            }
+
+            const { data: refetchCat } = await supabase.from('auditor_category_assignments').select('*');
+            if (refetchCat && refetchCat.length >= 0) {
+                setAuditorCategoryAssignments(refetchCat);
+                localStorage.setItem('sbi_auditor_category_assignments', JSON.stringify(refetchCat));
+            }
+        } catch (err) {
+            console.error('Category assignment sync error:', err);
+        }
+    };
+
+    const handleAssignAllCategories = async (auditorId: string) => {
+        if (!auditorId) return;
+        const newAssignments = catList.map(cat => ({ user_id: auditorId, category_id: cat.id }));
+        setAuditorCategoryAssignments(newAssignments);
+        localStorage.setItem('sbi_auditor_category_assignments', JSON.stringify(newAssignments));
+
+        try {
+            await supabase.from('auditor_category_assignments').delete().neq('user_id', '00000000-0000-0000-0000-000000000000');
+            await supabase.from('auditor_category_assignments').insert(newAssignments);
+        } catch (e) {
+            console.warn('Batch assign error:', e);
+        }
+    };
+
+    const handleClearAllCategories = async (auditorId: string) => {
+        if (!auditorId) return;
+        const updated = auditorCategoryAssignments.filter(a => a.user_id !== auditorId);
+        setAuditorCategoryAssignments(updated);
+        localStorage.setItem('sbi_auditor_category_assignments', JSON.stringify(updated));
+
+        try {
+            await supabase.from('auditor_category_assignments').delete().eq('user_id', auditorId);
+            await supabase.from('auditor_assignments').delete().eq('user_id', auditorId).not('category_id', 'is', null);
+        } catch (e) {
+            console.warn('Batch clear error:', e);
         }
     };
     const handleOpenAddHotel = () => {
@@ -4108,72 +4252,282 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                         </div>
                     </div>
                 ) : subView === 'auditor_assignment' ? (
-                    <div className="space-y-6">
+                    <div className="space-y-6 animate-fadeIn">
+                        {/* HEADER & CONTROLS */}
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                            <div>
+                                <button 
+                                    onClick={() => { setSubView('dashboard'); }} 
+                                    className="inline-flex items-center gap-1.5 text-xs font-bold text-indigo-600 bg-indigo-50/50 hover:bg-slate-100 px-3.5 py-1.5 rounded-full border border-indigo-100/50 mb-3 hover:shadow-sm active:scale-95 transition-all outline-none"
+                                >
+                                    <ArrowLeft size={12} /> Back to Dashboard
+                                </button>
+                                <h2 className="text-2xl font-extrabold text-slate-900 tracking-tight">Auditor Assignment</h2>
+                                <p className="text-xs text-slate-500 mt-1">
+                                    Assign specific hotels and audit categories to auditors for targeted scope auditing.
+                                </p>
+                            </div>
+
                             <button 
-                                onClick={() => { setSubView('dashboard'); }} 
-                                className="inline-flex items-center gap-1.5 text-xs font-bold text-indigo-600 bg-indigo-50/50 hover:bg-slate-100 px-3.5 py-1.5 rounded-full border border-indigo-100/50 mb-3 hover:shadow-sm active:scale-95 transition-all outline-none"
+                                onClick={() => setShowSqlModal(true)}
+                                className="inline-flex items-center gap-2 px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold shadow-sm transition-all active:scale-95 shrink-0"
                             >
-                                <ArrowLeft size={12} /> Back to Dashboard
+                                <Database size={14} className="text-emerald-400" />
+                                <span>Supabase SQL Migration</span>
                             </button>
-                            <h2 className="text-2xl font-extrabold text-slate-900 tracking-tight">Auditor Assignment</h2>
                         </div>
+
+                        {/* MAIN AUDITOR ASSIGNMENT GRID */}
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                            <div className="bg-white p-6 rounded-2xl border border-slate-150 shadow-sm col-span-1">
-                                <h3 className="font-bold text-sm text-slate-700 mb-4">Auditors</h3>
+                            {/* LEFT COLUMN: AUDITOR SELECTOR */}
+                            <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-xs col-span-1 space-y-4">
+                                <div className="flex items-center justify-between">
+                                    <h3 className="font-bold text-sm text-slate-800 flex items-center gap-2">
+                                        <Users size={16} className="text-indigo-600" />
+                                        <span>Auditors</span>
+                                    </h3>
+                                    <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">
+                                        {profilesList.filter(p => p.access_level === 'auditor').length} Active
+                                    </span>
+                                </div>
+
                                 <div className="space-y-2">
-                                    {profilesList.filter(p => p.access_level === 'auditor').map(auditor => (
-                                        <button 
-                                            key={auditor.id}
-                                            onClick={() => setSelectedAuditorId(auditor.id)}
-                                            className={`w-full text-left p-3 rounded-xl text-sm font-bold ${selectedAuditorId === auditor.id ? 'bg-indigo-50 text-indigo-700' : 'text-slate-600 hover:bg-slate-50'}`}
-                                        >
-                                            {auditor.display_name || `${auditor.first_name} ${auditor.last_name}`}
-                                        </button>
-                                    ))}
+                                    {profilesList.filter(p => p.access_level === 'auditor').length === 0 ? (
+                                        <div className="text-center py-8 text-xs font-bold text-slate-400 border border-dashed border-slate-200 rounded-xl">
+                                            No auditors found in profile directory.
+                                        </div>
+                                    ) : (
+                                        profilesList.filter(p => p.access_level === 'auditor').map(auditor => {
+                                            const assignedHotelsCount = auditorAssignments.filter(a => a.user_id === auditor.id).length;
+                                            const assignedCatsCount = auditorCategoryAssignments.filter(a => a.user_id === auditor.id).length;
+                                            const isSelected = selectedAuditorId === auditor.id;
+
+                                            return (
+                                                <button 
+                                                    key={auditor.id}
+                                                    onClick={() => setSelectedAuditorId(auditor.id)}
+                                                    className={`w-full text-left p-3.5 rounded-xl transition-all border ${
+                                                        isSelected 
+                                                            ? 'bg-indigo-50/90 border-indigo-200 text-indigo-900 shadow-2xs' 
+                                                            : 'bg-white border-slate-100 hover:bg-slate-50/80 text-slate-700'
+                                                    }`}
+                                                >
+                                                    <div className="font-bold text-sm text-slate-800">
+                                                        {auditor.display_name || `${auditor.first_name} ${auditor.last_name}`}
+                                                    </div>
+                                                    <div className="text-[11px] font-semibold text-slate-500 mt-0.5 truncate">
+                                                        {auditor.email}
+                                                    </div>
+                                                    <div className="flex items-center gap-2 mt-2">
+                                                        <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-md border ${
+                                                            assignedHotelsCount > 0 ? 'bg-indigo-100/70 text-indigo-700 border-indigo-200' : 'bg-slate-100 text-slate-500 border-slate-200'
+                                                        }`}>
+                                                            {assignedHotelsCount} {assignedHotelsCount === 1 ? 'Hotel' : 'Hotels'}
+                                                        </span>
+                                                        <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-md border ${
+                                                            assignedCatsCount > 0 ? 'bg-emerald-100/70 text-emerald-700 border-emerald-200' : 'bg-slate-100 text-slate-500 border-slate-200'
+                                                        }`}>
+                                                            {assignedCatsCount} {assignedCatsCount === 1 ? 'Category' : 'Categories'}
+                                                        </span>
+                                                    </div>
+                                                </button>
+                                            );
+                                        })
+                                    )}
                                 </div>
                             </div>
-                            <div className="bg-white p-6 rounded-2xl border border-slate-150 shadow-sm col-span-2">
-                                <h3 className="font-bold text-sm text-slate-700 mb-4">Assigned Hotels</h3>
+
+                            {/* RIGHT COLUMN: ASSIGNMENT PANELS (HOTELS & CATEGORIES TABS) */}
+                            <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-xs col-span-2 space-y-6">
+                                {/* TABS HEADER */}
+                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
+                                    <div className="flex items-center gap-2 bg-slate-100/80 p-1 rounded-xl">
+                                        <button
+                                            onClick={() => setAssignmentTab('hotels')}
+                                            className={`px-4 py-2 rounded-lg text-xs font-black transition-all flex items-center gap-2 ${
+                                                assignmentTab === 'hotels'
+                                                    ? 'bg-white text-indigo-700 shadow-2xs'
+                                                    : 'text-slate-600 hover:text-slate-900'
+                                            }`}
+                                        >
+                                            <Building size={14} />
+                                            <span>Assigned Hotels</span>
+                                            {selectedAuditorId && (
+                                                <span className="px-1.5 py-0.5 bg-indigo-50 text-indigo-700 text-[10px] rounded-md font-bold">
+                                                    {auditorAssignments.filter(a => a.user_id === selectedAuditorId).length}
+                                                </span>
+                                            )}
+                                        </button>
+                                        <button
+                                            onClick={() => setAssignmentTab('categories')}
+                                            className={`px-4 py-2 rounded-lg text-xs font-black transition-all flex items-center gap-2 ${
+                                                assignmentTab === 'categories'
+                                                    ? 'bg-white text-indigo-700 shadow-2xs'
+                                                    : 'text-slate-600 hover:text-slate-900'
+                                            }`}
+                                        >
+                                            <Layers size={14} />
+                                            <span>Assigned Categories</span>
+                                            {selectedAuditorId && (
+                                                <span className="px-1.5 py-0.5 bg-emerald-50 text-emerald-700 text-[10px] rounded-md font-bold">
+                                                    {auditorCategoryAssignments.filter(a => a.user_id === selectedAuditorId).length}
+                                                </span>
+                                            )}
+                                        </button>
+                                    </div>
+
+                                    {selectedAuditorId && assignmentTab === 'categories' && (
+                                        <div className="flex items-center gap-2">
+                                            <button
+                                                onClick={() => handleAssignAllCategories(selectedAuditorId)}
+                                                className="px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-[10px] font-extrabold rounded-lg transition-all border border-emerald-200 active:scale-95"
+                                            >
+                                                Assign All
+                                            </button>
+                                            <button
+                                                onClick={() => handleClearAllCategories(selectedAuditorId)}
+                                                className="px-2.5 py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-600 text-[10px] font-extrabold rounded-lg transition-all border border-slate-200 active:scale-95"
+                                            >
+                                                Clear All
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+
                                 {selectedAuditorId ? (
-                                    <div className="space-y-2">
-                                        {hotels.map(hotel => {
-                                            const assignment = auditorAssignments.find(a => a.hotel_id === hotel.id);
-                                            const isAssignedToSelected = assignment?.user_id === selectedAuditorId;
-                                            const isAssignedToOther = assignment && assignment.user_id !== selectedAuditorId;
-                                            
-                                            return (
-                                                <div key={hotel.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl">
-                                                    <span className="text-sm font-medium text-slate-700">{hotel.name}</span>
-                                                    <button 
-                                                        onClick={async (e) => {
-                                                            e.stopPropagation();
-                                                            console.log('Assign button clicked', { isAssignedToSelected, selectedAuditorId, hotelId: hotel.id });
-                                                            if (isAssignedToSelected) {
-                                                                const { error } = await supabase.from('auditor_assignments').delete().eq('user_id', selectedAuditorId).eq('hotel_id', hotel.id);
-                                                                if (error) console.error('Delete error', error);
-                                                            } else {
-                                                                if (isAssignedToOther) {
-                                                                    const { error: delError } = await supabase.from('auditor_assignments').delete().eq('hotel_id', hotel.id);
-                                                                    if (delError) console.error('Delete other error', delError);
-                                                                }
-                                                                const { error } = await supabase.from('auditor_assignments').insert({ user_id: selectedAuditorId, hotel_id: hotel.id });
-                                                                if (error) console.error('Insert error details:', error.message, error.details, error.hint);
-                                                            }
-                                                            const { data, error: fetchError } = await supabase.from('auditor_assignments').select('*');
-                                                            if (fetchError) console.error('Fetch error', fetchError);
-                                                            if (data) setAuditorAssignments(data);
-                                                        }}
-                                                        className={`px-3 py-1 text-xs font-bold rounded-lg pointer-events-auto ${isAssignedToSelected ? 'bg-indigo-600 text-white' : isAssignedToOther ? 'bg-amber-100 text-amber-700' : 'bg-white border border-slate-200 text-slate-600'}`}
-                                                    >
-                                                        {isAssignedToSelected ? 'Assigned' : isAssignedToOther ? 'Reassign' : 'Assign'}
-                                                    </button>
+                                    <div>
+                                        {/* TAB 1: HOTEL ASSIGNMENTS */}
+                                        {assignmentTab === 'hotels' && (
+                                            <div className="space-y-3">
+                                                <div className="text-xs font-bold text-slate-500 mb-2">
+                                                    Select which properties <strong className="text-slate-800">{profilesList.find(p => p.id === selectedAuditorId)?.display_name || 'Selected Auditor'}</strong> can perform audits on:
                                                 </div>
-                                            );
-                                        })}
+                                                <div className="space-y-2 max-h-[500px] overflow-y-auto pr-1">
+                                                    {hotels.map(hotel => {
+                                                        const assignment = auditorAssignments.find(a => a.hotel_id === hotel.id);
+                                                        const isAssignedToSelected = assignment?.user_id === selectedAuditorId;
+                                                        const isAssignedToOther = assignment && assignment.user_id !== selectedAuditorId;
+                                                        const assignedUser = isAssignedToOther ? profilesList.find(p => p.id === assignment.user_id) : null;
+                                                        
+                                                        return (
+                                                            <div key={hotel.id} className="flex items-center justify-between p-3.5 bg-slate-50/80 hover:bg-slate-100/60 rounded-xl border border-slate-200/60 transition-all">
+                                                                <div>
+                                                                    <div className="text-sm font-bold text-slate-800">{hotel.name}</div>
+                                                                    <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
+                                                                        {hotel.brandClass} • {hotel.region || 'Region Unspecified'}
+                                                                    </div>
+                                                                </div>
+                                                                <button 
+                                                                    onClick={async (e) => {
+                                                                        e.stopPropagation();
+                                                                        if (isAssignedToSelected) {
+                                                                            const { error } = await supabase.from('auditor_assignments').delete().eq('user_id', selectedAuditorId).eq('hotel_id', hotel.id);
+                                                                            if (error) console.error('Delete error', error);
+                                                                        } else {
+                                                                            if (isAssignedToOther) {
+                                                                                const { error: delError } = await supabase.from('auditor_assignments').delete().eq('hotel_id', hotel.id);
+                                                                                if (delError) console.error('Delete other error', delError);
+                                                                            }
+                                                                            const { error } = await supabase.from('auditor_assignments').insert({ user_id: selectedAuditorId, hotel_id: hotel.id });
+                                                                            if (error) console.error('Insert error details:', error.message, error.details, error.hint);
+                                                                        }
+                                                                        const { data, error: fetchError } = await supabase.from('auditor_assignments').select('*');
+                                                                        if (fetchError) console.error('Fetch error', fetchError);
+                                                                        if (data) setAuditorAssignments(data);
+                                                                    }}
+                                                                    className={`px-3.5 py-1.5 text-xs font-black rounded-lg pointer-events-auto transition-all ${
+                                                                        isAssignedToSelected 
+                                                                            ? 'bg-indigo-600 text-white shadow-2xs hover:bg-indigo-700' 
+                                                                            : isAssignedToOther 
+                                                                            ? 'bg-amber-100 text-amber-800 border border-amber-200 hover:bg-amber-200' 
+                                                                            : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
+                                                                    }`}
+                                                                >
+                                                                    {isAssignedToSelected ? 'Assigned' : isAssignedToOther ? `Reassign (${assignedUser?.first_name || 'Other'})` : 'Assign'}
+                                                                </button>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {/* TAB 2: AUDIT CATEGORY ASSIGNMENTS */}
+                                        {assignmentTab === 'categories' && (
+                                            <div className="space-y-4">
+                                                <div className="flex items-center justify-between gap-3">
+                                                    <div className="relative flex-1">
+                                                        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                                                        <input
+                                                            type="text"
+                                                            value={categoryAssignmentSearch}
+                                                            onChange={(e) => setCategoryAssignmentSearch(e.target.value)}
+                                                            placeholder="Search categories or department..."
+                                                            className="w-full pl-9 pr-8 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium outline-none focus:border-indigo-400 focus:bg-white transition-all"
+                                                        />
+                                                        {categoryAssignmentSearch && (
+                                                            <button onClick={() => setCategoryAssignmentSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                                                                <X size={12} />
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                </div>
+
+                                                <div className="space-y-2 max-h-[500px] overflow-y-auto pr-1">
+                                                    {catList
+                                                        .filter(cat => {
+                                                            if (!categoryAssignmentSearch) return true;
+                                                            const query = categoryAssignmentSearch.toLowerCase();
+                                                            const dept = departments.find(d => d.id === cat.departmentId)?.name || '';
+                                                            return cat.name.toLowerCase().includes(query) || dept.toLowerCase().includes(query);
+                                                        })
+                                                        .map(cat => {
+                                                            const existingAssignment = auditorCategoryAssignments.find(a => a.category_id === cat.id);
+                                                            const isAssignedToSelected = existingAssignment?.user_id === selectedAuditorId;
+                                                            const isAssignedToOther = existingAssignment && existingAssignment.user_id !== selectedAuditorId;
+                                                            const assignedAuditor = isAssignedToOther ? profilesList.find(p => p.id === existingAssignment.user_id) : null;
+                                                            const dept = departments.find(d => d.id === cat.departmentId);
+                                                            const itemCount = items.filter(i => i.categoryId === cat.id).length;
+
+                                                            return (
+                                                                <div key={cat.id} className="flex items-center justify-between p-3.5 bg-slate-50/80 hover:bg-slate-100/60 rounded-xl border border-slate-200/60 transition-all">
+                                                                    <div className="space-y-0.5">
+                                                                        <div className="flex items-center gap-2">
+                                                                            <span className="text-sm font-bold text-slate-800">{cat.name}</span>
+                                                                            {dept && (
+                                                                                <span className="px-2 py-0.5 bg-slate-200/70 text-slate-700 text-[9px] font-black uppercase rounded-md">
+                                                                                    {dept.name}
+                                                                                </span>
+                                                                            )}
+                                                                        </div>
+                                                                        <div className="text-[10px] font-semibold text-slate-400">
+                                                                            {itemCount} checklist items in category
+                                                                        </div>
+                                                                    </div>
+
+                                                                    <button
+                                                                        onClick={() => handleToggleCategoryAssignment(selectedAuditorId, cat.id)}
+                                                                        className={`px-3.5 py-1.5 text-xs font-black rounded-lg transition-all ${
+                                                                            isAssignedToSelected 
+                                                                                ? 'bg-emerald-600 text-white shadow-2xs hover:bg-emerald-700' 
+                                                                                : isAssignedToOther 
+                                                                                ? 'bg-amber-100 text-amber-800 border border-amber-200 hover:bg-amber-200' 
+                                                                                : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
+                                                                        }`}
+                                                                    >
+                                                                        {isAssignedToSelected ? 'Assigned' : isAssignedToOther ? `Reassign (${assignedAuditor?.first_name || 'Other'})` : 'Assign Category'}
+                                                                    </button>
+                                                                </div>
+                                                            );
+                                                        })}
+                                                </div>
+                                            </div>
+                                        )}
                                     </div>
                                 ) : (
-                                    <div className="text-center py-20 text-slate-400 font-bold text-xs">Select an auditor to view assignments</div>
+                                    <div className="text-center py-20 text-slate-400 font-bold text-xs">
+                                        Select an auditor from the left panel to manage their assigned hotels and audit categories
+                                    </div>
                                 )}
                             </div>
                         </div>
@@ -6239,6 +6593,103 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                 referrerPolicy="no-referrer" 
                                 className="max-h-[75vh] w-auto max-w-full object-contain rounded-2xl shadow-2xl border border-slate-800" 
                             />
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* SUPABASE SQL MIGRATION MODAL */}
+            {showSqlModal && (
+                <div 
+                    className="fixed inset-0 z-[999] bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 animate-fadeIn"
+                    onClick={() => setShowSqlModal(false)}
+                >
+                    <div 
+                        className="bg-slate-900 border border-slate-800 w-full max-w-2xl rounded-3xl overflow-hidden shadow-2xl animate-scaleUp text-white flex flex-col max-h-[90vh]"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-950/60">
+                            <div className="flex items-center gap-3">
+                                <div className="w-9 h-9 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center border border-emerald-500/30">
+                                    <Database size={18} />
+                                </div>
+                                <div>
+                                    <h3 className="font-bold text-sm text-white">Supabase Schema Migration</h3>
+                                    <p className="text-[10px] text-slate-400 font-medium">SQL script to enable category assignments in Supabase</p>
+                                </div>
+                            </div>
+                            <button 
+                                onClick={() => setShowSqlModal(false)}
+                                className="p-2 text-slate-400 hover:text-white bg-slate-800/80 rounded-xl transition-all"
+                            >
+                                <X size={16} />
+                            </button>
+                        </div>
+
+                        <div className="p-6 overflow-y-auto space-y-4 text-xs">
+                            <p className="text-slate-300 font-medium leading-relaxed">
+                                To persist auditor category assignments permanently in your Supabase database across all users and devices, execute the following SQL script in your <strong className="text-emerald-400">Supabase Dashboard → SQL Editor</strong>:
+                            </p>
+
+                            <div className="relative bg-slate-950 border border-slate-800 rounded-2xl p-4 font-mono text-[11px] text-emerald-300 overflow-x-auto leading-relaxed">
+                                <button
+                                    onClick={() => {
+                                        const sqlText = `CREATE TABLE IF NOT EXISTS auditor_category_assignments (\n    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,\n    user_id UUID NOT NULL,\n    category_id UUID NOT NULL,\n    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,\n    UNIQUE(user_id, category_id)\n);\n\nALTER TABLE auditor_category_assignments ENABLE ROW LEVEL SECURITY;\n\nCREATE POLICY "Allow public read auditor_category_assignments" ON auditor_category_assignments FOR SELECT USING (true);\nCREATE POLICY "Allow public insert auditor_category_assignments" ON auditor_category_assignments FOR INSERT WITH CHECK (true);\nCREATE POLICY "Allow public delete auditor_category_assignments" ON auditor_category_assignments FOR DELETE USING (true);`;
+                                        navigator.clipboard.writeText(sqlText);
+                                        setCopiedSql(true);
+                                        setTimeout(() => setCopiedSql(false), 2500);
+                                    }}
+                                    className="absolute top-3 right-3 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-lg font-sans text-[10px] font-bold flex items-center gap-1.5 transition-all border border-slate-700 active:scale-95"
+                                >
+                                    {copiedSql ? (
+                                        <>
+                                            <Check size={12} className="text-emerald-400" />
+                                            <span>Copied!</span>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Copy size={12} />
+                                            <span>Copy SQL</span>
+                                        </>
+                                    )}
+                                </button>
+                                <pre className="pt-2">
+{`-- Create table for auditor category assignments
+CREATE TABLE IF NOT EXISTS auditor_category_assignments (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    user_id UUID NOT NULL,
+    category_id UUID NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    UNIQUE(user_id, category_id)
+);
+
+-- Enable Row Level Security & set access policies
+ALTER TABLE auditor_category_assignments ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Allow public read auditor_category_assignments" ON auditor_category_assignments FOR SELECT USING (true);
+CREATE POLICY "Allow public insert auditor_category_assignments" ON auditor_category_assignments FOR INSERT WITH CHECK (true);
+CREATE POLICY "Allow public delete auditor_category_assignments" ON auditor_category_assignments FOR DELETE USING (true);`}
+                                </pre>
+                            </div>
+
+                            <div className="bg-indigo-950/40 border border-indigo-800/40 rounded-2xl p-4 space-y-1 text-slate-300">
+                                <h4 className="font-bold text-indigo-300 text-xs flex items-center gap-1.5">
+                                    <CheckCircle2 size={14} className="text-indigo-400" />
+                                    Note on Offline & Local Fallback
+                                </h4>
+                                <p className="text-[11px] text-slate-400 leading-relaxed">
+                                    Even before running this SQL script in Supabase, category assignments work immediately in local browser storage! Once you run the SQL script in Supabase, all category assignments will seamlessly sync automatically across your backend.
+                                </p>
+                            </div>
+                        </div>
+
+                        <div className="p-4 bg-slate-950/60 border-t border-slate-800 flex justify-end">
+                            <button
+                                onClick={() => setShowSqlModal(false)}
+                                className="px-6 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl transition-all active:scale-95"
+                            >
+                                Done
+                            </button>
                         </div>
                     </div>
                 </div>
