@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ChevronRight, Camera, Loader2, CheckCircle2, Image as ImageIcon, FileUp, Hash, Type, CheckSquare, UploadCloud, X, AlertCircle, RefreshCw } from 'lucide-react';
+import { ChevronRight, Camera, Loader2, CheckCircle2, Image as ImageIcon, FileUp, Hash, Type, CheckSquare, UploadCloud, X, AlertCircle, RefreshCw, User } from 'lucide-react';
 import { supabase, HOTELS_URL, HOTELS_KEY } from '../lib/supabase';
 
 interface BrandingPropertyProps {
@@ -97,6 +97,7 @@ const AuditItemCard: React.FC<{ item: any, hotelId: string, userProfile?: any }>
     const [naReason, setNaReason] = useState<string>('');
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [isSubmitted, setIsSubmitted] = useState(false);
+    const [submittedBy, setSubmittedBy] = useState<string>('');
     const [previewUrl, setPreviewUrl] = useState<string | null>(null);
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
@@ -188,6 +189,7 @@ const AuditItemCard: React.FC<{ item: any, hotelId: string, userProfile?: any }>
                     setIsNa(submission.is_na || false);
                     setNaReason(submission.na_reason || submission.notes || submission.remark || '');
                     setIsSubmitted(true);
+                    setSubmittedBy(submission.submitted_by_name || submission.submitted_by || submission.user_name || '');
                     if (submission.value && (item.input_type === 'camera' || item.input_type === 'image')) {
                         setPreviewUrl(submission.value);
                     }
@@ -206,6 +208,7 @@ const AuditItemCard: React.FC<{ item: any, hotelId: string, userProfile?: any }>
                             setIsNa(localData.is_na || false);
                             setNaReason(localData.na_reason || localData.notes || localData.remark || '');
                             setIsSubmitted(localData.isSubmitted || false);
+                            setSubmittedBy(localData.submitted_by_name || localData.submitted_by || localData.submitted_by_user || '');
                             if (localData.value && (item.input_type === 'camera' || item.input_type === 'image')) {
                                 setPreviewUrl(localData.value);
                             }
@@ -217,6 +220,7 @@ const AuditItemCard: React.FC<{ item: any, hotelId: string, userProfile?: any }>
                         setNaReason('');
                         setIsSubmitted(false);
                         setPreviewUrl(null);
+                        setSubmittedBy('');
                     }
                 }
             } catch (err) {
@@ -370,6 +374,7 @@ const AuditItemCard: React.FC<{ item: any, hotelId: string, userProfile?: any }>
 
             setValue(finalValue);
             setIsSubmitted(true);
+            setSubmittedBy(submitterName);
         } catch (err) {
             console.error(err);
             alert("An error occurred during submission.");
@@ -588,6 +593,12 @@ const AuditItemCard: React.FC<{ item: any, hotelId: string, userProfile?: any }>
                             <span className="text-indigo-600 text-[9px] sm:text-[10px] font-extrabold uppercase tracking-widest bg-indigo-50 border border-indigo-100 px-2 py-0.5 rounded">
                                 {item.input_type}
                             </span>
+                            {isSubmitted && (submittedBy || userProfile) && (
+                                <span className="text-emerald-800 text-[9px] sm:text-[10px] font-extrabold bg-emerald-50 border border-emerald-200/80 px-2 py-0.5 rounded flex items-center gap-1 truncate max-w-[200px]">
+                                    <User size={10} className="text-emerald-600 shrink-0" />
+                                    <span className="truncate">{submittedBy || (userProfile ? `${userProfile.first_name || ''} ${userProfile.last_name || ''}`.trim() : 'Property User')}</span>
+                                </span>
+                            )}
                         </div>
                         <p className="text-sm sm:text-base font-bold text-slate-800 leading-snug sm:leading-relaxed">
                             {item.name}
@@ -596,6 +607,12 @@ const AuditItemCard: React.FC<{ item: any, hotelId: string, userProfile?: any }>
                             <p className="text-xs sm:text-sm text-slate-500 leading-normal sm:leading-relaxed bg-slate-50 p-2.5 sm:p-3 rounded-lg sm:rounded-xl border border-slate-100 mt-1.5 sm:mt-2">
                                 {item.description}
                             </p>
+                        )}
+                        {isSubmitted && (
+                            <div className="flex items-center gap-1.5 mt-2 px-2.5 py-1 bg-emerald-50/80 border border-emerald-200/80 text-emerald-900 rounded-lg text-xs font-semibold w-fit">
+                                <User size={13} className="text-emerald-600 shrink-0" />
+                                <span>Submitted by: <strong className="font-extrabold text-emerald-950">{submittedBy || (userProfile ? `${userProfile.first_name || ''} ${userProfile.last_name || ''}`.trim() : 'Property User')}</strong></span>
+                            </div>
                         )}
                     </div>
                     {isSubmitted && (
