@@ -223,6 +223,7 @@ export default function App() {
             if (category) setSelectedCategory(category);
             setCurrentScreen(screen);
           }} 
+          userProfile={userProfile}
         />
       )}
       {currentScreen === 'brandingPropertyIdentification' && (
