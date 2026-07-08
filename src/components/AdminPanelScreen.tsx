@@ -724,8 +724,8 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                     name: g.name,
                     description: g.description || '',
                     hotelIds,
-                    categoryIds: [],
-                    itemIds: []
+                    categoryIds: g.category_ids || [],
+                    itemIds: g.item_ids || []
                 };
             });
 
@@ -1788,32 +1788,64 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 // Update Supabase
                 const { error } = await supabase
                     .from('audit_checklist_groups')
-                    .update({ name: trimmedName, description: trimmedDesc })
+                    .update({ 
+                        name: trimmedName, 
+                        description: trimmedDesc,
+                        category_ids: groupCategoryIds,
+                        item_ids: groupItemIds
+                    })
                     .eq('id', editingGroup.id);
 
-                if (error) throw error;
+                if (error) {
+                    console.warn("DB update failed with category_ids/item_ids, trying without them...", error);
+                    const { error: retryError } = await supabase
+                        .from('audit_checklist_groups')
+                        .update({ name: trimmedName, description: trimmedDesc })
+                        .eq('id', editingGroup.id);
+                    if (retryError) throw retryError;
+                }
 
                 // Update local state
-                setGroups(prev => prev.map(g => g.id === editingGroup.id ? { ...g, name: trimmedName, description: trimmedDesc } : g));
+                setGroups(prev => prev.map(g => g.id === editingGroup.id ? { 
+                    ...g, 
+                    name: trimmedName, 
+                    description: trimmedDesc,
+                    categoryIds: groupCategoryIds,
+                    itemIds: groupItemIds
+                } : g));
                 setToastMessage("Audit Group updated successfully!");
             } else {
                 // Insert Supabase
+                let insertedId = '';
                 const { data, error } = await supabase
                     .from('audit_checklist_groups')
-                    .insert({ name: trimmedName, description: trimmedDesc })
+                    .insert({ 
+                        name: trimmedName, 
+                        description: trimmedDesc,
+                        category_ids: groupCategoryIds,
+                        item_ids: groupItemIds
+                    })
                     .select();
 
-                if (error) throw error;
+                if (error) {
+                    console.warn("DB insert failed with category_ids/item_ids, trying without them...", error);
+                    const { data: retryData, error: retryError } = await supabase
+                        .from('audit_checklist_groups')
+                        .insert({ name: trimmedName, description: trimmedDesc })
+                        .select();
+                    if (retryError) throw retryError;
+                    insertedId = retryData?.[0]?.id ? String(retryData[0].id) : String(Date.now());
+                } else {
+                    insertedId = data?.[0]?.id ? String(data[0].id) : String(Date.now());
+                }
 
-                const insertedId = data?.[0]?.id ? String(data[0].id) : String(Date.now());
-                
                 // Update local state
                 const newGroup: AuditGroup = {
                     id: insertedId,
                     name: trimmedName,
                     description: trimmedDesc,
-                    categoryIds: [],
-                    itemIds: []
+                    categoryIds: groupCategoryIds,
+                    itemIds: groupItemIds
                 };
                 setGroups(prev => [...prev, newGroup]);
                 setSelectedGroupId(insertedId);
@@ -1824,7 +1856,13 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         } catch (err: any) {
             console.warn("Database group save failed, writing locally:", err);
             if (editingGroup) {
-                setGroups(prev => prev.map(g => g.id === editingGroup.id ? { ...g, name: trimmedName, description: trimmedDesc } : g));
+                setGroups(prev => prev.map(g => g.id === editingGroup.id ? { 
+                    ...g, 
+                    name: trimmedName, 
+                    description: trimmedDesc,
+                    categoryIds: groupCategoryIds,
+                    itemIds: groupItemIds
+                } : g));
                 setToastMessage("Audit Group updated locally!");
             } else {
                 const localId = String(Date.now());
@@ -1832,8 +1870,8 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                     id: localId,
                     name: trimmedName,
                     description: trimmedDesc,
-                    categoryIds: [],
-                    itemIds: []
+                    categoryIds: groupCategoryIds,
+                    itemIds: groupItemIds
                 };
                 setGroups(prev => [...prev, newGroup]);
                 setSelectedGroupId(localId);
@@ -7074,7 +7112,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                     <div className="relative bg-slate-950 border border-slate-800 rounded-2xl p-4 font-mono text-[11px] text-emerald-300 overflow-x-auto leading-relaxed">
                                         <button
                                             onClick={() => {
-                                                const sqlText = `-- Drop old tables if they exist\nDROP TABLE IF EXISTS audit_group_categories CASCADE;\nDROP TABLE IF EXISTS audit_group_items CASCADE;\nDROP TABLE IF EXISTS audit_group_hotels CASCADE;\n\n-- Create Table for Audit Checklist Groups\nCREATE TABLE IF NOT EXISTS audit_checklist_groups (\n    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,\n    name VARCHAR(255) NOT NULL,\n    description TEXT,\n    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL\n);\n\n-- Create Table for Audit Checklist Group Hotels association\nCREATE TABLE IF NOT EXISTS audit_group_hotels (\n    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,\n    group_id UUID NOT NULL REFERENCES audit_checklist_groups(id) ON DELETE CASCADE,\n    hotel_id VARCHAR(100) NOT NULL,\n    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,\n    UNIQUE(group_id, hotel_id)\n);\n\n-- Enable Row Level Security (RLS)\nALTER TABLE audit_checklist_groups ENABLE ROW LEVEL SECURITY;\nALTER TABLE audit_group_hotels ENABLE ROW LEVEL SECURITY;\n\n-- Set Access Policies to Allow All Reads/Inserts/Deletes (Idempotent)\nDROP POLICY IF EXISTS "Allow public select audit_checklist_groups" ON audit_checklist_groups;\nCREATE POLICY "Allow public select audit_checklist_groups" ON audit_checklist_groups FOR SELECT USING (true);\n\nDROP POLICY IF EXISTS "Allow public insert audit_checklist_groups" ON audit_checklist_groups;\nCREATE POLICY "Allow public insert audit_checklist_groups" ON audit_checklist_groups FOR INSERT WITH CHECK (true);\n\nDROP POLICY IF EXISTS "Allow public update audit_checklist_groups" ON audit_checklist_groups;\nCREATE POLICY "Allow public update audit_checklist_groups" ON audit_checklist_groups FOR UPDATE USING (true);\n\nDROP POLICY IF EXISTS "Allow public delete audit_checklist_groups" ON audit_checklist_groups;\nCREATE POLICY "Allow public delete audit_checklist_groups" ON audit_checklist_groups FOR DELETE USING (true);\n\nDROP POLICY IF EXISTS "Allow public select audit_group_hotels" ON audit_group_hotels;\nCREATE POLICY "Allow public select audit_group_hotels" ON audit_group_hotels FOR SELECT USING (true);\n\nDROP POLICY IF EXISTS "Allow public insert audit_group_hotels" ON audit_group_hotels;\nCREATE POLICY "Allow public insert audit_group_hotels" ON audit_group_hotels FOR INSERT WITH CHECK (true);\n\nDROP POLICY IF EXISTS "Allow public delete audit_group_hotels" ON audit_group_hotels;\nCREATE POLICY "Allow public delete audit_group_hotels" ON audit_group_hotels FOR DELETE USING (true);`;
+                                                const sqlText = `-- Drop old tables if they exist\nDROP TABLE IF EXISTS audit_group_categories CASCADE;\nDROP TABLE IF EXISTS audit_group_items CASCADE;\nDROP TABLE IF EXISTS audit_group_hotels CASCADE;\n\n-- Create Table for Audit Checklist Groups\nCREATE TABLE IF NOT EXISTS audit_checklist_groups (\n    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,\n    name VARCHAR(255) NOT NULL,\n    description TEXT,\n    category_ids TEXT[] DEFAULT '{}',\n    item_ids TEXT[] DEFAULT '{}',\n    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL\n);\n\n-- Migration script in case columns are missing on existing tables\nALTER TABLE audit_checklist_groups ADD COLUMN IF NOT EXISTS category_ids TEXT[] DEFAULT '{}';\nALTER TABLE audit_checklist_groups ADD COLUMN IF NOT EXISTS item_ids TEXT[] DEFAULT '{}';\n\n-- Create Table for Audit Checklist Group Hotels association\nCREATE TABLE IF NOT EXISTS audit_group_hotels (\n    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,\n    group_id UUID NOT NULL REFERENCES audit_checklist_groups(id) ON DELETE CASCADE,\n    hotel_id VARCHAR(100) NOT NULL,\n    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,\n    UNIQUE(group_id, hotel_id)\n);\n\n-- Enable Row Level Security (RLS)\nALTER TABLE audit_checklist_groups ENABLE ROW LEVEL SECURITY;\nALTER TABLE audit_group_hotels ENABLE ROW LEVEL SECURITY;\n\n-- Set Access Policies to Allow All Reads/Inserts/Deletes (Idempotent)\nDROP POLICY IF EXISTS "Allow public select audit_checklist_groups" ON audit_checklist_groups;\nCREATE POLICY "Allow public select audit_checklist_groups" ON audit_checklist_groups FOR SELECT USING (true);\n\nDROP POLICY IF EXISTS "Allow public insert audit_checklist_groups" ON audit_checklist_groups;\nCREATE POLICY "Allow public insert audit_checklist_groups" ON audit_checklist_groups FOR INSERT WITH CHECK (true);\n\nDROP POLICY IF EXISTS "Allow public update audit_checklist_groups" ON audit_checklist_groups;\nCREATE POLICY "Allow public update audit_checklist_groups" ON audit_checklist_groups FOR UPDATE USING (true);\n\nDROP POLICY IF EXISTS "Allow public delete audit_checklist_groups" ON audit_checklist_groups;\nCREATE POLICY "Allow public delete audit_checklist_groups" ON audit_checklist_groups FOR DELETE USING (true);\n\nDROP POLICY IF EXISTS "Allow public select audit_group_hotels" ON audit_group_hotels;\nCREATE POLICY "Allow public select audit_group_hotels" ON audit_group_hotels FOR SELECT USING (true);\n\nDROP POLICY IF EXISTS "Allow public insert audit_group_hotels" ON audit_group_hotels;\nCREATE POLICY "Allow public insert audit_group_hotels" ON audit_group_hotels FOR INSERT WITH CHECK (true);\n\nDROP POLICY IF EXISTS "Allow public delete audit_group_hotels" ON audit_group_hotels;\nCREATE POLICY "Allow public delete audit_group_hotels" ON audit_group_hotels FOR DELETE USING (true);`;
                                                 navigator.clipboard.writeText(sqlText);
                                                 setCopiedSql(true);
                                                 setTimeout(() => setCopiedSql(false), 2500);
@@ -7104,8 +7142,14 @@ CREATE TABLE IF NOT EXISTS audit_checklist_groups (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
     description TEXT,
+    category_ids TEXT[] DEFAULT '{}',
+    item_ids TEXT[] DEFAULT '{}',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
+
+-- Migration script in case columns are missing on existing tables
+ALTER TABLE audit_checklist_groups ADD COLUMN IF NOT EXISTS category_ids TEXT[] DEFAULT '{}';
+ALTER TABLE audit_checklist_groups ADD COLUMN IF NOT EXISTS item_ids TEXT[] DEFAULT '{}';
 
 -- Create Table for Audit Checklist Group Hotels association
 CREATE TABLE IF NOT EXISTS audit_group_hotels (

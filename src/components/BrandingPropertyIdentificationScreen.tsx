@@ -772,8 +772,77 @@ export default function BrandingPropertyIdentificationScreen({ selectedCategory,
                     }
                     return (a.name || '').localeCompare(b.name || '');
                 });
+
+                // Determine group filtering for items
+                let assignedItemIds: string[] | null = null;
+                try {
+                    // Try to fetch from database
+                    const { data: groupsData } = await supabase.from('audit_checklist_groups').select('*');
+                    const { data: groupHotelsData } = await supabase.from('audit_group_hotels').select('*');
+
+                    if (groupsData && groupHotelsData) {
+                        const currentHotel = hotels.find(h => 
+                            String(h.id).toLowerCase() === String(selectedHotelId).toLowerCase() || 
+                            String(h.code).toLowerCase() === String(selectedHotelId).toLowerCase()
+                        );
+                        
+                        const possibleHotelIds = Array.from(new Set([
+                            selectedHotelId,
+                            String(selectedHotelId),
+                            currentHotel?.id ? String(currentHotel.id) : null,
+                            currentHotel?.code ? String(currentHotel.code) : null
+                        ].filter(Boolean) as string[]));
+
+                        const assignedGroupHotel = groupHotelsData.find((gh: any) => 
+                            possibleHotelIds.some(phId => String(gh.hotel_id).toLowerCase() === String(phId).toLowerCase())
+                        );
+
+                        if (assignedGroupHotel) {
+                            const assignedGroup = groupsData.find((g: any) => g.id === assignedGroupHotel.group_id);
+                            if (assignedGroup) {
+                                assignedItemIds = assignedGroup.item_ids || [];
+                            }
+                        }
+                    }
+                } catch (err) {
+                    console.warn("Could not load checklist group in Branding screen:", err);
+                }
+
+                // If DB lookup didn't yield anything or wasn't found, try local storage fallback
+                if (!assignedItemIds) {
+                    const savedGroups = localStorage.getItem('sbi_audit_groups_v2');
+                    if (savedGroups) {
+                        try {
+                            const parsedGroups = JSON.parse(savedGroups);
+                            const currentHotel = hotels.find(h => 
+                                String(h.id).toLowerCase() === String(selectedHotelId).toLowerCase() || 
+                                String(h.code).toLowerCase() === String(selectedHotelId).toLowerCase()
+                            );
+                            const possibleHotelIds = Array.from(new Set([
+                                selectedHotelId,
+                                String(selectedHotelId),
+                                currentHotel?.id ? String(currentHotel.id) : null,
+                                currentHotel?.code ? String(currentHotel.code) : null
+                            ].filter(Boolean) as string[]));
+
+                            const assignedGroup = parsedGroups.find((g: any) => 
+                                g.hotelIds && g.hotelIds.some((hId: string) => 
+                                    possibleHotelIds.some(phId => String(hId).toLowerCase() === String(phId).toLowerCase())
+                                )
+                            );
+
+                            if (assignedGroup) {
+                                assignedItemIds = assignedGroup.itemIds || [];
+                            }
+                        } catch (e) {}
+                    }
+                }
                 
-                setItems(sorted);
+                const finalItems = assignedItemIds
+                    ? sorted.filter((item: any) => assignedItemIds!.includes(String(item.id)))
+                    : sorted;
+
+                setItems(finalItems);
             } catch (err) {
                 console.error("Error fetching category items:", err);
             } finally {
@@ -782,7 +851,7 @@ export default function BrandingPropertyIdentificationScreen({ selectedCategory,
         };
 
         fetchCategoryItems();
-    }, [selectedCategory]);
+    }, [selectedCategory, selectedHotelId, hotels]);
 
     return (
         <div className="min-h-screen pt-16 sm:pt-20 pb-8 bg-slate-50/50 px-2 sm:px-4">

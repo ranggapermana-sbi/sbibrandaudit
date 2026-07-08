@@ -80,6 +80,87 @@ export default function PendingCategoriesScreen({ onBack, onNavigate, userProfil
                 .select('id, category_id, filled_by_hotel');
             if (itemsError) throw itemsError;
 
+            // 2b. Fetch checklist groups and group hotel mappings to find the group of selectedHotelId
+            let assignedCategoryIds: string[] | null = null;
+            let assignedItemIds: string[] | null = null;
+            let groupName: string | null = null;
+
+            try {
+                const { data: groupsData } = await supabase
+                    .from('audit_checklist_groups')
+                    .select('*');
+
+                const { data: groupHotelsData } = await supabase
+                    .from('audit_group_hotels')
+                    .select('*');
+
+                if (groupsData && groupHotelsData) {
+                    const currentHotel = hotels.find(h => 
+                        String(h.id).toLowerCase() === String(selectedHotelId).toLowerCase() || 
+                        String(h.code).toLowerCase() === String(selectedHotelId).toLowerCase()
+                    );
+                    
+                    const possibleHotelIds = Array.from(new Set([
+                        selectedHotelId,
+                        String(selectedHotelId),
+                        currentHotel?.id ? String(currentHotel.id) : null,
+                        currentHotel?.code ? String(currentHotel.code) : null
+                    ].filter(Boolean) as string[]));
+
+                    const assignedGroupHotel = groupHotelsData.find((gh: any) => 
+                        possibleHotelIds.some(phId => String(gh.hotel_id).toLowerCase() === String(phId).toLowerCase())
+                    );
+
+                    if (assignedGroupHotel) {
+                        const assignedGroup = groupsData.find((g: any) => g.id === assignedGroupHotel.group_id);
+                        if (assignedGroup) {
+                            groupName = assignedGroup.name;
+                            assignedCategoryIds = assignedGroup.category_ids || [];
+                            assignedItemIds = assignedGroup.item_ids || [];
+                        }
+                    }
+                }
+            } catch (groupErr) {
+                console.warn("Could not fetch checklist groups for filtering:", groupErr);
+            }
+
+            // Fallback to local storage if DB is not set or empty
+            if (!assignedCategoryIds || !assignedItemIds) {
+                const savedGroups = localStorage.getItem('sbi_audit_groups_v2');
+                if (savedGroups) {
+                    try {
+                        const parsedGroups = JSON.parse(savedGroups);
+                        const currentHotel = hotels.find(h => 
+                            String(h.id).toLowerCase() === String(selectedHotelId).toLowerCase() || 
+                            String(h.code).toLowerCase() === String(selectedHotelId).toLowerCase()
+                        );
+                        const possibleHotelIds = Array.from(new Set([
+                            selectedHotelId,
+                            String(selectedHotelId),
+                            currentHotel?.id ? String(currentHotel.id) : null,
+                            currentHotel?.code ? String(currentHotel.code) : null
+                        ].filter(Boolean) as string[]));
+
+                        const assignedGroup = parsedGroups.find((g: any) => 
+                            g.hotelIds && g.hotelIds.some((hId: string) => 
+                                possibleHotelIds.some(phId => String(hId).toLowerCase() === String(phId).toLowerCase())
+                            )
+                        );
+
+                        if (assignedGroup) {
+                            groupName = assignedGroup.name;
+                            assignedCategoryIds = assignedGroup.categoryIds || [];
+                            assignedItemIds = assignedGroup.itemIds || [];
+                        }
+                    } catch (e) {}
+                }
+            }
+
+            // Filter categories based on group assignment
+            const filteredCats = (catsData || []).filter((cat: any) => 
+                !assignedCategoryIds || assignedCategoryIds.includes(String(cat.id))
+            );
+
             // 3. Determine target hotel identifiers for selected property
             const currentHotel = hotels.find(h => 
                 String(h.id).toLowerCase() === String(selectedHotelId).toLowerCase() || 
@@ -135,10 +216,11 @@ export default function PendingCategoriesScreen({ onBack, onNavigate, userProfil
             }
 
             // 5. Map categories and calculate completed vs total items for each category
-            const mapped = (catsData || []).map((cat: any) => {
+            const mapped = filteredCats.map((cat: any) => {
                 const catItems = (itemsData || []).filter((item: any) => 
                     String(item.category_id || '') === String(cat.id || '') && 
-                    item.filled_by_hotel !== false && item.filled_by_hotel !== 'false'
+                    item.filled_by_hotel !== false && item.filled_by_hotel !== 'false' &&
+                    (!assignedItemIds || assignedItemIds.includes(String(item.id)))
                 );
                 
                 let completedCount = 0;
@@ -222,9 +304,41 @@ export default function PendingCategoriesScreen({ onBack, onNavigate, userProfil
                 userProfile?.hotel_code ? String(userProfile.hotel_code) : null
             ].filter(Boolean) as string[]));
 
-            const mappedFallback = fallbackCats.map((cat: any) => {
+            // Retrieve group filtering offline
+            let assignedCategoryIds: string[] | null = null;
+            let assignedItemIds: string[] | null = null;
+            const savedGroups = localStorage.getItem('sbi_audit_groups_v2');
+            if (savedGroups) {
+                try {
+                    const parsedGroups = JSON.parse(savedGroups);
+                    const possibleHotelIds = Array.from(new Set([
+                        selectedHotelId,
+                        String(selectedHotelId),
+                        currentHotel?.id ? String(currentHotel.id) : null,
+                        currentHotel?.code ? String(currentHotel.code) : null
+                    ].filter(Boolean) as string[]));
+
+                    const assignedGroup = parsedGroups.find((g: any) => 
+                        g.hotelIds && g.hotelIds.some((hId: string) => 
+                            possibleHotelIds.some(phId => String(hId).toLowerCase() === String(phId).toLowerCase())
+                        )
+                    );
+
+                    if (assignedGroup) {
+                        assignedCategoryIds = assignedGroup.categoryIds || [];
+                        assignedItemIds = assignedGroup.itemIds || [];
+                    }
+                } catch (e) {}
+            }
+
+            const filteredFallbackCats = fallbackCats.filter((cat: any) =>
+                !assignedCategoryIds || assignedCategoryIds.includes(String(cat.id))
+            );
+
+            const mappedFallback = filteredFallbackCats.map((cat: any) => {
                 const catItems = fallbackItems.filter((item: any) => 
-                    String(item.category_id || item.categoryId || '') === String(cat.id || '')
+                    String(item.category_id || item.categoryId || '') === String(cat.id || '') &&
+                    (!assignedItemIds || assignedItemIds.includes(String(item.id)))
                 );
                 
                 let completedCount = 0;
