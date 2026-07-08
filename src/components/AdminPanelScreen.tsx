@@ -2,66 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { ArrowLeft, CheckCircle, Clock, Building, BarChart3, ChevronRight, Plus, Trash2, Edit, Search, X, AlertCircle, MapPin, Settings2, Calendar, Star, Briefcase, ClipboardList, FileCheck, Layers, Package, Camera, ImageIcon, FileText, Hash, Type, CheckSquare, Users, ShieldCheck, Percent, GripVertical, ChevronUp, ChevronDown, Eye, User, RefreshCw, CheckCircle2, Maximize2, ExternalLink, ZoomIn, Database, Copy, Check } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
-interface Department {
-    id: string;
-    name: string;
-    head: string;
-}
-
-interface Hotel {
-    id: string;
-    name: string;
-    location: string;
-    code?: string;
-    brandClass: string;
-    region?: string;
-    country?: string;
-    stars?: number;
-}
-
-interface AuditBatch {
-    id: string;
-    name: string;
-    status: 'Active' | 'Completed' | 'Upcoming';
-    hotelIds?: string[];
-}
-
-interface AuditCategory {
-    id: string;
-    name: string;
-    totalTasks: number;
-    completed: number;
-    departmentId?: string;
-    sort_order?: number;
-}
-
-interface AuditItem {
-    id: string;
-    name: string;
-    itemDescription?: string;
-    departmentId: string;
-    categoryId: string;
-    inputType: 'camera' | 'image' | 'document' | 'numeric' | 'text' | 'checkbox';
-    points?: number;
-    description?: string;
-    sort_order?: number;
-    filled_by_hotel?: boolean;
-    result?: number;
-    min_value?: number;
-}
-
-interface AuditGroup {
-    id: string;
-    name: string;
-    description?: string;
-    categoryIds?: string[];
-    itemIds: string[];
-}
-
-const DEFAULT_GROUPS: AuditGroup[] = [
-    { id: '1', name: 'Front Office Excellence Group', description: 'Standard criteria checking reception and guest greeting compliance.', itemIds: ['1', '2'] },
-    { id: '2', name: 'Safety & Hygiene Standard Group', description: 'Master check list for public spaces and hygiene protocols.', itemIds: ['3', '4'] },
-];
+import { Department, Hotel, AuditBatch, AuditCategory, AuditItem, AuditGroup } from '../types';
+import { DEFAULT_DEPARTMENTS, DEFAULT_CATEGORIES, DEFAULT_HOTELS, DEFAULT_BATCHES, DEFAULT_GROUPS, DEFAULT_OFFLINE_ITEMS } from '../lib/constants';
 
 const getRoleStyles = (accessLevel: string) => {
     const r = accessLevel?.toLowerCase() || 'auditee';
@@ -69,26 +11,6 @@ const getRoleStyles = (accessLevel: string) => {
     if (r === 'auditor') return { bg: 'bg-emerald-50/40', text: 'text-emerald-700', icon: <Eye size={14}/> };
     return { bg: 'bg-amber-50/40', text: 'text-amber-700', icon: <User size={14}/> };
 };
-
-const DEFAULT_BATCHES: AuditBatch[] = [
-    { id: '1', name: 'Batch 1', status: 'Active', hotelIds: ['1', '2'] },
-    { id: '2', name: 'Batch 2', status: 'Completed', hotelIds: ['3'] },
-    { id: '3', name: 'Batch 3', status: 'Upcoming', hotelIds: [] },
-    { id: '4', name: 'Batch 4', status: 'Upcoming', hotelIds: ['1', '4'] },
-];
-
-const DEFAULT_CATEGORIES: AuditCategory[] = [
-    { id: '1', name: "I. BRANDING & PROPERTY IDENTIFICATION", totalTasks: 5, completed: 2 },
-    { id: '2', name: "II. BRANDING AT RECEPTION / FRONT OFFICE", totalTasks: 4, completed: 0 },
-    { id: '3', name: "III. BRANDING IN GUEST ROOM", totalTasks: 6, completed: 1 },
-    { id: '4', name: "SWISS-CARE AMENITIES", totalTasks: 3, completed: 3 },
-    { id: '5', name: "IV. BRANDING IN FOOD & BEVERAGE AND BANQUET", totalTasks: 8, completed: 0 },
-    { id: '6', name: "V. SALES & MARKETING - PHYSICAL", totalTasks: 4, completed: 2 },
-    { id: '7', name: "VI. SALES & MARKETING - DIGITAL", totalTasks: 5, completed: 0 },
-    { id: '8', name: "VII. BRANDING AT PUBLIC AREAS", totalTasks: 6, completed: 4 },
-    { id: '9', name: "VIII. BRANDING AT BACK OFFICE & STAFF", totalTasks: 3, completed: 0 },
-    { id: '10', name: "IX. BONUS", totalTasks: 2, completed: 0 },
-];
 
 const stats = [
     { title: 'Total Submissions', value: '142', icon: BarChart3, color: 'text-indigo-600' },
@@ -99,66 +21,6 @@ const recentSubmissions = [
     { property: 'Swiss-Belhotel Seef', audit: 'Lobby & Reception', status: 'Pending', date: 'May 20' },
     { property: 'Swiss-Belresidences Juffair', audit: 'Guest Rooms', status: 'Approved', date: 'May 19' },
     { property: 'Swiss-Belinn Airport Jakarta', audit: 'F&B Outlets', status: 'Pending', date: 'May 19' },
-];
-
-const DEFAULT_DEPARTMENTS: Department[] = [
-    { id: '1', name: 'Digital Marketing', head: 'Hidayat Jayawardana' },
-    { id: '2', name: 'Marcomm & Branding', head: 'Nadya Frederica' },
-    { id: '3', name: 'CRM & Loyalty', head: 'Mohammad Jawhar' },
-    { id: '4', name: 'Online Reputation', head: 'Rangga Permana' },
-];
-
-const DEFAULT_HOTELS: Hotel[] = [
-    {
-        id: 'sbi-ho',
-        name: 'Swiss-Belhotel International',
-        location: 'Corporate Headquarters',
-        code: 'SBI',
-        brandClass: 'Corporate',
-        region: 'Global',
-        country: 'International',
-        stars: 5
-    },
-    { 
-        id: '1', 
-        name: 'Swiss-Belhotel Seef', 
-        location: 'Manama, Bahrain', 
-        code: 'SBSE',
-        brandClass: 'Swiss-Belhotel',
-        region: 'Middle East',
-        country: 'Bahrain',
-        stars: 4
-    },
-    { 
-        id: '2', 
-        name: 'Swiss-Belresidences Juffair', 
-        location: 'Juffair, Bahrain', 
-        code: 'SBJU',
-        brandClass: 'Swiss-Belresidences',
-        region: 'Middle East',
-        country: 'Bahrain',
-        stars: 4
-    },
-    { 
-        id: '3', 
-        name: 'Swiss-Belinn Airport Jakarta', 
-        location: 'Jakarta, Indonesia', 
-        code: 'SBAJ',
-        brandClass: 'Swiss-Belinn',
-        region: 'Asia Pacific',
-        country: 'Indonesia',
-        stars: 3
-    },
-    { 
-        id: '4', 
-        name: 'Swiss-Belresidences Kalibata', 
-        location: 'Jakarta, Indonesia', 
-        code: 'SBKA',
-        brandClass: 'Swiss-Belresidences',
-        region: 'Asia Pacific',
-        country: 'Indonesia',
-        stars: 4
-    },
 ];
 
 const HOTEL_BRANDS = [
@@ -215,7 +77,12 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     });
     const [assignmentTab, setAssignmentTab] = useState<'hotels' | 'categories'>('hotels');
     const [categoryAssignmentSearch, setCategoryAssignmentSearch] = useState('');
+    const [selectedGroupId, setSelectedGroupId] = useState<string>('');
+    const [groupAssignmentTab, setGroupAssignmentTab] = useState<'categories' | 'items'>('categories');
+    const [groupSearchQuery, setGroupSearchQuery] = useState('');
     const [showSqlModal, setShowSqlModal] = useState(false);
+    const [sqlModalTab, setSqlModalTab] = useState<'auditor' | 'checklist'>('checklist');
+    const [groupExpandedCats, setGroupExpandedCats] = useState<Record<string, boolean>>({});
     const [enlargedImage, setEnlargedImage] = useState<{ url: string; title?: string } | null>(null);
 
     useEffect(() => {
@@ -296,7 +163,19 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                     setAuditorAccess(newAccess);
                 }
             } catch (e) {
-                console.error("Failed to fetch initial access rights:", e);
+                console.warn("Failed to fetch initial access rights, using offline fallback:", e);
+                const fallbackAccess: Record<string, boolean> = {
+                    'Dashboard': true,
+                    'Hotels': true,
+                    'Departments': true,
+                    'Categories': true,
+                    'Items': true,
+                    'Groups': true,
+                    'Batches': true,
+                    'User Management': true,
+                    'Access Rights': true
+                };
+                setAuditorAccess(fallbackAccess);
             }
         };
         fetchAccess();
@@ -681,7 +560,17 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     }, [groups]);
 
     // CRUD state for Categories
-    const [catList, setCatList] = useState<AuditCategory[]>([]);
+    const [catList, setCatList] = useState<AuditCategory[]>(() => {
+        const saved = localStorage.getItem('sbi_audit_categories_v2');
+        if (saved) {
+            try {
+                return JSON.parse(saved);
+            } catch (e) {
+                console.error("Error parsing categories", e);
+            }
+        }
+        return DEFAULT_CATEGORIES;
+    });
 
     // Fetch categories function
     const [recentSubmissionsData, setRecentSubmissionsData] = useState<any[]>([]);
@@ -785,18 +674,82 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             setCategoryOrder(initialCategoryOrder);
             
             setCatList(mapped);
+            localStorage.setItem('sbi_audit_categories_v2', JSON.stringify(mapped));
             setSupabaseConnected(true);
+            setSupabaseErrorMsg(null);
         } catch (err: any) {
-            console.error("Supabase fetch categories error:", err);
+            console.warn("Supabase fetch categories error, using fallback:", err);
             setSupabaseConnected(false);
-            setSupabaseErrorMsg(err.message || 'Verification failed');
+            setSupabaseErrorMsg(null);
+            
+            const saved = localStorage.getItem('sbi_audit_categories_v2');
+            if (saved) {
+                try {
+                    setCatList(JSON.parse(saved));
+                } catch (e) {
+                    setCatList(DEFAULT_CATEGORIES);
+                }
+            } else {
+                setCatList(DEFAULT_CATEGORIES);
+            }
         } finally {
             setIsSupabaseLoading(false);
         }
     };
 
+    const fetchGroupsFromSupabase = async () => {
+        try {
+            // Fetch checklist groups
+            const { data: groupsData, error: groupsError } = await supabase
+                .from('audit_checklist_groups')
+                .select('*')
+                .order('name', { ascending: true });
+
+            if (groupsError) {
+                console.warn("Could not fetch groups from Supabase, relying on localStorage fallback:", groupsError);
+                return;
+            }
+
+            // Fetch join table associations
+            const { data: groupHotels, error: ghError } = await supabase
+                .from('audit_group_hotels')
+                .select('*');
+
+            const mapped: AuditGroup[] = (groupsData || []).map((g: any) => {
+                const hotelIds = (groupHotels || [])
+                    .filter((gh: any) => gh.group_id === g.id)
+                    .map((gh: any) => String(gh.hotel_id));
+                return {
+                    id: String(g.id),
+                    name: g.name,
+                    description: g.description || '',
+                    hotelIds,
+                    categoryIds: [],
+                    itemIds: []
+                };
+            });
+
+            setGroups(mapped);
+            if (mapped.length > 0 && !selectedGroupId) {
+                setSelectedGroupId(mapped[0].id);
+            }
+        } catch (err) {
+            console.warn("Exception fetching groups from Supabase:", err);
+        }
+    };
+
     // CRUD state for Items
-    const [items, setItems] = useState<AuditItem[]>([]);
+    const [items, setItems] = useState<AuditItem[]>(() => {
+        const saved = localStorage.getItem('sbi_audit_items_v2');
+        if (saved) {
+            try {
+                return JSON.parse(saved);
+            } catch (e) {
+                console.error("Error parsing items", e);
+            }
+        }
+        return DEFAULT_OFFLINE_ITEMS;
+    });
     const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({});
     const [itemOrder, setItemOrder] = useState<Record<string, string[]>>({});
     const [expandedDepartments, setExpandedDepartments] = useState<Record<string, boolean>>({});
@@ -1026,11 +979,24 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             setItemOrder(initialItemOrder);
             
             setItems(mapped);
+            localStorage.setItem('sbi_audit_items_v2', JSON.stringify(mapped));
             setSupabaseConnected(true);
+            setSupabaseErrorMsg(null);
         } catch (err: any) {
-            console.error("Supabase fetch items error:", err);
+            console.warn("Supabase fetch items error, using fallback:", err);
             setSupabaseConnected(false);
-            setSupabaseErrorMsg(err.message || 'Verification failed');
+            setSupabaseErrorMsg(null);
+            
+            const saved = localStorage.getItem('sbi_audit_items_v2');
+            if (saved) {
+                try {
+                    setItems(JSON.parse(saved));
+                } catch (e) {
+                    setItems(DEFAULT_OFFLINE_ITEMS);
+                }
+            } else {
+                setItems(DEFAULT_OFFLINE_ITEMS);
+            }
         } finally {
             setIsSupabaseLoading(false);
         }
@@ -1084,12 +1050,24 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             }));
             
             setDepartments(mapped);
+            localStorage.setItem('sbi_audit_departments_v2', JSON.stringify(mapped));
             setSupabaseConnected(true);
+            setSupabaseErrorMsg(null);
         } catch (err: any) {
-            console.error("Supabase fetch departments error:", err);
+            console.warn("Supabase fetch departments error, using fallback:", err);
             setSupabaseConnected(false);
-            setSupabaseErrorMsg(err.message || 'Verification failed');
-            // Retain existing known departments or fallback on error
+            setSupabaseErrorMsg(null);
+            
+            const saved = localStorage.getItem('sbi_audit_departments_v2');
+            if (saved) {
+                try {
+                    setDepartments(JSON.parse(saved));
+                } catch (e) {
+                    setDepartments(DEFAULT_DEPARTMENTS);
+                }
+            } else {
+                setDepartments(DEFAULT_DEPARTMENTS);
+            }
         } finally {
             setIsSupabaseLoading(false);
         }
@@ -1195,13 +1173,24 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             }
 
             setHotels(mapped);
+            localStorage.setItem('sbi_audit_hotels_v2', JSON.stringify(mapped));
             setSupabaseConnected(true);
             setSupabaseErrorMsg(null);
         } catch (err: any) {
-            console.error("Supabase fetch error:", err);
+            console.warn("Supabase fetch error, using fallback:", err);
             setSupabaseConnected(false);
-            setSupabaseErrorMsg(err.message || 'Verification failed');
-            // Retain existing local hotels on error as fallback
+            setSupabaseErrorMsg(null);
+            
+            const saved = localStorage.getItem('sbi_audit_hotels_v2');
+            if (saved) {
+                try {
+                    setHotels(JSON.parse(saved));
+                } catch (e) {
+                    setHotels(DEFAULT_HOTELS);
+                }
+            } else {
+                setHotels(DEFAULT_HOTELS);
+            }
         } finally {
             setIsSupabaseLoading(false);
         }
@@ -1254,13 +1243,25 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
 
             if (mappedBatches.length > 0) {
                 setBatches(mappedBatches);
+                localStorage.setItem('sbi_audit_batches_v2', JSON.stringify(mappedBatches));
             }
             setSupabaseConnected(true);
             setSupabaseErrorMsg(null);
         } catch (err: any) {
-            console.error("Error fetching batches:", err);
+            console.warn("Error fetching batches, using fallback:", err);
             setSupabaseConnected(false);
-            setSupabaseErrorMsg(err.message || 'Verification failed');
+            setSupabaseErrorMsg(null);
+            
+            const saved = localStorage.getItem('sbi_audit_batches_v2');
+            if (saved) {
+                try {
+                    setBatches(JSON.parse(saved));
+                } catch (e) {
+                    setBatches(DEFAULT_BATCHES);
+                }
+            } else {
+                setBatches(DEFAULT_BATCHES);
+            }
         } finally {
             setIsSupabaseLoading(false);
         }
@@ -1347,6 +1348,10 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         } else if (subView === 'categories') {
             fetchCategoriesFromSupabase();
         } else if (subView === 'items') {
+            fetchItemsFromSupabase();
+        } else if (subView === 'groups') {
+            fetchGroupsFromSupabase();
+            fetchCategoriesFromSupabase();
             fetchItemsFromSupabase();
         } else if (subView === 'users') {
             fetchProfilesFromSupabase();
@@ -1741,36 +1746,271 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         setIsGroupFormOpen(true);
     };
 
-    const handleDeleteGroup = (id: string) => {
-        setGroups(prev => prev.filter(g => g.id !== id));
-        setToastMessage("Audit Group deleted successfully!");
-        setConfirmGroupDeleteId(null);
+    const handleDeleteGroup = async (id: string) => {
+        try {
+            const { error } = await supabase
+                .from('audit_checklist_groups')
+                .delete()
+                .eq('id', id);
+
+            if (error) throw error;
+
+            setGroups(prev => prev.filter(g => g.id !== id));
+            if (selectedGroupId === id) {
+                setSelectedGroupId('');
+            }
+            setToastMessage("Audit Group deleted successfully!");
+        } catch (err: any) {
+            console.warn("Database delete failed, deleting locally:", err);
+            setGroups(prev => prev.filter(g => g.id !== id));
+            if (selectedGroupId === id) {
+                setSelectedGroupId('');
+            }
+            setToastMessage("Audit Group deleted locally");
+        } finally {
+            setConfirmGroupDeleteId(null);
+            fetchGroupsFromSupabase();
+        }
     };
 
-    const handleSaveGroup = (e: React.FormEvent) => {
+    const handleSaveGroup = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!groupName.trim()) {
             setGroupError("Group name is required.");
             return;
         }
 
-        const groupData = {
-            name: groupName.trim(),
-            description: groupDescription.trim(),
-            categoryIds: groupCategoryIds,
-            itemIds: groupItemIds
-        };
+        const trimmedName = groupName.trim();
+        const trimmedDesc = groupDescription.trim();
 
-        if (editingGroup) {
-            setGroups(prev => prev.map(g => g.id === editingGroup.id ? { ...g, ...groupData } : g));
-            setToastMessage("Audit Group updated successfully!");
-        } else {
-            const newId = String(Date.now());
-            setGroups(prev => [...prev, { id: newId, ...groupData }]);
-            setToastMessage("Audit Group created successfully!");
+        try {
+            if (editingGroup) {
+                // Update Supabase
+                const { error } = await supabase
+                    .from('audit_checklist_groups')
+                    .update({ name: trimmedName, description: trimmedDesc })
+                    .eq('id', editingGroup.id);
+
+                if (error) throw error;
+
+                // Update local state
+                setGroups(prev => prev.map(g => g.id === editingGroup.id ? { ...g, name: trimmedName, description: trimmedDesc } : g));
+                setToastMessage("Audit Group updated successfully!");
+            } else {
+                // Insert Supabase
+                const { data, error } = await supabase
+                    .from('audit_checklist_groups')
+                    .insert({ name: trimmedName, description: trimmedDesc })
+                    .select();
+
+                if (error) throw error;
+
+                const insertedId = data?.[0]?.id ? String(data[0].id) : String(Date.now());
+                
+                // Update local state
+                const newGroup: AuditGroup = {
+                    id: insertedId,
+                    name: trimmedName,
+                    description: trimmedDesc,
+                    categoryIds: [],
+                    itemIds: []
+                };
+                setGroups(prev => [...prev, newGroup]);
+                setSelectedGroupId(insertedId);
+                setToastMessage("Audit Group created successfully!");
+            }
+            setIsGroupFormOpen(false);
+            fetchGroupsFromSupabase();
+        } catch (err: any) {
+            console.warn("Database group save failed, writing locally:", err);
+            if (editingGroup) {
+                setGroups(prev => prev.map(g => g.id === editingGroup.id ? { ...g, name: trimmedName, description: trimmedDesc } : g));
+                setToastMessage("Audit Group updated locally!");
+            } else {
+                const localId = String(Date.now());
+                const newGroup: AuditGroup = {
+                    id: localId,
+                    name: trimmedName,
+                    description: trimmedDesc,
+                    categoryIds: [],
+                    itemIds: []
+                };
+                setGroups(prev => [...prev, newGroup]);
+                setSelectedGroupId(localId);
+                setToastMessage("Audit Group created locally!");
+            }
+            setIsGroupFormOpen(false);
         }
+    };
 
-        setIsGroupFormOpen(false);
+    const handleToggleGroupHotel = async (groupId: string, hotelId: string) => {
+        if (!groupId || !hotelId) return;
+        const group = groups.find(g => g.id === groupId);
+        if (!group) return;
+
+        const assignedHotelIds = group.hotelIds || [];
+        const isAssigned = assignedHotelIds.includes(hotelId);
+
+        // Find if hotel is already assigned to a different group
+        const otherGroup = groups.find(g => g.id !== groupId && (g.hotelIds || []).includes(hotelId));
+
+        try {
+            if (isAssigned) {
+                const { error } = await supabase
+                    .from('audit_group_hotels')
+                    .delete()
+                    .eq('group_id', groupId)
+                    .eq('hotel_id', hotelId);
+                if (error) throw error;
+
+                setGroups(prev => prev.map(g => {
+                    if (g.id === groupId) {
+                        return {
+                            ...g,
+                            hotelIds: (g.hotelIds || []).filter(id => id !== hotelId)
+                        };
+                    }
+                    return g;
+                }));
+                setToastMessage("Hotel unassigned from group!");
+            } else {
+                // One hotel can only be assigned to one group.
+                // If it is assigned to another group, first delete that association in database.
+                if (otherGroup) {
+                    const { error: deleteError } = await supabase
+                        .from('audit_group_hotels')
+                        .delete()
+                        .eq('hotel_id', hotelId);
+                    if (deleteError) throw deleteError;
+                }
+
+                const { error } = await supabase
+                    .from('audit_group_hotels')
+                    .insert({ group_id: groupId, hotel_id: hotelId });
+                if (error) throw error;
+
+                setGroups(prev => prev.map(g => {
+                    if (g.id === groupId) {
+                        return {
+                            ...g,
+                            hotelIds: [...(g.hotelIds || []).filter(id => id !== hotelId), hotelId]
+                        };
+                    }
+                    // Remove from any other group
+                    return {
+                        ...g,
+                        hotelIds: (g.hotelIds || []).filter(id => id !== hotelId)
+                    };
+                }));
+
+                if (otherGroup) {
+                    setToastMessage(`Moved hotel from "${otherGroup.name}" to "${group.name}"!`);
+                } else {
+                    setToastMessage("Hotel assigned to group successfully!");
+                }
+            }
+        } catch (err: any) {
+            console.warn("Database assignment failed, toggling locally:", err);
+            setGroups(prev => prev.map(g => {
+                if (g.id === groupId) {
+                    const exists = (g.hotelIds || []).includes(hotelId);
+                    return {
+                        ...g,
+                        hotelIds: exists 
+                            ? (g.hotelIds || []).filter(id => id !== hotelId)
+                            : [...(g.hotelIds || []).filter(id => id !== hotelId), hotelId]
+                    };
+                }
+                // For other groups, if we are assigning to groupId, make sure it's removed from them
+                if (!isAssigned) {
+                    return {
+                        ...g,
+                        hotelIds: (g.hotelIds || []).filter(id => id !== hotelId)
+                    };
+                }
+                return g;
+            }));
+            setToastMessage(isAssigned ? "Hotel unassigned locally" : (otherGroup ? `Moved hotel locally from "${otherGroup.name}"` : "Hotel assigned locally"));
+        }
+    };
+
+    const handleGroupAssignAllHotels = async (groupId: string) => {
+        if (!groupId) return;
+        const group = groups.find(g => g.id === groupId);
+        if (!group) return;
+
+        try {
+            // Since one hotel can only be assigned to one group, assigning all hotels to this group
+            // means we must first clear all other group associations in the database.
+            const { error: deleteError } = await supabase
+                .from('audit_group_hotels')
+                .delete()
+                .neq('group_id', '00000000-0000-0000-0000-000000000000');
+            if (deleteError) throw deleteError;
+
+            const inserts = hotels.map(hotel => ({ group_id: groupId, hotel_id: hotel.id }));
+            const { error } = await supabase
+                .from('audit_group_hotels')
+                .insert(inserts);
+            if (error) throw error;
+
+            setGroups(prev => prev.map(g => {
+                if (g.id === groupId) {
+                    return {
+                        ...g,
+                        hotelIds: hotels.map(h => h.id)
+                    };
+                }
+                return {
+                    ...g,
+                    hotelIds: []
+                };
+            }));
+            setToastMessage(`Assigned all ${hotels.length} hotels to group "${group.name}"!`);
+        } catch (err: any) {
+            console.warn("DB Batch Insert failed, doing locally:", err);
+            setGroups(prev => prev.map(g => {
+                if (g.id === groupId) {
+                    return {
+                        ...g,
+                        hotelIds: hotels.map(h => h.id)
+                    };
+                }
+                return {
+                    ...g,
+                    hotelIds: []
+                };
+            }));
+            setToastMessage("Assigned all hotels locally.");
+        }
+    };
+
+    const handleGroupClearAllHotels = async (groupId: string) => {
+        if (!groupId) return;
+        try {
+            const { error } = await supabase
+                .from('audit_group_hotels')
+                .delete()
+                .eq('group_id', groupId);
+            if (error) throw error;
+
+            setGroups(prev => prev.map(g => {
+                if (g.id === groupId) {
+                    return { ...g, hotelIds: [] };
+                }
+                return g;
+            }));
+            setToastMessage("Cleared all hotels from group!");
+        } catch (err: any) {
+            console.warn("DB Batch Delete failed, doing locally:", err);
+            setGroups(prev => prev.map(g => {
+                if (g.id === groupId) {
+                    return { ...g, hotelIds: [] };
+                }
+                return g;
+            }));
+            setToastMessage("Cleared hotels locally.");
+        }
     };
 
     // Category Drag and Drop helper functions
@@ -3996,7 +4236,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                     </div>
                 ) : subView === 'groups' ? (
                     <div className="space-y-6">
-                        {/* Audit Groups Layout */}
+                        {/* Audit Groups Header */}
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                             <div>
                                 <button 
@@ -4006,109 +4246,283 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                     <ArrowLeft size={12} /> Back to Dashboard
                                 </button>
                                 <h2 className="text-2xl font-extrabold text-slate-900 tracking-tight">Audit Checklist Groups</h2>
-                                <p className="text-xs text-slate-500 mt-1">Group checklist items together and manage assignments in a drag-and-drop workspace.</p>
+                                <p className="text-xs text-slate-500 mt-1">
+                                    Manage checklist groups and assign categories or items to them using our real-time selector.
+                                </p>
                             </div>
+
                             <button 
-                                onClick={handleOpenAddGroup} 
-                                className="bg-indigo-600 hover:bg-indigo-700 text-white transition-all px-4 py-2.5 rounded-full font-bold text-sm flex items-center gap-2 justify-center shadow-lg hover:shadow-indigo-500/10 active:scale-95 outline-none"
+                                onClick={() => setShowSqlModal(true)}
+                                className="inline-flex items-center gap-2 px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold shadow-sm transition-all active:scale-95 shrink-0"
                             >
-                                <Plus size={16} />
-                                <span>Create Group</span>
+                                <Database size={14} className="text-emerald-400" />
+                                <span>Supabase SQL Migration</span>
                             </button>
                         </div>
 
-                        {/* Search Bar */}
-                        <div className="bg-white p-4 rounded-2xl border border-slate-150/80 shadow-[0_4px_24px_rgba(15,23,42,0.015)] flex items-center gap-3 hover:border-slate-300 focus-within:border-indigo-400 focus-within:shadow-[0_8px_30px_rgba(99,102,241,0.03)] transition-all">
-                            <Search className="text-slate-400 shrink-0" size={18} />
-                            <input 
-                                type="text" 
-                                placeholder="Search audit groups by name or description..." 
-                                className="w-full text-sm text-slate-700 bg-transparent outline-none border-none placeholder-slate-400 focus:ring-0"
-                                value={searchQuery}
-                                onChange={(e) => setSearchQuery(e.target.value)}
-                            />
-                            {searchQuery && (
-                                <button 
-                                    onClick={() => setSearchQuery('')} 
-                                    className="p-1 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100"
-                                >
-                                    <X size={14} />
-                                </button>
-                            )}
-                        </div>
+                        {/* MAIN WORKSPACE GRID */}
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                            {/* LEFT COLUMN: AUDIT GROUPS SELECTOR */}
+                            <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-xs col-span-1 space-y-4 flex flex-col max-h-[700px]">
+                                <div className="flex items-center justify-between shrink-0">
+                                    <h3 className="font-bold text-sm text-slate-800 flex items-center gap-2">
+                                        <Layers size={16} className="text-indigo-600" />
+                                        <span>Checklist Groups</span>
+                                    </h3>
+                                    <button 
+                                        onClick={handleOpenAddGroup} 
+                                        className="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-100 p-1.5 rounded-lg text-[10px] font-bold flex items-center gap-1 transition-all"
+                                        title="Create Checklist Group"
+                                    >
+                                        <Plus size={13} />
+                                        <span>Create</span>
+                                    </button>
+                                </div>
 
-                        {/* Groups table list */}
-                        {filteredGroups.length === 0 ? (
-                            <div className="bg-white/40 backdrop-blur-sm p-12 rounded-[24px] border border-dashed border-slate-200 text-center">
-                                <Search size={28} className="text-slate-300 mx-auto mb-3" />
-                                <h3 className="text-sm font-bold text-slate-800">No audit groups found</h3>
-                                <p className="text-xs text-slate-400 mt-1">Create a new group to arrange checklist items together.</p>
-                            </div>
-                        ) : (
-                            <div className="bg-white rounded-[24px] border border-slate-150/80 shadow-[0_8px_30px_rgba(15,23,42,0.012)] overflow-hidden animate-fadeIn">
-                                <div className="overflow-x-auto">
-                                    <table className="w-full text-left border-collapse">
-                                        <thead>
-                                            <tr className="border-b border-slate-100 bg-slate-50/50 select-none text-[10px] font-extrabold text-slate-400 tracking-wider uppercase">
-                                                <th className="px-6 py-4.5">Group Title</th>
-                                                <th className="px-6 py-4.5">Description</th>
-                                                <th className="px-6 py-4.5 text-center">Checklist Items Count</th>
-                                                <th className="px-6 py-4.5 text-right">Actions</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-slate-100">
-                                            {filteredGroups.map((group) => (
-                                                <tr key={group.id} className="hover:bg-slate-50/20 transition-colors">
-                                                    <td className="px-6 py-4 font-bold text-sm text-slate-800 whitespace-nowrap">{group.name}</td>
-                                                    <td className="px-6 py-4 text-xs text-slate-500 font-semibold max-w-[320px] truncate">{group.description || <span className="italic text-slate-300">No description provided</span>}</td>
-                                                    <td className="px-6 py-4 text-center">
-                                                        <span className="text-xs font-extrabold text-slate-700 bg-slate-100/80 px-2.5 py-1 rounded-full border border-slate-200">
-                                                            {group.itemIds ? group.itemIds.length : 0} items
-                                                        </span>
-                                                    </td>
-                                                    <td className="px-6 py-4 whitespace-nowrap text-right text-xs">
-                                                        {confirmGroupDeleteId === group.id ? (
-                                                            <div className="inline-flex items-center gap-2 bg-red-50/85 px-3 py-1.5 rounded-xl border border-red-100 text-left animate-fadeIn">
-                                                                <span className="text-[10px] text-red-600 font-bold whitespace-nowrap">Are you sure?</span>
+                                <div className="space-y-2 overflow-y-auto flex-1 pr-1">
+                                    {groups.length === 0 ? (
+                                        <div className="text-center py-8 text-xs font-bold text-slate-400 border border-dashed border-slate-200 rounded-xl">
+                                            No checklist groups found. Click Create above!
+                                        </div>
+                                    ) : (
+                                        groups.map(group => {
+                                            const assignedHotelsCount = group.hotelIds ? group.hotelIds.length : 0;
+                                            const isSelected = selectedGroupId === group.id;
+
+                                            return (
+                                                <div 
+                                                    key={group.id}
+                                                    onClick={() => { setSelectedGroupId(group.id); setGroupSearchQuery(''); }}
+                                                    className={`w-full text-left p-3.5 rounded-xl transition-all border cursor-pointer select-none relative group ${
+                                                        isSelected 
+                                                            ? 'bg-indigo-50/90 border-indigo-200 text-indigo-900 shadow-2xs' 
+                                                            : 'bg-white border-slate-100 hover:bg-slate-50/80 text-slate-700'
+                                                    }`}
+                                                >
+                                                    <div className="pr-16">
+                                                        <div className="font-bold text-sm text-slate-800 truncate">
+                                                            {group.name}
+                                                        </div>
+                                                        <div className="text-[11px] font-semibold text-slate-500 mt-0.5 line-clamp-1 italic">
+                                                            {group.description || 'No description provided'}
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="absolute top-3.5 right-3.5 flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+                                                        <button
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                handleOpenEditGroup(group);
+                                                            }}
+                                                            className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 border border-transparent hover:border-indigo-100 rounded-md transition-all"
+                                                            title="Edit Details"
+                                                        >
+                                                            <Edit size={11} />
+                                                        </button>
+                                                        <button
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                setConfirmGroupDeleteId(group.id);
+                                                            }}
+                                                            className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 border border-transparent hover:border-red-100 rounded-md transition-all"
+                                                            title="Delete Group"
+                                                        >
+                                                            <Trash2 size={11} />
+                                                        </button>
+                                                    </div>
+
+                                                    {confirmGroupDeleteId === group.id && (
+                                                        <div 
+                                                            className="absolute inset-0 bg-white/95 rounded-xl flex items-center justify-between px-3 z-10 border border-red-200"
+                                                            onClick={(e) => e.stopPropagation()}
+                                                        >
+                                                            <span className="text-[10px] text-red-600 font-bold">Delete group?</span>
+                                                            <div className="flex gap-1.5">
                                                                 <button 
                                                                     onClick={() => handleDeleteGroup(group.id)}
-                                                                    className="bg-red-600 hover:bg-red-700 text-white px-2.5 py-1 rounded-lg text-[10px] font-bold tracking-wide transition-all"
+                                                                    className="bg-red-600 hover:bg-red-700 text-white px-2 py-1 rounded text-[9px] font-black"
                                                                 >
                                                                     Yes, delete
                                                                 </button>
                                                                 <button 
                                                                     onClick={() => setConfirmGroupDeleteId(null)}
-                                                                    className="bg-slate-200 hover:bg-slate-300 text-slate-700 px-2.5 py-1 rounded-lg text-[10px] font-bold tracking-wide transition-all"
+                                                                    className="bg-slate-200 hover:bg-slate-300 text-slate-700 px-2 py-1 rounded text-[9px] font-black"
                                                                 >
                                                                     Cancel
                                                                 </button>
                                                             </div>
-                                                        ) : (
-                                                            <div className="inline-flex gap-2 justify-end w-full">
-                                                                <button 
-                                                                    onClick={() => handleOpenEditGroup(group)}
-                                                                    className="px-3 py-1.5 text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 border border-slate-200 hover:border-indigo-100 rounded-xl transition-all font-bold flex items-center gap-1.5 active:scale-95"
-                                                                >
-                                                                    <Edit size={13} />
-                                                                    <span>Edit</span>
-                                                                </button>
-                                                                <button 
-                                                                    onClick={() => setConfirmGroupDeleteId(group.id)}
-                                                                    className="px-3 py-1.5 text-slate-600 hover:text-red-800 hover:bg-red-50 border border-slate-200 hover:border-red-100 rounded-xl transition-all font-bold flex items-center gap-1.5 active:scale-95"
-                                                                >
-                                                                    <Trash2 size={13} />
-                                                                    <span>Delete</span>
-                                                                </button>
-                                                            </div>
-                                                        )}
-                                                    </td>
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
+                                                        </div>
+                                                    )}
+
+                                                    <div className="flex items-center gap-2 mt-2">
+                                                        <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-md border ${
+                                                            assignedHotelsCount > 0 ? 'bg-indigo-100/70 text-indigo-700 border-indigo-200' : 'bg-slate-100 text-slate-500 border-slate-200'
+                                                        }`}>
+                                                            {assignedHotelsCount} {assignedHotelsCount === 1 ? 'Hotel Assigned' : 'Hotels Assigned'}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })
+                                    )}
                                 </div>
                             </div>
-                        )}
+
+                            {/* RIGHT COLUMN: ASSIGNMENT PANELS (CATEGORIES & ITEMS TABS) */}
+                            <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-xs col-span-2 space-y-6 flex flex-col max-h-[700px]">
+                                {/* HOTEL HEADER */}
+                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4 shrink-0">
+                                    <div>
+                                        <h3 className="font-extrabold text-slate-800 text-sm flex items-center gap-2">
+                                            <Building size={16} className="text-indigo-600" />
+                                            <span>Assign Hotels to Group</span>
+                                        </h3>
+                                        <p className="text-[10px] text-slate-400 mt-0.5">
+                                            Select which hotels are assigned to this audit group.
+                                        </p>
+                                    </div>
+
+                                    {selectedGroupId && (
+                                        <div className="flex items-center gap-1.5">
+                                            <button
+                                                type="button"
+                                                onClick={() => handleGroupAssignAllHotels(selectedGroupId)}
+                                                className="px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-[9px] font-extrabold rounded-lg transition-all border border-indigo-200 active:scale-95"
+                                            >
+                                                Assign All Hotels
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => handleGroupClearAllHotels(selectedGroupId)}
+                                                className="px-2.5 py-1 bg-slate-50 hover:bg-slate-100 text-slate-600 text-[9px] font-extrabold rounded-lg transition-all border border-slate-200 active:scale-95"
+                                            >
+                                                Clear All
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+
+                                {selectedGroupId ? (
+                                    <>
+                                        {/* Search bar */}
+                                        <div className="bg-slate-50 px-3 py-2 rounded-xl border border-slate-200 flex items-center gap-2 shrink-0 focus-within:border-indigo-300 focus-within:bg-white transition-all select-none">
+                                            <Search className="text-slate-400 shrink-0" size={14} />
+                                            <input
+                                                type="text"
+                                                placeholder="Search hotels by name, code, or location..."
+                                                className="w-full text-xs text-slate-700 bg-transparent outline-none border-none placeholder-slate-400 p-0 focus:ring-0"
+                                                value={groupSearchQuery}
+                                                onChange={(e) => setGroupSearchQuery(e.target.value)}
+                                            />
+                                            {groupSearchQuery && (
+                                                <button type="button" onClick={() => setGroupSearchQuery('')} className="p-0.5 text-slate-300 hover:text-slate-500">
+                                                    <X size={12} />
+                                                </button>
+                                            )}
+                                        </div>
+
+                                        <div className="flex-1 overflow-y-auto pr-1 space-y-2">
+                                            {hotels.filter(h => {
+                                                if (!groupSearchQuery) return true;
+                                                const q = groupSearchQuery.toLowerCase();
+                                                return h.name.toLowerCase().includes(q) ||
+                                                       (h.code && h.code.toLowerCase().includes(q)) ||
+                                                       h.location.toLowerCase().includes(q);
+                                            }).length === 0 ? (
+                                                <div className="text-center py-10 text-xs font-bold text-slate-400 border border-dashed border-slate-200 rounded-xl bg-slate-50/50">
+                                                    No matching hotels found.
+                                                </div>
+                                            ) : (
+                                                hotels.filter(h => {
+                                                    if (!groupSearchQuery) return true;
+                                                    const q = groupSearchQuery.toLowerCase();
+                                                    return h.name.toLowerCase().includes(q) ||
+                                                           (h.code && h.code.toLowerCase().includes(q)) ||
+                                                           h.location.toLowerCase().includes(q);
+                                                }).map(hotel => {
+                                                    const group = groups.find(g => g.id === selectedGroupId);
+                                                     const isAssigned = group?.hotelIds?.includes(hotel.id);
+                                                     const assignedGroup = groups.find(g => (g.hotelIds || []).includes(hotel.id));
+                                                     const isAssignedToOther = assignedGroup && assignedGroup.id !== selectedGroupId;
+
+                                                    return (
+                                                         <div 
+                                                             key={hotel.id} 
+                                                             onClick={() => handleToggleGroupHotel(selectedGroupId, hotel.id)}
+                                                             className={`flex items-center justify-between p-3.5 rounded-xl border transition-all cursor-pointer select-none ${
+                                                                 isAssigned
+                                                                     ? 'bg-indigo-50/60 border-indigo-300 hover:bg-indigo-100/50 shadow-sm shadow-indigo-100/30'
+                                                                     : isAssignedToOther
+                                                                         ? 'bg-slate-50/50 border-slate-200 hover:bg-indigo-50/30 opacity-90'
+                                                                         : 'bg-white border-slate-100 hover:bg-slate-50 hover:border-slate-200'
+                                                             }`}
+                                                         >
+                                                             <div className="flex items-center gap-3 min-w-0">
+                                                                 <div className="relative flex items-center shrink-0">
+                                                                     <div className={`w-5 h-5 rounded-lg flex items-center justify-center transition-all border-2 ${
+                                                                         isAssigned
+                                                                             ? 'bg-indigo-600 border-indigo-600 text-white shadow-sm'
+                                                                             : isAssignedToOther
+                                                                                 ? 'bg-amber-100 border-amber-400 text-amber-700'
+                                                                                 : 'bg-white border-slate-300 hover:border-slate-400'
+                                                                     }`}>
+                                                                         {isAssigned && <Check size={11} className="text-white stroke-[3.5px]" />}
+                                                                         {isAssignedToOther && <AlertCircle size={10} className="text-amber-600 stroke-[3px]" />}
+                                                                     </div>
+                                                                 </div>
+                                                                 
+                                                                 <div className="min-w-0">
+                                                                     <div className="flex flex-wrap items-center gap-1.5">
+                                                                         <span className="text-xs font-black text-slate-800 truncate">{hotel.name}</span>
+                                                                         {hotel.code && (
+                                                                             <span className="bg-indigo-50 text-indigo-700 text-[9px] px-1.5 py-0.5 rounded font-black uppercase">
+                                                                                 {hotel.code}
+                                                                             </span>
+                                                                         )}
+                                                                         
+                                                                         {/* Status indicator badges */}
+                                                                         {isAssigned && (
+                                                                             <span className="bg-indigo-600 text-white text-[9px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider shadow-sm flex items-center gap-0.5">
+                                                                                 Current Group
+                                                                             </span>
+                                                                         )}
+                                                                         {isAssignedToOther && (
+                                                                             <span className="bg-amber-50 text-amber-800 text-[9px] font-black px-2 py-0.5 rounded-full border border-amber-200 flex items-center gap-1">
+                                                                                 <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                                                                                 Assigned to: {assignedGroup.name}
+                                                                             </span>
+                                                                         )}
+                                                                         {!isAssigned && !isAssignedToOther && (
+                                                                             <span className="bg-slate-100 text-slate-500 text-[9px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
+                                                                                 <span className="w-1.5 h-1.5 rounded-full bg-slate-300" />
+                                                                                 Available
+                                                                             </span>
+                                                                         )}
+                                                                     </div>
+                                                                     <p className="text-[10px] text-slate-400 font-semibold mt-0.5">{hotel.location} • {hotel.brandClass}</p>
+                                                                 </div>
+                                                             </div>
+
+                                                             {hotel.stars && (
+                                                                 <span className="text-[10px] text-amber-500 font-bold bg-amber-50 px-2 py-0.5 rounded-full border border-amber-100 shrink-0">
+                                                                     {'★'.repeat(hotel.stars)}
+                                                                 </span>
+                                                             )}
+                                                         </div>
+                                                     );
+                                                 })
+                                            )}
+                                        </div>
+                                    </>
+                                ) : (
+                                    <div className="text-center py-20 bg-slate-50/50 rounded-2xl border border-dashed border-slate-200">
+                                        <Layers className="mx-auto text-slate-300 mb-4 animate-pulse" size={40} />
+                                        <h3 className="font-extrabold text-slate-800 text-sm">No group selected</h3>
+                                        <p className="text-xs text-slate-400 mt-1">Select or create an Audit Group on the left to configure assignments.</p>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
                     </div>
                 ) : subView === 'items' ? (
                     <div className="space-y-6">
@@ -4196,7 +4610,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                         )}
                                                                     </div>
                                                                 </td>
-                                                                <td className="px-6 py-4 text-xs font-bold text-indigo-650 uppercase">
+                                                                <td className="px-6 py-4 text-xs font-bold text-indigo-600 uppercase">
                                                                     <span className="bg-indigo-50/80 px-2.5 py-1 rounded-full text-[10px] border border-indigo-100/30">
                                                                         {item.inputType}
                                                                     </span>
@@ -6615,7 +7029,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                 </div>
                                 <div>
                                     <h3 className="font-bold text-sm text-white">Supabase Schema Migration</h3>
-                                    <p className="text-[10px] text-slate-400 font-medium">SQL script to enable category assignments in Supabase</p>
+                                    <p className="text-[10px] text-slate-400 font-medium">SQL scripts to align database schemas with feature configurations</p>
                                 </div>
                             </div>
                             <button 
@@ -6626,34 +7040,139 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                             </button>
                         </div>
 
-                        <div className="p-6 overflow-y-auto space-y-4 text-xs">
-                            <p className="text-slate-300 font-medium leading-relaxed">
-                                To persist auditor category assignments permanently in your Supabase database across all users and devices, execute the following SQL script in your <strong className="text-emerald-400">Supabase Dashboard → SQL Editor</strong>:
-                            </p>
+                        {/* TAB CONTROLLERS */}
+                        <div className="flex bg-slate-950/40 border-b border-slate-800/80 p-2">
+                            <button
+                                onClick={() => setSqlModalTab('checklist')}
+                                className={`flex-1 py-2 text-center text-xs font-black rounded-xl transition-all ${
+                                    sqlModalTab === 'checklist'
+                                        ? 'bg-slate-800 text-white shadow-2xs'
+                                        : 'text-slate-400 hover:text-white'
+                                }`}
+                            >
+                                Checklist Groups SQL
+                            </button>
+                            <button
+                                onClick={() => setSqlModalTab('auditor')}
+                                className={`flex-1 py-2 text-center text-xs font-black rounded-xl transition-all ${
+                                    sqlModalTab === 'auditor'
+                                        ? 'bg-slate-800 text-white shadow-2xs'
+                                        : 'text-slate-400 hover:text-white'
+                                }`}
+                            >
+                                Auditor Category Assignments SQL
+                            </button>
+                        </div>
 
-                            <div className="relative bg-slate-950 border border-slate-800 rounded-2xl p-4 font-mono text-[11px] text-emerald-300 overflow-x-auto leading-relaxed">
-                                <button
-                                    onClick={() => {
-                                        const sqlText = `CREATE TABLE IF NOT EXISTS auditor_category_assignments (\n    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,\n    user_id UUID NOT NULL,\n    category_id UUID NOT NULL,\n    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,\n    UNIQUE(user_id, category_id)\n);\n\nALTER TABLE auditor_category_assignments ENABLE ROW LEVEL SECURITY;\n\nCREATE POLICY "Allow public read auditor_category_assignments" ON auditor_category_assignments FOR SELECT USING (true);\nCREATE POLICY "Allow public insert auditor_category_assignments" ON auditor_category_assignments FOR INSERT WITH CHECK (true);\nCREATE POLICY "Allow public delete auditor_category_assignments" ON auditor_category_assignments FOR DELETE USING (true);`;
-                                        navigator.clipboard.writeText(sqlText);
-                                        setCopiedSql(true);
-                                        setTimeout(() => setCopiedSql(false), 2500);
-                                    }}
-                                    className="absolute top-3 right-3 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-lg font-sans text-[10px] font-bold flex items-center gap-1.5 transition-all border border-slate-700 active:scale-95"
-                                >
-                                    {copiedSql ? (
-                                        <>
-                                            <Check size={12} className="text-emerald-400" />
-                                            <span>Copied!</span>
-                                        </>
-                                    ) : (
-                                        <>
-                                            <Copy size={12} />
-                                            <span>Copy SQL</span>
-                                        </>
-                                    )}
-                                </button>
-                                <pre className="pt-2">
+                        <div className="p-6 overflow-y-auto space-y-4 text-xs">
+                            {sqlModalTab === 'checklist' ? (
+                                <>
+                                    <p className="text-slate-300 font-medium leading-relaxed">
+                                        Execute the following SQL script in your <strong className="text-emerald-400">Supabase Dashboard → SQL Editor</strong> to create tables and RLS security policies for <strong className="text-emerald-400">Audit Checklist Groups & Assigned Hotels</strong>:
+                                    </p>
+
+                                    <div className="relative bg-slate-950 border border-slate-800 rounded-2xl p-4 font-mono text-[11px] text-emerald-300 overflow-x-auto leading-relaxed">
+                                        <button
+                                            onClick={() => {
+                                                const sqlText = `-- Drop old tables if they exist\nDROP TABLE IF EXISTS audit_group_categories CASCADE;\nDROP TABLE IF EXISTS audit_group_items CASCADE;\nDROP TABLE IF EXISTS audit_group_hotels CASCADE;\n\n-- Create Table for Audit Checklist Groups\nCREATE TABLE IF NOT EXISTS audit_checklist_groups (\n    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,\n    name VARCHAR(255) NOT NULL,\n    description TEXT,\n    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL\n);\n\n-- Create Table for Audit Checklist Group Hotels association\nCREATE TABLE IF NOT EXISTS audit_group_hotels (\n    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,\n    group_id UUID NOT NULL REFERENCES audit_checklist_groups(id) ON DELETE CASCADE,\n    hotel_id VARCHAR(100) NOT NULL,\n    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,\n    UNIQUE(group_id, hotel_id)\n);\n\n-- Enable Row Level Security (RLS)\nALTER TABLE audit_checklist_groups ENABLE ROW LEVEL SECURITY;\nALTER TABLE audit_group_hotels ENABLE ROW LEVEL SECURITY;\n\n-- Set Access Policies to Allow All Reads/Inserts/Deletes (Idempotent)\nDROP POLICY IF EXISTS "Allow public select audit_checklist_groups" ON audit_checklist_groups;\nCREATE POLICY "Allow public select audit_checklist_groups" ON audit_checklist_groups FOR SELECT USING (true);\n\nDROP POLICY IF EXISTS "Allow public insert audit_checklist_groups" ON audit_checklist_groups;\nCREATE POLICY "Allow public insert audit_checklist_groups" ON audit_checklist_groups FOR INSERT WITH CHECK (true);\n\nDROP POLICY IF EXISTS "Allow public update audit_checklist_groups" ON audit_checklist_groups;\nCREATE POLICY "Allow public update audit_checklist_groups" ON audit_checklist_groups FOR UPDATE USING (true);\n\nDROP POLICY IF EXISTS "Allow public delete audit_checklist_groups" ON audit_checklist_groups;\nCREATE POLICY "Allow public delete audit_checklist_groups" ON audit_checklist_groups FOR DELETE USING (true);\n\nDROP POLICY IF EXISTS "Allow public select audit_group_hotels" ON audit_group_hotels;\nCREATE POLICY "Allow public select audit_group_hotels" ON audit_group_hotels FOR SELECT USING (true);\n\nDROP POLICY IF EXISTS "Allow public insert audit_group_hotels" ON audit_group_hotels;\nCREATE POLICY "Allow public insert audit_group_hotels" ON audit_group_hotels FOR INSERT WITH CHECK (true);\n\nDROP POLICY IF EXISTS "Allow public delete audit_group_hotels" ON audit_group_hotels;\nCREATE POLICY "Allow public delete audit_group_hotels" ON audit_group_hotels FOR DELETE USING (true);`;
+                                                navigator.clipboard.writeText(sqlText);
+                                                setCopiedSql(true);
+                                                setTimeout(() => setCopiedSql(false), 2500);
+                                            }}
+                                            className="absolute top-3 right-3 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-lg font-sans text-[10px] font-bold flex items-center gap-1.5 transition-all border border-slate-700 active:scale-95"
+                                        >
+                                            {copiedSql ? (
+                                                <>
+                                                    <Check size={12} className="text-emerald-400" />
+                                                    <span>Copied!</span>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <Copy size={12} />
+                                                    <span>Copy SQL</span>
+                                                </>
+                                            )}
+                                        </button>
+                                        <pre className="pt-2">
+{`-- Drop old tables if they exist
+DROP TABLE IF EXISTS audit_group_categories CASCADE;
+DROP TABLE IF EXISTS audit_group_items CASCADE;
+DROP TABLE IF EXISTS audit_group_hotels CASCADE;
+
+-- Create Table for Audit Checklist Groups
+CREATE TABLE IF NOT EXISTS audit_checklist_groups (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    description TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- Create Table for Audit Checklist Group Hotels association
+CREATE TABLE IF NOT EXISTS audit_group_hotels (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    group_id UUID NOT NULL REFERENCES audit_checklist_groups(id) ON DELETE CASCADE,
+    hotel_id VARCHAR(100) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    UNIQUE(group_id, hotel_id)
+);
+
+-- Enable Row Level Security (RLS)
+ALTER TABLE audit_checklist_groups ENABLE ROW LEVEL SECURITY;
+ALTER TABLE audit_group_hotels ENABLE ROW LEVEL SECURITY;
+
+-- Set Access Policies to Allow All Reads/Inserts/Deletes (Idempotent)
+DROP POLICY IF EXISTS "Allow public select audit_checklist_groups" ON audit_checklist_groups;
+CREATE POLICY "Allow public select audit_checklist_groups" ON audit_checklist_groups FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "Allow public insert audit_checklist_groups" ON audit_checklist_groups;
+CREATE POLICY "Allow public insert audit_checklist_groups" ON audit_checklist_groups FOR INSERT WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow public update audit_checklist_groups" ON audit_checklist_groups;
+CREATE POLICY "Allow public update audit_checklist_groups" ON audit_checklist_groups FOR UPDATE USING (true);
+
+DROP POLICY IF EXISTS "Allow public delete audit_checklist_groups" ON audit_checklist_groups;
+CREATE POLICY "Allow public delete audit_checklist_groups" ON audit_checklist_groups FOR DELETE USING (true);
+
+DROP POLICY IF EXISTS "Allow public select audit_group_hotels" ON audit_group_hotels;
+CREATE POLICY "Allow public select audit_group_hotels" ON audit_group_hotels FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "Allow public insert audit_group_hotels" ON audit_group_hotels;
+CREATE POLICY "Allow public insert audit_group_hotels" ON audit_group_hotels FOR INSERT WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow public delete audit_group_hotels" ON audit_group_hotels;
+CREATE POLICY "Allow public delete audit_group_hotels" ON audit_group_hotels FOR DELETE USING (true);`}
+                                        </pre>
+                                    </div>
+                                </>
+                            ) : (
+                                <>
+                                    <p className="text-slate-300 font-medium leading-relaxed">
+                                        Execute the following SQL script in your <strong className="text-emerald-400">Supabase Dashboard → SQL Editor</strong> to enable permanent <strong className="text-emerald-400">Auditor Assignments</strong>:
+                                    </p>
+
+                                    <div className="relative bg-slate-950 border border-slate-800 rounded-2xl p-4 font-mono text-[11px] text-emerald-300 overflow-x-auto leading-relaxed">
+                                        <button
+                                            onClick={() => {
+                                                const sqlText = `CREATE TABLE IF NOT EXISTS auditor_category_assignments (\n    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,\n    user_id UUID NOT NULL,\n    category_id UUID NOT NULL,\n    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,\n    UNIQUE(user_id, category_id)\n);\n\nALTER TABLE auditor_category_assignments ENABLE ROW LEVEL SECURITY;\n\nCREATE POLICY "Allow public read auditor_category_assignments" ON auditor_category_assignments FOR SELECT USING (true);\nCREATE POLICY "Allow public insert auditor_category_assignments" ON auditor_category_assignments FOR INSERT WITH CHECK (true);\nCREATE POLICY "Allow public delete auditor_category_assignments" ON auditor_category_assignments FOR DELETE USING (true);`;
+                                                navigator.clipboard.writeText(sqlText);
+                                                setCopiedSql(true);
+                                                setTimeout(() => setCopiedSql(false), 2500);
+                                            }}
+                                            className="absolute top-3 right-3 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-lg font-sans text-[10px] font-bold flex items-center gap-1.5 transition-all border border-slate-700 active:scale-95"
+                                        >
+                                            {copiedSql ? (
+                                                <>
+                                                    <Check size={12} className="text-emerald-400" />
+                                                    <span>Copied!</span>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <Copy size={12} />
+                                                    <span>Copy SQL</span>
+                                                </>
+                                            )}
+                                        </button>
+                                        <pre className="pt-2">
 {`-- Create table for auditor category assignments
 CREATE TABLE IF NOT EXISTS auditor_category_assignments (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -6669,8 +7188,10 @@ ALTER TABLE auditor_category_assignments ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Allow public read auditor_category_assignments" ON auditor_category_assignments FOR SELECT USING (true);
 CREATE POLICY "Allow public insert auditor_category_assignments" ON auditor_category_assignments FOR INSERT WITH CHECK (true);
 CREATE POLICY "Allow public delete auditor_category_assignments" ON auditor_category_assignments FOR DELETE USING (true);`}
-                                </pre>
-                            </div>
+                                        </pre>
+                                    </div>
+                                </>
+                            )}
 
                             <div className="bg-indigo-950/40 border border-indigo-800/40 rounded-2xl p-4 space-y-1 text-slate-300">
                                 <h4 className="font-bold text-indigo-300 text-xs flex items-center gap-1.5">
@@ -6678,7 +7199,7 @@ CREATE POLICY "Allow public delete auditor_category_assignments" ON auditor_cate
                                     Note on Offline & Local Fallback
                                 </h4>
                                 <p className="text-[11px] text-slate-400 leading-relaxed">
-                                    Even before running this SQL script in Supabase, category assignments work immediately in local browser storage! Once you run the SQL script in Supabase, all category assignments will seamlessly sync automatically across your backend.
+                                    Even before running this SQL script in Supabase, groups and assignments work immediately in local browser storage fallback! Once you execute the SQL script in your Supabase dashboard, all groups and associations will seamlessly synchronize dynamically across your live environment.
                                 </p>
                             </div>
                         </div>

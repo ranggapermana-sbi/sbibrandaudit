@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ChevronRight, FolderOpen, Loader2, CheckCircle2 } from 'lucide-react';
 import { supabase, HOTELS_URL, HOTELS_KEY } from '../lib/supabase';
+import { DEFAULT_CATEGORIES, DEFAULT_OFFLINE_ITEMS } from '../lib/constants';
 
 interface PendingCategoriesProps {
   onBack: () => void;
@@ -179,7 +180,85 @@ export default function PendingCategoriesScreen({ onBack, onNavigate, userProfil
 
             setCategories(mapped);
         } catch (err) {
-            console.error("Error syncing pending categories with DB:", err);
+            console.warn("Error syncing pending categories with DB, using offline fallback:", err);
+            
+            // Try loading from localStorage first, otherwise fallback to default constants
+            const savedCats = localStorage.getItem('sbi_audit_categories_v2');
+            let fallbackCats: any[] = [];
+            if (savedCats) {
+                try {
+                    fallbackCats = JSON.parse(savedCats);
+                } catch (e) {
+                    fallbackCats = DEFAULT_CATEGORIES;
+                }
+            } else {
+                fallbackCats = DEFAULT_CATEGORIES;
+            }
+
+            const savedItems = localStorage.getItem('sbi_audit_items_v2');
+            let fallbackItems: any[] = [];
+            if (savedItems) {
+                try {
+                    fallbackItems = JSON.parse(savedItems);
+                } catch (e) {
+                    fallbackItems = DEFAULT_OFFLINE_ITEMS;
+                }
+            } else {
+                fallbackItems = DEFAULT_OFFLINE_ITEMS;
+            }
+
+            // Fallback for target hotel IDs
+            const currentHotel = hotels.find(h => 
+                String(h.id).toLowerCase() === String(selectedHotelId).toLowerCase() || 
+                String(h.code).toLowerCase() === String(selectedHotelId).toLowerCase()
+            );
+
+            const targetHotelIds = Array.from(new Set([
+                selectedHotelId,
+                String(selectedHotelId),
+                currentHotel?.id ? String(currentHotel.id) : null,
+                currentHotel?.code ? String(currentHotel.code) : null,
+                userProfile?.hotel_id ? String(userProfile.hotel_id) : null,
+                userProfile?.hotel_code ? String(userProfile.hotel_code) : null
+            ].filter(Boolean) as string[]));
+
+            const mappedFallback = fallbackCats.map((cat: any) => {
+                const catItems = fallbackItems.filter((item: any) => 
+                    String(item.category_id || item.categoryId || '') === String(cat.id || '')
+                );
+                
+                let completedCount = 0;
+                catItems.forEach((item: any) => {
+                    let isCompleted = false;
+                    for (const hId of targetHotelIds) {
+                        const localKey = `sbi_audit_${hId}_${item.id}`;
+                        const localStored = localStorage.getItem(localKey);
+                        if (localStored) {
+                            try {
+                                const parsed = JSON.parse(localStored);
+                                if (parsed.isSubmitted || parsed.value !== undefined || parsed.is_na !== undefined) {
+                                    isCompleted = true;
+                                    break;
+                                }
+                            } catch (e) {}
+                        }
+                    }
+                    if (isCompleted) {
+                        completedCount++;
+                    }
+                });
+                
+                localStorage.setItem(`sbi_cat_completed_${cat.id}`, String(completedCount));
+
+                return {
+                    id: cat.id,
+                    name: cat.name,
+                    total: catItems.length,
+                    completed: Math.min(completedCount, catItems.length)
+                };
+            });
+
+            setCategories(mappedFallback);
         } finally {
             setIsLoading(false);
         }

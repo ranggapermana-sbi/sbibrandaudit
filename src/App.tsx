@@ -169,7 +169,7 @@ export default function App() {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-b from-slate-50 to-indigo-50/30">
         <img src="https://i.ibb.co.com/WNB70XBz/sbi-logo.png" alt="Swiss-Belhotel" className="h-[48px] object-contain mb-6 animate-pulse" />
-        <div className="flex items-center gap-2 text-indigo-650 font-bold text-xs uppercase tracking-widest">
+        <div className="flex items-center gap-2 text-indigo-600 font-bold text-xs uppercase tracking-widest">
           <Loader2 size={16} className="animate-spin text-indigo-600" />
           Loading Session Security...
         </div>
