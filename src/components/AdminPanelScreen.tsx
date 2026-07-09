@@ -4998,7 +4998,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                 </button>
                                 <h2 className="text-2xl font-extrabold text-slate-900 tracking-tight">Perform Audit Inspection</h2>
                                 <p className="text-xs text-slate-500 mt-1">
-                                    Review hotel submissions and assign quality, criteria, and compliance scores.
+                                    Review hotel submissions and assign compliance scores. Active Auditor: <strong className="text-indigo-600 font-extrabold">{userProfile ? `${userProfile.first_name || ''} ${userProfile.last_name || ''}`.trim() || userProfile.display_name || userProfile.email : 'System Auditor'}</strong>
                                 </p>
                             </div>
                         </div>
@@ -5146,9 +5146,16 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                     </div>
                                                     <div>
                                                         <h2 className="text-3xl font-black tracking-tight leading-none">{hotel.name}</h2>
-                                                        <p className="text-slate-400 font-bold text-xs mt-2 uppercase tracking-widest flex items-center gap-2">
-                                                            <MapPin size={12} className="text-indigo-400" />
-                                                            {hotel.location || 'Swiss-Belhotel Property'} • {hotel.brand || 'Luxury Standards'}
+                                                        <p className="text-slate-400 font-bold text-xs mt-2 uppercase tracking-widest flex items-center gap-2 flex-wrap">
+                                                            <span className="flex items-center gap-1">
+                                                                <MapPin size={12} className="text-indigo-400" />
+                                                                {hotel.location || 'Swiss-Belhotel Property'} • {hotel.brand || 'Luxury Standards'}
+                                                            </span>
+                                                            <span className="text-slate-600 font-normal select-none">|</span>
+                                                            <span className="flex items-center gap-1.5 text-indigo-300">
+                                                                <User size={12} className="text-indigo-400" />
+                                                                Auditor: <strong className="font-extrabold text-white">{userProfile ? `${userProfile.first_name || ''} ${userProfile.last_name || ''}`.trim() || userProfile.display_name || userProfile.email : 'System Auditor'}</strong>
+                                                            </span>
                                                         </p>
                                                     </div>
                                                 </div>
@@ -5266,6 +5273,8 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                 const currentComment = inspectionComments[scoreKey] || '';
                                                                 const submission = hotelSubmissions[item.id];
                                                                 const hasSubmission = !!submission;
+                                                                const isPass = currentScore !== undefined && currentScore === (item.points ?? 5);
+                                                                const isFail = currentScore !== undefined && currentScore === 0;
 
                                                                 return (
                                                                     <div 
@@ -5402,55 +5411,69 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                     )}
                                                                                 </div>
                                                                             </div>
-
-                                                                            {/* RIGHT SIDE: AUDITOR CONTROLS */}
+                                                                                                                                   {/* RIGHT SIDE: AUDITOR CONTROLS */}
                                                                             <div className="lg:w-72 lg:shrink-0 bg-slate-50/70 border-t lg:border-t-0 lg:border-l border-slate-200/80 p-4 flex flex-col justify-between gap-3">
-                                                                                <div className="space-y-3">
+                                                                                <div className="space-y-4">
                                                                                     <div className="flex items-center justify-between">
-                                                                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Auditor Score</label>
+                                                                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Auditor Status</label>
                                                                                         <div className="flex items-baseline gap-1">
-                                                                                            <span className={`text-2xl font-black ${currentScore !== undefined ? 'text-slate-900' : 'text-slate-300'}`}>
-                                                                                                {currentScore !== undefined ? currentScore : '—'}
+                                                                                            <span className={`text-xl font-black ${currentScore !== undefined ? 'text-slate-900' : 'text-slate-300'}`}>
+                                                                                                {currentScore !== undefined ? (isPass ? 'PASS' : isFail ? 'FAIL' : currentScore) : '—'}
                                                                                             </span>
-                                                                                            <span className="text-xs font-black text-slate-400">/ {item.points ?? 5} PTS</span>
+                                                                                            <span className="text-[10px] font-black text-slate-400">({item.points ?? 5} PTS)</span>
                                                                                         </div>
                                                                                     </div>
 
-                                                                                    {/* FREE-TYPE SCORE INPUT */}
+                                                                                    {/* PASS / FAIL CONTROLS */}
                                                                                     <div className="space-y-2">
-                                                                                        <div className="relative">
-                                                                                            <input
-                                                                                                type="number"
-                                                                                                min="0"
-                                                                                                max={item.points ?? 5}
-                                                                                                step="0.5"
-                                                                                                value={currentScore !== undefined ? currentScore : ''}
-                                                                                                onChange={(e) => {
-                                                                                                    const valStr = e.target.value;
-                                                                                                    if (valStr === '') {
+                                                                                        <div className="grid grid-cols-2 gap-2">
+                                                                                            <button
+                                                                                                type="button"
+                                                                                                id={`btn-pass-${item.id}`}
+                                                                                                onClick={() => {
+                                                                                                    if (isPass) {
                                                                                                         saveInspectionScore(hotel.id, item.id, undefined);
                                                                                                     } else {
-                                                                                                        const val = Number(valStr);
-                                                                                                        if (!isNaN(val)) {
-                                                                                                            const capped = Math.min(Math.max(val, 0), item.points ?? 5);
-                                                                                                            saveInspectionScore(hotel.id, item.id, capped);
-                                                                                                        }
+                                                                                                        saveInspectionScore(hotel.id, item.id, item.points ?? 5);
                                                                                                     }
                                                                                                 }}
-                                                                                                className="w-full h-10 bg-white border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 rounded-xl px-3 text-center text-base font-black text-slate-800 outline-none transition-all placeholder:text-slate-300 placeholder:text-xs"
-                                                                                                placeholder={`Score (0-${item.points ?? 5})`}
-                                                                                            />
-                                                                                            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-black text-slate-400 select-none">PTS</span>
-                                                                                        </div>
-
-                                                                                        <div className="flex gap-2">
-                                                                                            <button onClick={() => saveInspectionScore(hotel.id, item.id, item.points ?? 5)} className="flex-1 py-2 bg-emerald-500 text-white text-[9px] font-black uppercase tracking-wider rounded-xl shadow-xs hover:bg-emerald-600 transition-all active:scale-95 outline-none">MAX PASS</button>
-                                                                                            <button onClick={() => saveInspectionScore(hotel.id, item.id, 0)} className="flex-1 py-2 bg-red-500 text-white text-[9px] font-black uppercase tracking-wider rounded-xl shadow-xs hover:bg-red-600 transition-all active:scale-95 outline-none">FAIL (0)</button>
+                                                                                                className={`py-2.5 px-3 rounded-xl font-black text-xs uppercase tracking-wider transition-all duration-150 cursor-pointer flex flex-col items-center justify-center gap-0.5 border ${
+                                                                                                    isPass
+                                                                                                        ? 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600 shadow-sm shadow-emerald-100'
+                                                                                                        : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-200 hover:border-emerald-400'
+                                                                                                }`}
+                                                                                            >
+                                                                                                <span className="text-xs">Pass</span>
+                                                                                                <span className={`text-[9px] font-bold ${isPass ? 'text-emerald-100' : 'text-emerald-600'}`}>
+                                                                                                    +{item.points ?? 5} pts
+                                                                                                </span>
+                                                                                            </button>
+                                                                                            <button
+                                                                                                type="button"
+                                                                                                id={`btn-fail-${item.id}`}
+                                                                                                onClick={() => {
+                                                                                                    if (isFail) {
+                                                                                                        saveInspectionScore(hotel.id, item.id, undefined);
+                                                                                                    } else {
+                                                                                                        saveInspectionScore(hotel.id, item.id, 0);
+                                                                                                    }
+                                                                                                }}
+                                                                                                className={`py-2.5 px-3 rounded-xl font-black text-xs uppercase tracking-wider transition-all duration-150 cursor-pointer flex flex-col items-center justify-center gap-0.5 border ${
+                                                                                                    isFail
+                                                                                                        ? 'bg-red-600 hover:bg-red-700 text-white border-red-600 shadow-sm shadow-red-100'
+                                                                                                        : 'bg-red-50 hover:bg-red-100 text-red-800 border-red-200 hover:border-red-400'
+                                                                                                }`}
+                                                                                            >
+                                                                                                <span className="text-xs">Fail</span>
+                                                                                                <span className={`text-[9px] font-bold ${isFail ? 'text-red-100' : 'text-red-600'}`}>
+                                                                                                    0 pts
+                                                                                                </span>
+                                                                                            </button>
                                                                                         </div>
                                                                                     </div>
 
                                                                                     <div className="space-y-1">
-                                                                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">Compliance Observations</label>
+                                                                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">AUDITOR NOTES/REMARKS</label>
                                                                                         <textarea 
                                                                                             value={currentComment}
                                                                                             onChange={(e) => saveInspectionComment(hotel.id, item.id, e.target.value)}
