@@ -1,4 +1,4 @@
-export type AppScreen = 'login' | 'signup' | 'dashboard' | 'step1' | 'step2' | 'pendingCategories' | 'brandingPropertyIdentification' | 'adminPanel';
+export type AppScreen = 'login' | 'signup' | 'dashboard' | 'step1' | 'step2' | 'pendingCategories' | 'brandingPropertyIdentification' | 'adminPanel' | 'pendingApproval';
 
 export interface Department {
     id: string;

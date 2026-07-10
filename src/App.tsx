@@ -13,6 +13,7 @@ import Step2Screen from './components/Step2Screen';
 import PendingCategoriesScreen from './components/PendingCategoriesScreen';
 import BrandingPropertyIdentificationScreen from './components/BrandingPropertyIdentificationScreen';
 import AdminPanelScreen from './components/AdminPanelScreen';
+import PendingApprovalScreen from './components/PendingApprovalScreen';
 import { supabase } from './lib/supabase';
 import { Loader2 } from 'lucide-react';
 
@@ -83,10 +84,14 @@ export default function App() {
           // Check if mandatory onboarding fields are fully populated
           if (prof && (prof.access_level === 'admin' || (prof.first_name && prof.role && (prof.hotel_id || prof.hotel_name)))) {
             setUserProfile(prof);
-            if (prof.access_level === 'admin' || prof.access_level === 'auditor') {
-              setCurrentScreen('adminPanel');
+            if (prof.email === 'brandaudit@swiss-belhotel.com' || prof.is_approved) {
+              if (prof.access_level === 'admin' || prof.access_level === 'auditor') {
+                setCurrentScreen('adminPanel');
+              } else {
+                setCurrentScreen('dashboard');
+              }
             } else {
-              setCurrentScreen('dashboard');
+              setCurrentScreen('pendingApproval');
             }
             setIsLoadingSession(false);
             return;
@@ -195,13 +200,32 @@ export default function App() {
         <SignupScreen 
           onComplete={(profile) => {
             setUserProfile(profile);
-            if (profile?.access_level === 'admin' || profile?.access_level === 'auditor') {
+            if (profile?.email === 'brandaudit@swiss-belhotel.com' || profile?.is_approved) {
+              if (profile?.access_level === 'admin' || profile?.access_level === 'auditor') {
+                setCurrentScreen('adminPanel');
+              } else {
+                setCurrentScreen('dashboard');
+              }
+            } else {
+              setCurrentScreen('pendingApproval');
+            }
+          }} 
+          onLogout={handleLogout}
+        />
+      )}
+
+      {currentScreen === 'pendingApproval' && (
+        <PendingApprovalScreen 
+          userProfile={userProfile}
+          onLogout={handleLogout}
+          onApproved={(latestProfile) => {
+            setUserProfile(latestProfile);
+            if (latestProfile.access_level === 'admin' || latestProfile.access_level === 'auditor') {
               setCurrentScreen('adminPanel');
             } else {
               setCurrentScreen('dashboard');
             }
-          }} 
-          onLogout={handleLogout}
+          }}
         />
       )}
 

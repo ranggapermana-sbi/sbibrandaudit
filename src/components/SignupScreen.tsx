@@ -208,6 +208,7 @@ export default function SignupScreen({ onComplete, onLogout }: SignupScreenProps
                 role: role,
                 access_level: (role === 'Admin' || isAuditLead) ? 'admin' : (role === 'Auditor' ? 'auditor' : 'auditee'),
                 is_brand_audit_lead: isAuditLead,
+                is_approved: userEmail === 'brandaudit@swiss-belhotel.com',
                 updated_at: new Date().toISOString()
             };
 

@@ -24,14 +24,19 @@ const recentSubmissions = [
 ];
 
 const HOTEL_BRANDS = [
-    'Swiss-Belhotel',
-    'Swiss-Belresidences',
-    'Swiss-Belinn',
-    'Swiss-Belsuites',
-    'Swiss-Belboutique',
-    'Swiss-Belresort',
     'Grand Swiss-Belhotel',
-    'Swiss-Belexpress'
+    'Managed by SBI',
+    'MĀUA',
+    'Swiss-Belboutique',
+    'Swiss-Belcourt',
+    'Swiss-Belexpress',
+    'Swiss-Belhotel',
+    'Swiss-Belinn',
+    'Swiss-Belresidences',
+    'Swiss-Belresort',
+    'Swiss-Belsuites',
+    'Swiss-Belvillas',
+    'Zest'
 ];
 
 const HOTELS_URL = (import.meta as any).env.HOTELS_SUPABASE_URL || 'https://kjqnkrmmbintlhalubrf.supabase.co/rest/v1/';
@@ -360,6 +365,48 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         }
     };
 
+    const updateApprovalStatus = async (userId: string, isApproved: boolean) => {
+        try {
+            const updatedList = profilesList.map(p => {
+                if (p.id === userId) {
+                    const updatedUser = { 
+                        ...p, 
+                        is_approved: isApproved, 
+                        updated_at: new Date().toISOString() 
+                    };
+                    localStorage.setItem(`sbi_profile_${userId}`, JSON.stringify(updatedUser));
+                    return updatedUser;
+                }
+                return p;
+            });
+            setProfilesList(updatedList);
+            setToastMessage(`Updated approval status to ${isApproved ? 'Approved' : 'Pending'} locally.`);
+
+            const response = await fetch(`${MAIN_URL}audit_users?id=eq.${userId}`, {
+                method: 'PATCH',
+                headers: {
+                    'apikey': MAIN_KEY,
+                    'Authorization': `Bearer ${MAIN_KEY}`,
+                    'Content-Type': 'application/json',
+                    'Prefer': 'return=representation'
+                },
+                body: JSON.stringify({ 
+                    is_approved: isApproved,
+                    updated_at: new Date().toISOString()
+                })
+            });
+
+            if (response.ok) {
+                fetchProfilesFromSupabase();
+                setToastMessage(`Successfully saved approval status to cloud database.`);
+            } else {
+                console.warn("Failed to sync approval status update with Supabase, kept local copy.");
+            }
+        } catch (e) {
+            console.warn("Network error or table missing while updating approval status, kept local copy.", e);
+        }
+    };
+
     const loadFallbackProfiles = () => {
         const cachedProfiles: any[] = [];
         for (let i = 0; i < localStorage.length; i++) {
@@ -404,6 +451,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         setUserFormAccessLevel('auditee');
         setUserFormHotelId('');
         setUserFormIsBrandAuditLead(false);
+        setUserFormIsApproved(true);
         setUserFormError('');
         setIsUserFormOpen(true);
     };
@@ -418,6 +466,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         setUserFormAccessLevel(user.access_level || 'auditee');
         setUserFormHotelId(user.hotel_id || '');
         setUserFormIsBrandAuditLead(user.is_brand_audit_lead || false);
+        setUserFormIsApproved(user.is_approved !== false);
         setUserFormError('');
         setIsUserFormOpen(true);
     };
@@ -445,6 +494,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             hotel_name: selectedHotel ? selectedHotel.name : null,
             hotel_code: selectedHotel ? (selectedHotel.code || null) : null,
             is_brand_audit_lead: userFormIsBrandAuditLead,
+            is_approved: userFormIsApproved,
             updated_at: new Date().toISOString()
         };
 
@@ -1361,6 +1411,8 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     // Toast and Dialog states
     const [toastMessage, setToastMessage] = useState<string | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
+    const [hotelFilterBrand, setHotelFilterBrand] = useState('All');
+    const [hotelFilterStars, setHotelFilterStars] = useState('All');
 
     // Department Dialog states
     const [isDeptFormOpen, setIsDeptFormOpen] = useState(false);
@@ -1377,7 +1429,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     const [hotelCode, setHotelCode] = useState('');
     const [hotelLocation, setHotelLocation] = useState('');
     const [hotelBrandClass, setHotelBrandClass] = useState('Swiss-Belhotel');
-    const [hotelRegion, setHotelRegion] = useState('Asia Pacific');
+    const [hotelRegion, setHotelRegion] = useState('ANZPAC');
     const [hotelCountry, setHotelCountry] = useState('Indonesia');
     const [hotelStars, setHotelStars] = useState<number>(4);
     const [confirmHotelDeleteId, setConfirmHotelDeleteId] = useState<string | null>(null);
@@ -1504,6 +1556,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     const [userFormAccessLevel, setUserFormAccessLevel] = useState<'admin' | 'auditor' | 'auditee'>('auditee');
     const [userFormHotelId, setUserFormHotelId] = useState('');
     const [userFormIsBrandAuditLead, setUserFormIsBrandAuditLead] = useState(false);
+    const [userFormIsApproved, setUserFormIsApproved] = useState(true);
     const [userFormError, setUserFormError] = useState('');
     const [confirmUserDeleteId, setConfirmUserDeleteId] = useState<string | null>(null);
 
@@ -2573,14 +2626,13 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
 
         try {
             const payload: any = {
+                code: hotelCode.trim().toUpperCase(),
                 name: hotelName.trim(),
-                location: hotelLocation.trim(),
-                brand_class: hotelBrandClass,
-                brandClass: hotelBrandClass,
+                brand: hotelBrandClass,
                 region: hotelRegion.trim(),
-                country: hotelCountry.trim(),
-                stars: Number(hotelStars),
-                code: hotelCode.trim().toUpperCase()
+                country: hotelLocation.trim() || hotelCountry.trim() || 'Indonesia',
+                star_rating: Number(hotelStars),
+                isActive: true
             };
 
             let savedInSupabase = false;
@@ -2588,7 +2640,8 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             try {
                 if (editingHotel) {
                     // Update
-                    const response = await fetch(`${HOTELS_URL}hotels?id=eq.${editingHotel.id}`, {
+                    const targetCode = editingHotel.code || editingHotel.id;
+                    const response = await fetch(`${HOTELS_URL}hotels?code=eq.${targetCode}`, {
                         method: 'PATCH',
                         headers: {
                             'apikey': HOTELS_KEY,
@@ -2602,15 +2655,14 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                     if (response.ok) {
                         savedInSupabase = true;
                     } else {
-                        // Fallback retry with basic columns if custom columns are not in schema
+                        // Retry fallback with simpler payload if constraints are strict
                         const basicPayload = {
+                            code: hotelCode.trim().toUpperCase(),
                             name: hotelName.trim(),
-                            location: hotelLocation.trim(),
-                            brand_class: hotelBrandClass,
-                            brandClass: hotelBrandClass,
-                            code: hotelCode.trim().toUpperCase()
+                            brand: hotelBrandClass,
+                            country: hotelLocation.trim() || hotelCountry.trim() || 'Indonesia'
                         };
-                        const fallbackResponse = await fetch(`${HOTELS_URL}hotels?id=eq.${editingHotel.id}`, {
+                        const fallbackResponse = await fetch(`${HOTELS_URL}hotels?code=eq.${targetCode}`, {
                             method: 'PATCH',
                             headers: {
                                 'apikey': HOTELS_KEY,
@@ -2640,13 +2692,12 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                     if (response.ok) {
                         savedInSupabase = true;
                     } else {
-                        // Fallback retry with basic columns or generate random id
+                        // Try fallback if some database restriction occurs
                         const basicPayload = {
+                            code: hotelCode.trim().toUpperCase(),
                             name: hotelName.trim(),
-                            location: hotelLocation.trim(),
-                            brand_class: hotelBrandClass,
-                            brandClass: hotelBrandClass,
-                            code: hotelCode.trim().toUpperCase()
+                            brand: hotelBrandClass,
+                            country: hotelLocation.trim() || hotelCountry.trim() || 'Indonesia'
                         };
                         const fallbackResponse = await fetch(`${HOTELS_URL}hotels`, {
                             method: 'POST',
@@ -2661,26 +2712,6 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                         
                         if (fallbackResponse.ok) {
                             savedInSupabase = true;
-                        } else {
-                            // Support potential null id columns retry
-                            const randomNumericId = Math.floor(Math.random() * 1000000) + 1000;
-                            const payloadWithId = {
-                                id: randomNumericId,
-                                ...basicPayload
-                            };
-                            const retryResponse = await fetch(`${HOTELS_URL}hotels`, {
-                                method: 'POST',
-                                headers: {
-                                    'apikey': HOTELS_KEY,
-                                    'Authorization': `Bearer ${HOTELS_KEY}`,
-                                    'Content-Type': 'application/json',
-                                    'Prefer': 'return=representation'
-                                },
-                                body: JSON.stringify(payloadWithId)
-                            });
-                            if (retryResponse.ok) {
-                                savedInSupabase = true;
-                            }
                         }
                     }
                 }
@@ -2753,7 +2784,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     const handleDeleteHotel = async (id: string) => {
         setIsSupabaseLoading(true);
         try {
-            const response = await fetch(`${HOTELS_URL}hotels?id=eq.${id}`, {
+            const response = await fetch(`${HOTELS_URL}hotels?code=eq.${id}`, {
                 method: 'DELETE',
                 headers: {
                     'apikey': HOTELS_KEY,
@@ -3112,11 +3143,27 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         d.head.toLowerCase().includes(searchQuery.toLowerCase())
     );
 
-    const filteredHotels = hotels.filter(h => 
-        h.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-        h.location.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        h.brandClass.toLowerCase().includes(searchQuery.toLowerCase())
-    );
+    const filteredHotels = hotels.filter(h => {
+        const q = searchQuery.toLowerCase();
+        const matchesSearch = !q || 
+            h.name.toLowerCase().includes(q) || 
+            h.location.toLowerCase().includes(q) ||
+            h.brandClass.toLowerCase().includes(q) ||
+            (h.code || '').toLowerCase().includes(q) ||
+            (h.region || '').toLowerCase().includes(q) ||
+            (h.country || '').toLowerCase().includes(q);
+
+        if (!matchesSearch) return false;
+
+        if (hotelFilterBrand !== 'All' && h.brandClass !== hotelFilterBrand) return false;
+
+        if (hotelFilterStars !== 'All' && h.stars !== Number(hotelFilterStars)) return false;
+
+        return true;
+    });
+
+    const uniqueBrands = (Array.from(new Set(hotels.map(h => h.brandClass).filter(Boolean))) as string[]).sort();
+    const uniqueStars = (Array.from(new Set(hotels.map(h => Number(h.stars) || 4))) as number[]).sort((a, b) => b - a);
 
     const filteredBatches = batches.filter(b => 
         b.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
@@ -3699,6 +3746,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                         <th className="px-6 py-4">Hotel Property</th>
                                                         <th className="px-6 py-4">Role</th>
                                                         <th className="px-6 py-4">Access Level</th>
+                                                        <th className="px-6 py-4">Approval</th>
                                                         <th className="px-6 py-4">Created At</th>
                                                         <th className="px-6 py-4 text-right">Actions</th>
                                                     </tr>
@@ -3744,6 +3792,26 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                         <option value="auditor">Auditor</option>
                                                                         <option value="auditee">Auditee</option>
                                                                     </select>
+                                                                </td>
+                                                                <td className="px-6 py-4 text-xs">
+                                                                    {p.email === 'brandaudit@swiss-belhotel.com' ? (
+                                                                        <span className="text-[10px] font-extrabold uppercase tracking-wide px-2.5 py-1 rounded-lg bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                                                            Bypassed (Super)
+                                                                        </span>
+                                                                    ) : (
+                                                                        <select 
+                                                                            value={p.is_approved ? 'approved' : 'pending'} 
+                                                                            onChange={(e) => updateApprovalStatus(p.id, e.target.value === 'approved')}
+                                                                            className={`text-xs font-bold rounded-lg px-2 py-1 outline-none cursor-pointer shadow-sm border transition-all ${
+                                                                                p.is_approved 
+                                                                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:border-emerald-300' 
+                                                                                    : 'bg-amber-50 text-amber-700 border-amber-200 hover:border-amber-300'
+                                                                            }`}
+                                                                        >
+                                                                            <option value="approved">Approved</option>
+                                                                            <option value="pending">Pending</option>
+                                                                        </select>
+                                                                    )}
                                                                 </td>
                                                                 <td className="px-6 py-4 text-[11px] font-mono font-bold text-slate-550">
                                                                     {formatSqlTimestamp(p.created_at)}
@@ -4998,7 +5066,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                 </button>
                                 <h2 className="text-2xl font-extrabold text-slate-900 tracking-tight">Perform Audit Inspection</h2>
                                 <p className="text-xs text-slate-500 mt-1">
-                                    Review hotel submissions and assign compliance scores. Active Auditor: <strong className="text-indigo-600 font-extrabold">{userProfile ? `${userProfile.first_name || ''} ${userProfile.last_name || ''}`.trim() || userProfile.display_name || userProfile.email : 'System Auditor'}</strong>
+                                    Review hotel submissions and assign compliance scores.
                                 </p>
                             </div>
                         </div>
@@ -5602,24 +5670,75 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                             </div>
                         </div>
 
-                        {/* Search Bar */}
-                        <div className="bg-white p-4 rounded-2xl border border-slate-150/80 shadow-[0_4px_24px_rgba(15,23,42,0.015)] flex items-center gap-3 hover:border-slate-300 focus-within:border-indigo-400 focus-within:shadow-[0_8px_30px_rgba(99,102,241,0.03)] transition-all">
-                            <Search className="text-slate-400 shrink-0" size={18} />
-                            <input 
-                                type="text" 
-                                placeholder="Search hotels, brands, or locations..." 
-                                className="w-full text-sm text-slate-700 bg-transparent outline-none border-none placeholder-slate-400 focus:ring-0"
-                                value={searchQuery}
-                                onChange={(e) => setSearchQuery(e.target.value)}
-                            />
-                            {searchQuery && (
-                                <button 
-                                    onClick={() => setSearchQuery('')} 
-                                    className="p-1 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100"
-                                >
-                                    <X size={14} />
-                                </button>
-                            )}
+                        {/* Search and Filters */}
+                        <div className="flex flex-col lg:flex-row gap-3 items-stretch lg:items-center">
+                            {/* Search Bar */}
+                            <div className="flex-1 bg-white p-4 rounded-2xl border border-slate-150/80 shadow-[0_4px_24px_rgba(15,23,42,0.015)] flex items-center gap-3 hover:border-slate-300 focus-within:border-indigo-400 focus-within:shadow-[0_8px_30px_rgba(99,102,241,0.03)] transition-all">
+                                <Search className="text-slate-400 shrink-0" size={18} />
+                                <input 
+                                    type="text" 
+                                    placeholder="Search by name, code, region, city/country..." 
+                                    className="w-full text-sm text-slate-700 bg-transparent outline-none border-none placeholder-slate-400 focus:ring-0"
+                                    value={searchQuery}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                />
+                                {searchQuery && (
+                                    <button 
+                                        onClick={() => setSearchQuery('')} 
+                                        className="p-1 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100"
+                                    >
+                                        <X size={14} />
+                                    </button>
+                                )}
+                            </div>
+
+                            {/* Filters row */}
+                            <div className="flex flex-wrap sm:flex-nowrap gap-3">
+                                {/* Brand Filter Dropdown */}
+                                <div className="flex items-center gap-1.5 bg-white px-3 py-2 rounded-2xl border border-slate-150/80 shadow-[0_4px_24px_rgba(15,23,42,0.015)] hover:border-slate-300 focus-within:border-indigo-400 transition-all select-none min-w-[145px] flex-1 sm:flex-none">
+                                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider whitespace-nowrap pl-1">Brand:</span>
+                                    <select
+                                        className="text-xs font-bold text-slate-700 bg-transparent border-none focus:ring-0 p-0 cursor-pointer w-full outline-none"
+                                        value={hotelFilterBrand}
+                                        onChange={(e) => setHotelFilterBrand(e.target.value)}
+                                    >
+                                        <option value="All">All Brands</option>
+                                        {uniqueBrands.map(b => (
+                                            <option key={b} value={b}>{b}</option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                {/* Star Filter Dropdown */}
+                                <div className="flex items-center gap-1.5 bg-white px-3 py-2 rounded-2xl border border-slate-150/80 shadow-[0_4px_24px_rgba(15,23,42,0.015)] hover:border-slate-300 focus-within:border-indigo-400 transition-all select-none min-w-[130px] flex-1 sm:flex-none">
+                                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider whitespace-nowrap pl-1">Stars:</span>
+                                    <select
+                                        className="text-xs font-bold text-slate-700 bg-transparent border-none focus:ring-0 p-0 cursor-pointer w-full outline-none"
+                                        value={hotelFilterStars}
+                                        onChange={(e) => setHotelFilterStars(e.target.value)}
+                                    >
+                                        <option value="All">All Ratings</option>
+                                        {uniqueStars.map(s => (
+                                            <option key={s} value={String(s)}>{s} Star{s > 1 ? 's' : ''}</option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                {/* Clear Filters button */}
+                                {(hotelFilterBrand !== 'All' || hotelFilterStars !== 'All' || searchQuery) && (
+                                    <button
+                                        onClick={() => {
+                                            setHotelFilterBrand('All');
+                                            setHotelFilterStars('All');
+                                            setSearchQuery('');
+                                        }}
+                                        className="text-xs font-bold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 transition-all px-3.5 py-2.5 rounded-2xl border border-indigo-100/50 hover:shadow-sm active:scale-95 shrink-0 flex items-center justify-center gap-1 w-full sm:w-auto"
+                                    >
+                                        <RefreshCw size={12} />
+                                        <span>Reset</span>
+                                    </button>
+                                )}
+                            </div>
                         </div>
 
                         {/* Hotels Grid or Table */}
@@ -6149,11 +6268,11 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                         value={hotelRegion}
                                         onChange={(e) => setHotelRegion(e.target.value)}
                                     >
-                                        <option value="Asia Pacific">Asia Pacific</option>
-                                        <option value="Middle East">Middle East</option>
-                                        <option value="Europe">Europe</option>
-                                        <option value="Africa">Africa</option>
-                                        <option value="Americas">Americas</option>
+                                        <option value="ANZPAC">ANZPAC</option>
+                                        <option value="Indonesia">Indonesia</option>
+                                        <option value="Philippines">Philippines</option>
+                                        <option value="Central Asia">Central Asia</option>
+                                        <option value="EMEA">EMEA</option>
                                     </select>
                                 </div>
 
@@ -6957,17 +7076,34 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                 </select>
                             </div>
 
-                            <div className="flex items-center gap-2.5 pt-2">
-                                <input 
-                                    type="checkbox" 
-                                    id="userFormIsBrandAuditLead"
-                                    checked={userFormIsBrandAuditLead}
-                                    onChange={(e) => setUserFormIsBrandAuditLead(e.target.checked)}
-                                    className="w-4 h-4 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500"
-                                />
-                                <label htmlFor="userFormIsBrandAuditLead" className="text-xs font-bold text-slate-600 select-none cursor-pointer">
-                                    Brand Audit Lead Designation
-                                </label>
+                            <div className="flex flex-col gap-2.5 pt-2">
+                                <div className="flex items-center gap-2.5">
+                                    <input 
+                                        type="checkbox" 
+                                        id="userFormIsBrandAuditLead"
+                                        checked={userFormIsBrandAuditLead}
+                                        onChange={(e) => setUserFormIsBrandAuditLead(e.target.checked)}
+                                        className="w-4 h-4 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500"
+                                    />
+                                    <label htmlFor="userFormIsBrandAuditLead" className="text-xs font-bold text-slate-600 select-none cursor-pointer">
+                                        Brand Audit Lead Designation
+                                    </label>
+                                </div>
+
+                                {(!editingUser || editingUser.email !== 'brandaudit@swiss-belhotel.com') && (
+                                    <div className="flex items-center gap-2.5">
+                                        <input 
+                                            type="checkbox" 
+                                            id="userFormIsApproved"
+                                            checked={userFormIsApproved}
+                                            onChange={(e) => setUserFormIsApproved(e.target.checked)}
+                                            className="w-4 h-4 text-emerald-600 border-slate-300 rounded focus:ring-emerald-500"
+                                        />
+                                        <label htmlFor="userFormIsApproved" className="text-xs font-bold text-slate-600 select-none cursor-pointer">
+                                            Approved and Active (Access Allowed)
+                                        </label>
+                                    </div>
+                                )}
                             </div>
 
                             <div className="flex gap-3 justify-end pt-4 border-t border-slate-100">
