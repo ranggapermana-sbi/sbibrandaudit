@@ -793,14 +793,21 @@ export default function BrandingPropertyIdentificationScreen({ selectedCategory,
                             currentHotel?.code ? String(currentHotel.code) : null
                         ].filter(Boolean) as string[]));
 
-                        const assignedGroupHotel = groupHotelsData.find((gh: any) => 
+                        const assignedGroupHotels = groupHotelsData.filter((gh: any) => 
                             possibleHotelIds.some(phId => String(gh.hotel_id).toLowerCase() === String(phId).toLowerCase())
                         );
 
-                        if (assignedGroupHotel) {
-                            const assignedGroup = groupsData.find((g: any) => g.id === assignedGroupHotel.group_id);
-                            if (assignedGroup) {
-                                assignedItemIds = assignedGroup.item_ids || [];
+                        if (assignedGroupHotels.length > 0) {
+                            const groupIds = assignedGroupHotels.map((gh: any) => gh.group_id);
+                            const matchedGroups = groupsData.filter((g: any) => groupIds.includes(g.id));
+                            if (matchedGroups.length > 0) {
+                                const allItemIds = new Set<string>();
+                                matchedGroups.forEach((g: any) => {
+                                    if (g.item_ids) {
+                                        g.item_ids.forEach((id: string) => allItemIds.add(String(id)));
+                                    }
+                                });
+                                assignedItemIds = Array.from(allItemIds);
                             }
                         }
                     }
@@ -825,14 +832,19 @@ export default function BrandingPropertyIdentificationScreen({ selectedCategory,
                                 currentHotel?.code ? String(currentHotel.code) : null
                             ].filter(Boolean) as string[]));
 
-                            const assignedGroup = parsedGroups.find((g: any) => 
+                            const assignedGroups = parsedGroups.filter((g: any) => 
                                 g.hotelIds && g.hotelIds.some((hId: string) => 
                                     possibleHotelIds.some(phId => String(hId).toLowerCase() === String(phId).toLowerCase())
                                 )
                             );
 
-                            if (assignedGroup) {
-                                assignedItemIds = assignedGroup.itemIds || [];
+                            if (assignedGroups.length > 0) {
+                                const allItemIds = new Set<string>();
+                                assignedGroups.forEach((g: any) => {
+                                    const ids = g.itemIds || g.item_ids || [];
+                                    ids.forEach((id: string) => allItemIds.add(String(id)));
+                                });
+                                assignedItemIds = Array.from(allItemIds);
                             }
                         } catch (e) {}
                     }

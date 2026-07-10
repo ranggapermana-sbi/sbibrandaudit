@@ -1946,9 +1946,6 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         const assignedHotelIds = group.hotelIds || [];
         const isAssigned = assignedHotelIds.includes(hotelId);
 
-        // Find if hotel is already assigned to a different group
-        const otherGroup = groups.find(g => g.id !== groupId && (g.hotelIds || []).includes(hotelId));
-
         try {
             if (isAssigned) {
                 const { error } = await supabase
@@ -1969,16 +1966,6 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 }));
                 setToastMessage("Hotel unassigned from group!");
             } else {
-                // One hotel can only be assigned to one group.
-                // If it is assigned to another group, first delete that association in database.
-                if (otherGroup) {
-                    const { error: deleteError } = await supabase
-                        .from('audit_group_hotels')
-                        .delete()
-                        .eq('hotel_id', hotelId);
-                    if (deleteError) throw deleteError;
-                }
-
                 const { error } = await supabase
                     .from('audit_group_hotels')
                     .insert({ group_id: groupId, hotel_id: hotelId });
@@ -1991,18 +1978,10 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                             hotelIds: [...(g.hotelIds || []).filter(id => id !== hotelId), hotelId]
                         };
                     }
-                    // Remove from any other group
-                    return {
-                        ...g,
-                        hotelIds: (g.hotelIds || []).filter(id => id !== hotelId)
-                    };
+                    return g;
                 }));
 
-                if (otherGroup) {
-                    setToastMessage(`Moved hotel from "${otherGroup.name}" to "${group.name}"!`);
-                } else {
-                    setToastMessage("Hotel assigned to group successfully!");
-                }
+                setToastMessage("Hotel assigned to group successfully!");
             }
         } catch (err: any) {
             console.warn("Database assignment failed, toggling locally:", err);
@@ -2016,16 +1995,9 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                             : [...(g.hotelIds || []).filter(id => id !== hotelId), hotelId]
                     };
                 }
-                // For other groups, if we are assigning to groupId, make sure it's removed from them
-                if (!isAssigned) {
-                    return {
-                        ...g,
-                        hotelIds: (g.hotelIds || []).filter(id => id !== hotelId)
-                    };
-                }
                 return g;
             }));
-            setToastMessage(isAssigned ? "Hotel unassigned locally" : (otherGroup ? `Moved hotel locally from "${otherGroup.name}"` : "Hotel assigned locally"));
+            setToastMessage(isAssigned ? "Hotel unassigned locally" : "Hotel assigned locally");
         }
     };
 
@@ -2035,12 +2007,11 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         if (!group) return;
 
         try {
-            // Since one hotel can only be assigned to one group, assigning all hotels to this group
-            // means we must first clear all other group associations in the database.
+            // Delete associations for THIS group first so we don't violate UNIQUE constraint on group_id, hotel_id
             const { error: deleteError } = await supabase
                 .from('audit_group_hotels')
                 .delete()
-                .neq('group_id', '00000000-0000-0000-0000-000000000000');
+                .eq('group_id', groupId);
             if (deleteError) throw deleteError;
 
             const inserts = hotels.map(hotel => ({ group_id: groupId, hotel_id: hotel.id }));
@@ -2056,10 +2027,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                         hotelIds: hotels.map(h => h.id)
                     };
                 }
-                return {
-                    ...g,
-                    hotelIds: []
-                };
+                return g;
             }));
             setToastMessage(`Assigned all ${hotels.length} hotels to group "${group.name}"!`);
         } catch (err: any) {
@@ -2071,10 +2039,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                         hotelIds: hotels.map(h => h.id)
                     };
                 }
-                return {
-                    ...g,
-                    hotelIds: []
-                };
+                return g;
             }));
             setToastMessage("Assigned all hotels locally.");
         }
@@ -4551,9 +4516,10 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                            h.location.toLowerCase().includes(q);
                                                 }).map(hotel => {
                                                     const group = groups.find(g => g.id === selectedGroupId);
-                                                     const isAssigned = group?.hotelIds?.includes(hotel.id);
-                                                     const assignedGroup = groups.find(g => (g.hotelIds || []).includes(hotel.id));
-                                                     const isAssignedToOther = assignedGroup && assignedGroup.id !== selectedGroupId;
+                                                    const isAssigned = group?.hotelIds?.includes(hotel.id);
+                                                    const assignedGroups = groups.filter(g => (g.hotelIds || []).includes(hotel.id));
+                                                    const otherGroups = assignedGroups.filter(g => g.id !== selectedGroupId);
+                                                    const isAssignedToOther = otherGroups.length > 0;
 
                                                     return (
                                                          <div 
@@ -4572,12 +4538,9 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                      <div className={`w-5 h-5 rounded-lg flex items-center justify-center transition-all border-2 ${
                                                                          isAssigned
                                                                              ? 'bg-indigo-600 border-indigo-600 text-white shadow-sm'
-                                                                             : isAssignedToOther
-                                                                                 ? 'bg-amber-100 border-amber-400 text-amber-700'
-                                                                                 : 'bg-white border-slate-300 hover:border-slate-400'
+                                                                             : 'bg-white border-slate-300 hover:border-slate-400'
                                                                      }`}>
                                                                          {isAssigned && <Check size={11} className="text-white stroke-[3.5px]" />}
-                                                                         {isAssignedToOther && <AlertCircle size={10} className="text-amber-600 stroke-[3px]" />}
                                                                      </div>
                                                                  </div>
                                                                  
@@ -4596,16 +4559,16 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                  Current Group
                                                                              </span>
                                                                          )}
-                                                                         {isAssignedToOther && (
-                                                                             <span className="bg-amber-50 text-amber-800 text-[9px] font-black px-2 py-0.5 rounded-full border border-amber-200 flex items-center gap-1">
-                                                                                 <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
-                                                                                 Assigned to: {assignedGroup.name}
+                                                                         {otherGroups.length > 0 && (
+                                                                             <span className="bg-slate-100 text-slate-700 text-[9px] font-black px-2 py-0.5 rounded-full border border-slate-200 flex items-center gap-1">
+                                                                                 <span className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
+                                                                                 Also in: {otherGroups.map(g => g.name).join(', ')}
                                                                              </span>
                                                                          )}
-                                                                         {!isAssigned && !isAssignedToOther && (
+                                                                         {assignedGroups.length === 0 && (
                                                                              <span className="bg-slate-100 text-slate-500 text-[9px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
                                                                                  <span className="w-1.5 h-1.5 rounded-full bg-slate-300" />
-                                                                                 Available
+                                                                                 Unassigned
                                                                              </span>
                                                                          )}
                                                                      </div>
@@ -5146,7 +5109,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                 </td>
                                                                 <td className="px-6 py-4 text-slate-600 font-medium">{hotel.brandClass}</td>
                                                                 <td className="px-6 py-4 text-slate-600 font-medium">{hotel.region || 'N/A'}</td>
-                                                                <td className="px-6 py-4 text-slate-600 font-medium">{batches.find(b => b.hotelIds?.includes(hotel.id))?.name || 'Unassigned'}</td>
+                                                                <td className="px-6 py-4 text-slate-600 font-medium">{groups.filter(g => (g.hotelIds || []).includes(hotel.id)).map(g => g.name).join(', ') || 'Unassigned'}</td>
                                                                 <td className="px-6 py-4">
                                                                     <div className="flex items-center gap-2 font-bold text-[11px]">
                                                                         <div className="w-16 h-1.5 bg-slate-100 rounded-full overflow-hidden">

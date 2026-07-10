@@ -107,16 +107,27 @@ export default function PendingCategoriesScreen({ onBack, onNavigate, userProfil
                         currentHotel?.code ? String(currentHotel.code) : null
                     ].filter(Boolean) as string[]));
 
-                    const assignedGroupHotel = groupHotelsData.find((gh: any) => 
+                    const assignedGroupHotels = groupHotelsData.filter((gh: any) => 
                         possibleHotelIds.some(phId => String(gh.hotel_id).toLowerCase() === String(phId).toLowerCase())
                     );
 
-                    if (assignedGroupHotel) {
-                        const assignedGroup = groupsData.find((g: any) => g.id === assignedGroupHotel.group_id);
-                        if (assignedGroup) {
-                            groupName = assignedGroup.name;
-                            assignedCategoryIds = assignedGroup.category_ids || [];
-                            assignedItemIds = assignedGroup.item_ids || [];
+                    if (assignedGroupHotels.length > 0) {
+                        const groupIds = assignedGroupHotels.map((gh: any) => gh.group_id);
+                        const matchedGroups = groupsData.filter((g: any) => groupIds.includes(g.id));
+                        if (matchedGroups.length > 0) {
+                            groupName = matchedGroups.map((g: any) => g.name).join(', ');
+                            const allCatIds = new Set<string>();
+                            const allItemIds = new Set<string>();
+                            matchedGroups.forEach((g: any) => {
+                                if (g.category_ids) {
+                                    g.category_ids.forEach((id: string) => allCatIds.add(String(id)));
+                                }
+                                if (g.item_ids) {
+                                    g.item_ids.forEach((id: string) => allItemIds.add(String(id)));
+                                }
+                            });
+                            assignedCategoryIds = Array.from(allCatIds);
+                            assignedItemIds = Array.from(allItemIds);
                         }
                     }
                 }
@@ -141,16 +152,24 @@ export default function PendingCategoriesScreen({ onBack, onNavigate, userProfil
                             currentHotel?.code ? String(currentHotel.code) : null
                         ].filter(Boolean) as string[]));
 
-                        const assignedGroup = parsedGroups.find((g: any) => 
+                        const assignedGroups = parsedGroups.filter((g: any) => 
                             g.hotelIds && g.hotelIds.some((hId: string) => 
                                 possibleHotelIds.some(phId => String(hId).toLowerCase() === String(phId).toLowerCase())
                             )
                         );
 
-                        if (assignedGroup) {
-                            groupName = assignedGroup.name;
-                            assignedCategoryIds = assignedGroup.categoryIds || [];
-                            assignedItemIds = assignedGroup.itemIds || [];
+                        if (assignedGroups.length > 0) {
+                            groupName = assignedGroups.map((g: any) => g.name).join(', ');
+                            const allCatIds = new Set<string>();
+                            const allItemIds = new Set<string>();
+                            assignedGroups.forEach((g: any) => {
+                                const cids = g.categoryIds || g.category_ids || [];
+                                const iids = g.itemIds || g.item_ids || [];
+                                cids.forEach((id: string) => allCatIds.add(String(id)));
+                                iids.forEach((id: string) => allItemIds.add(String(id)));
+                            });
+                            assignedCategoryIds = Array.from(allCatIds);
+                            assignedItemIds = Array.from(allItemIds);
                         }
                     } catch (e) {}
                 }
