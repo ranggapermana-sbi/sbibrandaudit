@@ -449,7 +449,8 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         setUserFormDisplayName('');
         setUserFormRole('General Manager');
         setUserFormAccessLevel('auditee');
-        setUserFormHotelId('');
+        setUserFormHotelIds([]);
+        setAdminHotelSearch('');
         setUserFormIsBrandAuditLead(false);
         setUserFormIsApproved(true);
         setUserFormError('');
@@ -464,7 +465,9 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         setUserFormDisplayName(user.display_name || '');
         setUserFormRole(user.role || 'General Manager');
         setUserFormAccessLevel(user.access_level || 'auditee');
-        setUserFormHotelId(user.hotel_id || '');
+        const ids = user.hotel_id ? String(user.hotel_id).split(',').map((s: string) => s.trim()).filter(Boolean) : [];
+        setUserFormHotelIds(ids);
+        setAdminHotelSearch('');
         setUserFormIsBrandAuditLead(user.is_brand_audit_lead || false);
         setUserFormIsApproved(user.is_approved !== false);
         setUserFormError('');
@@ -480,7 +483,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             return;
         }
 
-        const selectedHotel = hotels.find(h => h.id === userFormHotelId);
+        const selectedHotelsList = hotels.filter(h => userFormHotelIds.includes(h.id));
         
         const payload = {
             id: editingUser ? editingUser.id : crypto.randomUUID(),
@@ -490,9 +493,9 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             display_name: userFormDisplayName.trim() || `${userFormFirstName.trim()} ${userFormLastName.trim()}`.trim() || userFormEmail.split('@')[0],
             role: userFormRole,
             access_level: userFormAccessLevel,
-            hotel_id: userFormHotelId || null,
-            hotel_name: selectedHotel ? selectedHotel.name : null,
-            hotel_code: selectedHotel ? (selectedHotel.code || null) : null,
+            hotel_id: userFormHotelIds.length > 0 ? userFormHotelIds.join(',') : null,
+            hotel_name: selectedHotelsList.length > 0 ? selectedHotelsList.map(h => h.name).join(', ') : null,
+            hotel_code: selectedHotelsList.length > 0 ? selectedHotelsList.map(h => h.code || 'SBI').join(',') : null,
             is_brand_audit_lead: userFormIsBrandAuditLead,
             is_approved: userFormIsApproved,
             updated_at: new Date().toISOString()
@@ -1554,7 +1557,8 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     const [userFormDisplayName, setUserFormDisplayName] = useState('');
     const [userFormRole, setUserFormRole] = useState('');
     const [userFormAccessLevel, setUserFormAccessLevel] = useState<'admin' | 'auditor' | 'auditee'>('auditee');
-    const [userFormHotelId, setUserFormHotelId] = useState('');
+    const [userFormHotelIds, setUserFormHotelIds] = useState<string[]>([]);
+    const [adminHotelSearch, setAdminHotelSearch] = useState('');
     const [userFormIsBrandAuditLead, setUserFormIsBrandAuditLead] = useState(false);
     const [userFormIsApproved, setUserFormIsApproved] = useState(true);
     const [userFormError, setUserFormError] = useState('');
@@ -7061,19 +7065,85 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                             </div>
 
                             <div>
-                                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Assigned Hotel Property</label>
-                                <select 
-                                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all focus:ring-1 focus:ring-indigo-100"
-                                    value={userFormHotelId}
-                                    onChange={(e) => setUserFormHotelId(e.target.value)}
-                                >
-                                    <option value="">-- No Assigned Hotel / Corporate Office --</option>
-                                    {hotels.map(h => (
-                                        <option key={h.id} value={h.id}>
-                                            {h.name} {h.code ? `(${h.code})` : ''}
-                                        </option>
-                                    ))}
-                                </select>
+                                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 flex justify-between items-center">
+                                    <span>Assigned Hotel Properties</span>
+                                    <span className="text-[10px] text-indigo-600 font-extrabold normal-case">
+                                        {userFormHotelIds.length} properties selected
+                                    </span>
+                                </label>
+                                
+                                <div className="space-y-2">
+                                    {/* Quick Search */}
+                                    <input 
+                                        type="text"
+                                        placeholder="Filter properties... (e.g. Seef, Zest)"
+                                        className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-lg outline-none transition-all placeholder:text-slate-450"
+                                        value={adminHotelSearch}
+                                        onChange={(e) => setAdminHotelSearch(e.target.value)}
+                                    />
+                                    
+                                    {/* Scrollable multi-select container */}
+                                    <div className="max-h-[160px] overflow-y-auto border border-slate-200 rounded-xl p-2.5 space-y-1 bg-slate-50 divide-y divide-slate-100">
+                                        {hotels.filter(h => 
+                                            h.name.toLowerCase().includes(adminHotelSearch.toLowerCase()) ||
+                                            (h.code && h.code.toLowerCase().includes(adminHotelSearch.toLowerCase()))
+                                        ).map(h => {
+                                            const isChecked = userFormHotelIds.includes(h.id);
+                                            return (
+                                                <label 
+                                                    key={h.id} 
+                                                    className="flex items-start gap-2.5 py-2 px-1.5 hover:bg-white rounded-lg cursor-pointer transition-colors"
+                                                >
+                                                    <input 
+                                                        type="checkbox"
+                                                        className="mt-0.5 rounded text-indigo-600 focus:ring-indigo-500 h-3.5 w-3.5 cursor-pointer"
+                                                        checked={isChecked}
+                                                        onChange={() => {
+                                                            if (isChecked) {
+                                                                setUserFormHotelIds(userFormHotelIds.filter(id => id !== h.id));
+                                                            } else {
+                                                                setUserFormHotelIds([...userFormHotelIds, h.id]);
+                                                            }
+                                                        }}
+                                                    />
+                                                    <div className="min-w-0 leading-none">
+                                                        <p className="text-xs font-black text-slate-750 truncate">{h.name}</p>
+                                                        <p className="text-[9px] text-slate-400 font-bold uppercase tracking-tight mt-0.5">
+                                                            {h.code ? `${h.code} • ` : ''}{h.brandClass} • {h.location}
+                                                        </p>
+                                                    </div>
+                                                </label>
+                                            );
+                                        })}
+                                        {hotels.filter(h => 
+                                            h.name.toLowerCase().includes(adminHotelSearch.toLowerCase()) ||
+                                            (h.code && h.code.toLowerCase().includes(adminHotelSearch.toLowerCase()))
+                                        ).length === 0 && (
+                                            <p className="text-center py-4 text-slate-400 text-xs font-bold">No property matches search</p>
+                                        )}
+                                    </div>
+
+                                    {/* Tag pills */}
+                                    {userFormHotelIds.length > 0 && (
+                                        <div className="flex flex-wrap gap-1.5 pt-1.5">
+                                            {hotels.filter(h => userFormHotelIds.includes(h.id)).map(h => (
+                                                <span 
+                                                    key={h.id}
+                                                    className="inline-flex items-center gap-1 pl-2 pr-1.5 py-0.5 bg-indigo-50 border border-indigo-100 rounded-md text-[10px] font-bold text-indigo-950"
+                                                >
+                                                    <span>{h.code || h.name.slice(0, 8)}</span>
+                                                    <button 
+                                                        type="button"
+                                                        onClick={() => setUserFormHotelIds(userFormHotelIds.filter(id => id !== h.id))}
+                                                        className="p-0.5 hover:bg-indigo-100 rounded text-indigo-500 hover:text-indigo-800 transition-colors"
+                                                    >
+                                                        <span className="text-[8px] font-black">×</span>
+                                                    </button>
+                                                </span>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
                             </div>
 
                             <div className="flex flex-col gap-2.5 pt-2">

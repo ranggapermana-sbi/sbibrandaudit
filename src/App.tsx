@@ -14,12 +14,14 @@ import PendingCategoriesScreen from './components/PendingCategoriesScreen';
 import BrandingPropertyIdentificationScreen from './components/BrandingPropertyIdentificationScreen';
 import AdminPanelScreen from './components/AdminPanelScreen';
 import PendingApprovalScreen from './components/PendingApprovalScreen';
+import SelectHotelScreen from './components/SelectHotelScreen';
 import { supabase } from './lib/supabase';
 import { Loader2 } from 'lucide-react';
 
 export default function App() {
   const [currentScreen, setCurrentScreen] = useState<AppScreen>('login');
   const [userProfile, setUserProfile] = useState<any>(null);
+  const [activeHotel, setActiveHotel] = useState<any | null>(null);
   const [isLoadingSession, setIsLoadingSession] = useState(true);
   const [selectedCategory, setSelectedCategory] = useState<any>(null);
 
@@ -85,10 +87,15 @@ export default function App() {
           if (prof && (prof.access_level === 'admin' || (prof.first_name && prof.role && (prof.hotel_id || prof.hotel_name)))) {
             setUserProfile(prof);
             if (prof.email === 'brandaudit@swiss-belhotel.com' || prof.is_approved) {
-              if (prof.access_level === 'admin' || prof.access_level === 'auditor') {
-                setCurrentScreen('adminPanel');
+              const hotelIds = prof.hotel_id ? String(prof.hotel_id).split(',').map((s: string) => s.trim()).filter(Boolean) : [];
+              if (hotelIds.length > 1 && !activeHotel && prof.email !== 'brandaudit@swiss-belhotel.com') {
+                setCurrentScreen('selectHotel');
               } else {
-                setCurrentScreen('dashboard');
+                if (prof.access_level === 'admin' || prof.access_level === 'auditor') {
+                  setCurrentScreen('adminPanel');
+                } else {
+                  setCurrentScreen('dashboard');
+                }
               }
             } else {
               setCurrentScreen('pendingApproval');
@@ -162,10 +169,42 @@ export default function App() {
     return () => subscription.unsubscribe();
   }, []);
 
+  const handleSelectHotel = (hotel: any) => {
+    setActiveHotel(hotel);
+    setUserProfile((prev: any) => {
+      if (!prev) return null;
+      return {
+        ...prev,
+        assigned_hotel_id: prev.assigned_hotel_id || prev.hotel_id,
+        assigned_hotel_name: prev.assigned_hotel_name || prev.hotel_name,
+        assigned_hotel_code: prev.assigned_hotel_code || prev.hotel_code,
+        hotel_id: hotel.id,
+        hotel_name: hotel.name,
+        hotel_code: hotel.code
+      };
+    });
+    setCurrentScreen('dashboard');
+  };
+
+  const handleSwitchProperty = () => {
+    setUserProfile((prev: any) => {
+      if (!prev) return null;
+      return {
+        ...prev,
+        hotel_id: prev.assigned_hotel_id || prev.hotel_id,
+        hotel_name: prev.assigned_hotel_name || prev.hotel_name,
+        hotel_code: prev.assigned_hotel_code || prev.hotel_code
+      };
+    });
+    setActiveHotel(null);
+    setCurrentScreen('selectHotel');
+  };
+
   const handleLogout = async () => {
     setIsLoadingSession(true);
     await supabase.auth.signOut();
     setUserProfile(null);
+    setActiveHotel(null);
     setCurrentScreen('login');
     setIsLoadingSession(false);
   };
@@ -201,10 +240,15 @@ export default function App() {
           onComplete={(profile) => {
             setUserProfile(profile);
             if (profile?.email === 'brandaudit@swiss-belhotel.com' || profile?.is_approved) {
-              if (profile?.access_level === 'admin' || profile?.access_level === 'auditor') {
-                setCurrentScreen('adminPanel');
+              const hotelIds = profile.hotel_id ? String(profile.hotel_id).split(',').map((s: string) => s.trim()).filter(Boolean) : [];
+              if (hotelIds.length > 1 && profile?.email !== 'brandaudit@swiss-belhotel.com') {
+                setCurrentScreen('selectHotel');
               } else {
-                setCurrentScreen('dashboard');
+                if (profile?.access_level === 'admin' || profile?.access_level === 'auditor') {
+                  setCurrentScreen('adminPanel');
+                } else {
+                  setCurrentScreen('dashboard');
+                }
               }
             } else {
               setCurrentScreen('pendingApproval');
@@ -229,12 +273,21 @@ export default function App() {
         />
       )}
 
+      {currentScreen === 'selectHotel' && (
+        <SelectHotelScreen 
+          userProfile={userProfile}
+          onSelectHotel={handleSelectHotel}
+          onLogout={handleLogout}
+        />
+      )}
+
       {currentScreen === 'dashboard' && (
         <DashboardScreen 
           onViewPending={() => setCurrentScreen('pendingCategories')} 
           userProfile={userProfile}
           onProfileUpdate={setUserProfile}
           onLogout={handleLogout}
+          onSwitchProperty={handleSwitchProperty}
         />
       )}
       
@@ -265,6 +318,7 @@ export default function App() {
           userProfile={userProfile}
           onProfileUpdate={setUserProfile}
           onLogout={handleLogout}
+          onSwitchProperty={handleSwitchProperty}
         />
       ))}
     </div>

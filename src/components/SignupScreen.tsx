@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { User, Building2, Briefcase, ChevronDown, Check, Search, Sparkles, Building, LogOut, Loader2 } from 'lucide-react';
+import { User, Building2, Briefcase, ChevronDown, Check, Search, Sparkles, Building, LogOut, Loader2, X } from 'lucide-react';
 import { supabase, HOTELS_URL, HOTELS_KEY } from '../lib/supabase';
 
 interface Hotel {
@@ -50,7 +50,7 @@ export default function SignupScreen({ onComplete, onLogout }: SignupScreenProps
     // Hotel autocomplete state
     const [hotels, setHotels] = useState<Hotel[]>([]);
     const [hotelSearch, setHotelSearch] = useState('');
-    const [selectedHotel, setSelectedHotel] = useState<Hotel | null>(null);
+    const [selectedHotels, setSelectedHotels] = useState<Hotel[]>([]);
     const [isHotelDropdownOpen, setIsHotelDropdownOpen] = useState(false);
     const [isLoadingHotels, setIsLoadingHotels] = useState(false);
     
@@ -168,8 +168,8 @@ export default function SignupScreen({ onComplete, onLogout }: SignupScreenProps
         e.preventDefault();
         const newErrors: { [key: string]: string } = {};
 
-        if (!selectedHotel) {
-            newErrors.hotel = 'Please select your hotel from the autocomplete properties list.';
+        if (selectedHotels.length === 0) {
+            newErrors.hotel = 'Please select at least one assigned hotel from the autocomplete properties list.';
         }
         if (!firstName.trim()) {
             newErrors.firstName = 'First Name is a mandatory requirement.';
@@ -202,9 +202,9 @@ export default function SignupScreen({ onComplete, onLogout }: SignupScreenProps
                 email: userEmail,
                 first_name: firstName.trim(),
                 last_name: lastName.trim(),
-                hotel_id: selectedHotel?.id && selectedHotel.id !== 'undefined' ? selectedHotel.id : null,
-                hotel_name: selectedHotel?.name || null,
-                hotel_code: selectedHotel?.code || null,
+                hotel_id: selectedHotels.length > 0 ? selectedHotels.map(h => h.id).join(',') : null,
+                hotel_name: selectedHotels.length > 0 ? selectedHotels.map(h => h.name).join(', ') : null,
+                hotel_code: selectedHotels.length > 0 ? selectedHotels.map(h => h.code || 'SBI').join(',') : null,
                 role: role,
                 access_level: (role === 'Admin' || isAuditLead) ? 'admin' : (role === 'Auditor' ? 'auditor' : 'auditee'),
                 is_brand_audit_lead: isAuditLead,
@@ -296,7 +296,7 @@ export default function SignupScreen({ onComplete, onLogout }: SignupScreenProps
                         <div id="error-anchor-hotel" className="relative" ref={dropdownRef}>
                             <label className="block text-[11px] font-black text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1">
                                 <Building2 size={13} className="text-slate-400" />
-                                Assigned Hotel Property <span className="text-red-500">*</span>
+                                Assigned Hotel Properties <span className="text-red-500">*</span>
                             </label>
                             
                             <div className="relative">
@@ -306,15 +306,10 @@ export default function SignupScreen({ onComplete, onLogout }: SignupScreenProps
                                 <input 
                                     type="text"
                                     className={`w-full pl-11 pr-10 py-3 bg-slate-50 border ${errors.hotel ? 'border-red-300 focus:border-red-500 focus:ring-red-100' : 'border-slate-200 focus:border-indigo-500 focus:ring-indigo-100'} hover:border-slate-300 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all placeholder:text-slate-400 focus:ring-2`}
-                                    placeholder={isLoadingHotels ? "Loading database properties..." : "Type to search properties... (e.g. Seef)"}
-                                    value={selectedHotel ? selectedHotel.name : hotelSearch}
+                                    placeholder={isLoadingHotels ? "Loading database properties..." : "Type to assign properties... (e.g. Seef, Jakarta)"}
+                                    value={hotelSearch}
                                     onChange={(e) => {
-                                        if (selectedHotel) {
-                                            setSelectedHotel(null);
-                                            setHotelSearch(e.target.value);
-                                        } else {
-                                            setHotelSearch(e.target.value);
-                                        }
+                                        setHotelSearch(e.target.value);
                                         setIsHotelDropdownOpen(true);
                                     }}
                                     onFocus={() => setIsHotelDropdownOpen(true)}
@@ -329,37 +324,47 @@ export default function SignupScreen({ onComplete, onLogout }: SignupScreenProps
                             {isHotelDropdownOpen && (
                                 <div className="absolute w-full mt-2 bg-white border border-slate-200/90 rounded-2xl shadow-xl z-50 max-h-[220px] overflow-y-auto divide-y divide-slate-100 animate-slideUp">
                                     {filteredHotels.length > 0 ? (
-                                        filteredHotels.map((hotel, index) => (
-                                            <div 
-                                                key={`${hotel.id}-${index}`}
-                                                className="px-5 py-3.5 hover:bg-indigo-50/40 cursor-pointer flex items-center justify-between transition-colors group"
-                                                onClick={() => {
-                                                    setSelectedHotel(hotel);
-                                                    setHotelSearch('');
-                                                    setIsHotelDropdownOpen(false);
-                                                    // clear error
-                                                    if (errors.hotel) {
-                                                        const updated = { ...errors };
-                                                        delete updated.hotel;
-                                                        setErrors(updated);
-                                                    }
-                                                }}
-                                            >
-                                                <div>
-                                                    <p className="text-slate-800 text-xs font-bold group-hover:text-indigo-900 transition-colors">
-                                                        {hotel.name}
-                                                    </p>
-                                                    <p className="text-[10px] text-slate-400 font-extrabold tracking-tight mt-0.5 uppercase">
-                                                        {hotel.code ? `${hotel.code} • ` : ''}{hotel.brandClass} • <span className="text-slate-400">{hotel.location}</span>
-                                                    </p>
+                                        filteredHotels.map((hotel, index) => {
+                                            const isAlreadySelected = selectedHotels.some(h => h.id === hotel.id);
+                                            return (
+                                                <div 
+                                                    key={`${hotel.id}-${index}`}
+                                                    className={`px-5 py-3.5 hover:bg-indigo-50/40 cursor-pointer flex items-center justify-between transition-colors group ${isAlreadySelected ? 'opacity-50 cursor-default bg-slate-50/50' : ''}`}
+                                                    onClick={() => {
+                                                        if (isAlreadySelected) return;
+                                                        setSelectedHotels([...selectedHotels, hotel]);
+                                                        setHotelSearch('');
+                                                        setIsHotelDropdownOpen(false);
+                                                        // clear error
+                                                        if (errors.hotel) {
+                                                            const updated = { ...errors };
+                                                            delete updated.hotel;
+                                                            setErrors(updated);
+                                                        }
+                                                    }}
+                                                >
+                                                    <div>
+                                                        <p className="text-slate-800 text-xs font-bold group-hover:text-indigo-900 transition-colors">
+                                                            {hotel.name}
+                                                        </p>
+                                                        <p className="text-[10px] text-slate-400 font-extrabold tracking-tight mt-0.5 uppercase">
+                                                            {hotel.code ? `${hotel.code} • ` : ''}{hotel.brandClass} • <span className="text-slate-400">{hotel.location}</span>
+                                                        </p>
+                                                    </div>
+                                                    <div className="flex items-center gap-1.5 shrink-0">
+                                                        {isAlreadySelected ? (
+                                                            <span className="bg-emerald-50 text-emerald-700 text-[8px] font-black px-2 py-0.5 rounded uppercase border border-emerald-100">
+                                                                Assigned
+                                                            </span>
+                                                        ) : (
+                                                            <span className="bg-slate-100 text-slate-600 text-[9px] font-extrabold px-1.5 py-0.5 rounded uppercase">
+                                                                {hotel.region || 'AsiaPac'}
+                                                            </span>
+                                                        )}
+                                                    </div>
                                                 </div>
-                                                <div className="flex items-center gap-1.5 shrink-0">
-                                                    <span className="bg-slate-100 text-slate-600 text-[9px] font-extrabold px-1.5 py-0.5 rounded uppercase">
-                                                        {hotel.region || 'AsiaPac'}
-                                                    </span>
-                                                </div>
-                                            </div>
-                                        ))
+                                            );
+                                        })
                                     ) : (
                                         <div className="px-5 py-6 text-center text-slate-450 text-xs">
                                             No matching hotel properties found. Try a different search input.
@@ -368,18 +373,29 @@ export default function SignupScreen({ onComplete, onLogout }: SignupScreenProps
                                 </div>
                             )}
 
-                            {selectedHotel && (
-                                <div className="mt-2.5 p-3.5 bg-emerald-50/50 border border-emerald-100/60 rounded-xl flex items-center gap-3 animate-fadeIn">
-                                    <div className="p-2 bg-emerald-100/60 text-emerald-700 rounded-lg shrink-0">
-                                        <Building size={16} />
-                                    </div>
-                                    <div className="min-w-0">
-                                        <p className="text-emerald-800 text-xs font-extrabold leading-none">
-                                            {selectedHotel.name}
-                                        </p>
-                                        <p className="text-[10px] text-slate-450 font-bold uppercase mt-1">
-                                            Location: {selectedHotel.location} ({selectedHotel.code || 'SBI'})
-                                        </p>
+                            {/* List of currently selected hotels */}
+                            {selectedHotels.length > 0 && (
+                                <div className="mt-3 space-y-2">
+                                    <p className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest">Currently Selected Properties:</p>
+                                    <div className="flex flex-wrap gap-2">
+                                        {selectedHotels.map((hotel) => (
+                                            <div 
+                                                key={hotel.id}
+                                                className="inline-flex items-center gap-2 pl-3 pr-2 py-1.5 bg-indigo-50/80 border border-indigo-100/60 rounded-xl text-xs font-bold text-indigo-950 animate-fadeIn shadow-sm"
+                                            >
+                                                <span>{hotel.name} {hotel.code ? `(${hotel.code})` : ''}</span>
+                                                <button 
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setSelectedHotels(selectedHotels.filter(h => h.id !== hotel.id));
+                                                    }}
+                                                    className="p-0.5 hover:bg-indigo-100 rounded-md text-indigo-400 hover:text-indigo-700 transition-all cursor-pointer"
+                                                    title="Remove Property"
+                                                >
+                                                    <X size={12} />
+                                                </button>
+                                            </div>
+                                        ))}
                                     </div>
                                 </div>
                             )}

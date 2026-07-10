@@ -7,9 +7,10 @@ interface DashboardProps {
   userProfile?: any;
   onProfileUpdate?: (profile: any) => void;
   onLogout: () => void;
+  onSwitchProperty?: () => void;
 }
 
-export default function DashboardScreen({ onViewPending, userProfile, onProfileUpdate, onLogout }: DashboardProps) {
+export default function DashboardScreen({ onViewPending, userProfile, onProfileUpdate, onLogout, onSwitchProperty }: DashboardProps) {
   const [auditItems, setAuditItems] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -367,9 +368,20 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
         <section className="mb-4 sm:mb-8">
             <div className="flex justify-between items-end">
                 <div>
-                    <p className="text-indigo-600 text-[9px] sm:text-[10px] tracking-widest uppercase font-bold">
-                        {userProfile?.hotel_name || 'Swiss-Belhotel International'} 
-                        {userProfile?.hotel_code ? ` (${userProfile.hotel_code})` : ''}
+                    <p className="text-indigo-600 text-[9px] sm:text-[10px] tracking-widest uppercase font-bold flex flex-wrap items-center gap-1.5 sm:gap-2">
+                        <span>
+                            {userProfile?.hotel_name || 'Swiss-Belhotel International'} 
+                            {userProfile?.hotel_code ? ` (${userProfile.hotel_code})` : ''}
+                        </span>
+                        {onSwitchProperty && String(userProfile?.hotel_id || '').split(',').length > 1 && (
+                            <button 
+                                onClick={onSwitchProperty}
+                                className="px-2 py-0.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-[8px] sm:text-[9px] font-extrabold uppercase rounded-md border border-indigo-150 transition-colors shadow-sm cursor-pointer flex items-center gap-1"
+                            >
+                                <Building size={10} />
+                                Switch Property
+                            </button>
+                        )}
                     </p>
                     <div className="flex items-center gap-1.5 sm:gap-2 mt-0.5 sm:mt-1">
                         <h2 className="text-lg sm:text-2xl font-bold text-slate-900">
