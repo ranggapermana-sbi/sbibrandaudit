@@ -107,7 +107,9 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
         
       if (error) throw error;
       
-      const sortedData = (data || []).sort((a: any, b: any) => {
+      const filtered = (data || []).filter((item: any) => item.filled_by_hotel !== false && item.filled_by_hotel !== 'false');
+      
+      const sortedData = filtered.sort((a: any, b: any) => {
         if (a.sort_order !== undefined && a.sort_order !== null && b.sort_order !== undefined && b.sort_order !== null) {
           return Number(a.sort_order) - Number(b.sort_order);
         }
@@ -496,27 +498,7 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
                 )}
             </div>
 
-            {/* Micro Stats Banner */}
-            {!isLoading && groupedData.length > 0 && (
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 mb-4 sm:mb-6 bg-white sm:bg-slate-50 p-2.5 sm:p-3.5 rounded-xl sm:rounded-2xl border border-slate-200/80 sm:border-slate-100 text-center select-none shadow-xs">
-                    <div>
-                        <p className="text-[9px] sm:text-[10px] text-slate-400 font-bold uppercase tracking-wider">Departments</p>
-                        <p className="text-base sm:text-lg font-extrabold text-slate-800 mt-0.5">{totalDepts}</p>
-                    </div>
-                    <div className="border-l border-slate-200/60">
-                        <p className="text-[9px] sm:text-[10px] text-slate-400 font-bold uppercase tracking-wider">Categories</p>
-                        <p className="text-base sm:text-lg font-extrabold text-slate-800 mt-0.5">{totalCats}</p>
-                    </div>
-                    <div className="border-l border-slate-200/60">
-                        <p className="text-[9px] sm:text-[10px] text-slate-400 font-bold uppercase tracking-wider">Audit Items</p>
-                        <p className="text-base sm:text-lg font-extrabold text-indigo-700 mt-0.5">{totalItems}</p>
-                    </div>
-                    <div className="border-l border-slate-200/60">
-                        <p className="text-[9px] sm:text-[10px] text-slate-400 font-bold uppercase tracking-wider">Total Points</p>
-                        <p className="text-base sm:text-lg font-extrabold text-emerald-700 mt-0.5">{totalPoints} PTS</p>
-                    </div>
-                </div>
-            )}
+
 
             <div className="space-y-3 sm:space-y-4">
                 {isLoading ? (
