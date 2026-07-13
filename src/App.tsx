@@ -222,105 +222,111 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen text-slate-900">
-      {currentScreen === 'login' && (
-        <LoginScreen 
-          onLogin={() => {
-            setIsLoadingSession(true);
-            supabase.auth.getSession().then(({ data: { session } }) => {
-              checkProfileOnboarding(session);
-            });
-          }} 
-          onAdminAccess={() => setCurrentScreen('adminPanel')} 
-        />
-      )}
-      
-      {currentScreen === 'signup' && (
-        <SignupScreen 
-          onComplete={(profile) => {
-            setUserProfile(profile);
-            if (profile?.email === 'brandaudit@swiss-belhotel.com' || profile?.is_approved) {
-              const hotelIds = profile.hotel_id ? String(profile.hotel_id).split(',').map((s: string) => s.trim()).filter(Boolean) : [];
-              if (hotelIds.length > 1 && profile?.email !== 'brandaudit@swiss-belhotel.com') {
-                setCurrentScreen('selectHotel');
-              } else {
-                if (profile?.access_level === 'admin' || profile?.access_level === 'auditor') {
-                  setCurrentScreen('adminPanel');
+    <div className="min-h-screen text-slate-900 flex flex-col justify-between">
+      <div className="flex-1 w-full">
+        {currentScreen === 'login' && (
+          <LoginScreen 
+            onLogin={() => {
+              setIsLoadingSession(true);
+              supabase.auth.getSession().then(({ data: { session } }) => {
+                checkProfileOnboarding(session);
+              });
+            }} 
+            onAdminAccess={() => setCurrentScreen('adminPanel')} 
+          />
+        )}
+        
+        {currentScreen === 'signup' && (
+          <SignupScreen 
+            onComplete={(profile) => {
+              setUserProfile(profile);
+              if (profile?.email === 'brandaudit@swiss-belhotel.com' || profile?.is_approved) {
+                const hotelIds = profile.hotel_id ? String(profile.hotel_id).split(',').map((s: string) => s.trim()).filter(Boolean) : [];
+                if (hotelIds.length > 1 && profile?.email !== 'brandaudit@swiss-belhotel.com') {
+                  setCurrentScreen('selectHotel');
                 } else {
-                  setCurrentScreen('dashboard');
+                  if (profile?.access_level === 'admin' || profile?.access_level === 'auditor') {
+                    setCurrentScreen('adminPanel');
+                  } else {
+                    setCurrentScreen('dashboard');
+                  }
                 }
+              } else {
+                setCurrentScreen('pendingApproval');
               }
-            } else {
-              setCurrentScreen('pendingApproval');
-            }
-          }} 
-          onLogout={handleLogout}
-        />
-      )}
+            }} 
+            onLogout={handleLogout}
+          />
+        )}
 
-      {currentScreen === 'pendingApproval' && (
-        <PendingApprovalScreen 
-          userProfile={userProfile}
-          onLogout={handleLogout}
-          onApproved={(latestProfile) => {
-            setUserProfile(latestProfile);
-            if (latestProfile.access_level === 'admin' || latestProfile.access_level === 'auditor') {
-              setCurrentScreen('adminPanel');
-            } else {
-              setCurrentScreen('dashboard');
-            }
-          }}
-        />
-      )}
+        {currentScreen === 'pendingApproval' && (
+          <PendingApprovalScreen 
+            userProfile={userProfile}
+            onLogout={handleLogout}
+            onApproved={(latestProfile) => {
+              setUserProfile(latestProfile);
+              if (latestProfile.access_level === 'admin' || latestProfile.access_level === 'auditor') {
+                setCurrentScreen('adminPanel');
+              } else {
+                setCurrentScreen('dashboard');
+              }
+            }}
+          />
+        )}
 
-      {currentScreen === 'selectHotel' && (
-        <SelectHotelScreen 
-          userProfile={userProfile}
-          onSelectHotel={handleSelectHotel}
-          onLogout={handleLogout}
-        />
-      )}
+        {currentScreen === 'selectHotel' && (
+          <SelectHotelScreen 
+            userProfile={userProfile}
+            onSelectHotel={handleSelectHotel}
+            onLogout={handleLogout}
+          />
+        )}
 
-      {currentScreen === 'dashboard' && (
-        <DashboardScreen 
-          onViewPending={() => setCurrentScreen('pendingCategories')} 
-          userProfile={userProfile}
-          onProfileUpdate={setUserProfile}
-          onLogout={handleLogout}
-          onSwitchProperty={handleSwitchProperty}
-        />
-      )}
-      
-      {currentScreen === 'step1' && <Step1Screen onNext={() => setCurrentScreen('step2')} />}
-      {currentScreen === 'step2' && <Step2Screen />}
-      {currentScreen === 'pendingCategories' && (
-        <PendingCategoriesScreen 
-          onBack={() => setCurrentScreen('dashboard')} 
-          onNavigate={(screen, category) => {
-            if (category) setSelectedCategory(category);
-            setCurrentScreen(screen);
-          }} 
-          userProfile={userProfile}
-        />
-      )}
-      {currentScreen === 'brandingPropertyIdentification' && (
-        <BrandingPropertyIdentificationScreen 
-          selectedCategory={selectedCategory}
-          userProfile={userProfile}
-          onBack={() => setCurrentScreen('pendingCategories')} 
-        />
-      )}
-      {currentScreen === 'adminPanel' && (userProfile?.access_level === 'admin' || userProfile?.access_level === 'auditor' ? (
-        <AdminPanelScreen userProfile={userProfile} onBack={() => setCurrentScreen('dashboard')} onLogout={handleLogout} />
-      ) : (
-        <DashboardScreen 
-          onViewPending={() => setCurrentScreen('pendingCategories')} 
-          userProfile={userProfile}
-          onProfileUpdate={setUserProfile}
-          onLogout={handleLogout}
-          onSwitchProperty={handleSwitchProperty}
-        />
-      ))}
+        {currentScreen === 'dashboard' && (
+          <DashboardScreen 
+            onViewPending={() => setCurrentScreen('pendingCategories')} 
+            userProfile={userProfile}
+            onProfileUpdate={setUserProfile}
+            onLogout={handleLogout}
+            onSwitchProperty={handleSwitchProperty}
+          />
+        )}
+        
+        {currentScreen === 'step1' && <Step1Screen onNext={() => setCurrentScreen('step2')} />}
+        {currentScreen === 'step2' && <Step2Screen />}
+        {currentScreen === 'pendingCategories' && (
+          <PendingCategoriesScreen 
+            onBack={() => setCurrentScreen('dashboard')} 
+            onNavigate={(screen, category) => {
+              if (category) setSelectedCategory(category);
+              setCurrentScreen(screen);
+            }} 
+            userProfile={userProfile}
+          />
+        )}
+        {currentScreen === 'brandingPropertyIdentification' && (
+          <BrandingPropertyIdentificationScreen 
+            selectedCategory={selectedCategory}
+            userProfile={userProfile}
+            onBack={() => setCurrentScreen('pendingCategories')} 
+          />
+        )}
+        {currentScreen === 'adminPanel' && (userProfile?.access_level === 'admin' || userProfile?.access_level === 'auditor' ? (
+          <AdminPanelScreen userProfile={userProfile} onBack={() => setCurrentScreen('dashboard')} onLogout={handleLogout} />
+        ) : (
+          <DashboardScreen 
+            onViewPending={() => setCurrentScreen('pendingCategories')} 
+            userProfile={userProfile}
+            onProfileUpdate={setUserProfile}
+            onLogout={handleLogout}
+            onSwitchProperty={handleSwitchProperty}
+          />
+        ))}
+      </div>
+      <footer className="w-full py-6 text-center text-[11px] text-slate-400 font-bold border-t border-slate-200/40 bg-white/50 backdrop-blur-xs select-none shrink-0 mt-8">
+        <p className="tracking-wide">Developed by Group Product for Sales, Marketing & Loyalty.</p>
+        <p className="mt-1 tracking-wider uppercase font-extrabold text-slate-500">Swiss-Belhotel International</p>
+      </footer>
     </div>
   );
 }
