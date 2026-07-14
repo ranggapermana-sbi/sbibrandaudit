@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ChevronRight, FolderOpen, Loader2, CheckCircle2 } from 'lucide-react';
+import { ChevronRight, FolderOpen, Loader2, CheckCircle2, Lock, Unlock, Send, Clock } from 'lucide-react';
 import { supabase, HOTELS_URL, HOTELS_KEY } from '../lib/supabase';
 import { DEFAULT_CATEGORIES, DEFAULT_OFFLINE_ITEMS } from '../lib/constants';
 
@@ -13,6 +13,11 @@ export default function PendingCategoriesScreen({ onBack, onNavigate, userProfil
     const [categories, setCategories] = useState<any[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [hotels, setHotels] = useState<any[]>([]);
+
+    const [isFinalized, setIsFinalized] = useState(false);
+    const [finalizedBy, setFinalizedBy] = useState<string | null>(null);
+    const [finalizedAt, setFinalizedAt] = useState<string | null>(null);
+    const [isSubmittingFinalize, setIsSubmittingFinalize] = useState(false);
 
     const isAuditee = !!userProfile && userProfile.access_level !== 'admin' && userProfile.access_level !== 'auditor';
     const initialHotelId = isAuditee ? (userProfile?.hotel_id || '') : (userProfile?.hotel_id || localStorage.getItem('selected_hotel_id') || '');
@@ -277,7 +282,7 @@ export default function PendingCategoriesScreen({ onBack, onNavigate, userProfil
                     total: catItems.length,
                     completed: Math.min(completedCount, catItems.length)
                 };
-            });
+            }).filter((cat: any) => cat.total > 0);
 
             setCategories(mapped);
         } catch (err) {
@@ -389,7 +394,7 @@ export default function PendingCategoriesScreen({ onBack, onNavigate, userProfil
                     total: catItems.length,
                     completed: Math.min(completedCount, catItems.length)
                 };
-            });
+            }).filter((cat: any) => cat.total > 0);
 
             setCategories(mappedFallback);
         } finally {
@@ -397,8 +402,133 @@ export default function PendingCategoriesScreen({ onBack, onNavigate, userProfil
         }
     };
 
+    const checkFinalizedStatus = async () => {
+        if (!selectedHotelId) return;
+        try {
+            const { data, error } = await supabase
+                .from('hotel_audit_status')
+                .select('*')
+                .eq('hotel_id', selectedHotelId)
+                .maybeSingle();
+            
+            if (error) {
+                console.warn("Could not fetch finalized status:", error);
+                const localFinalized = localStorage.getItem(`sbi_audit_finalized_${selectedHotelId}`) === 'true';
+                setIsFinalized(localFinalized);
+                if (localFinalized) {
+                    setFinalizedBy(localStorage.getItem(`sbi_audit_finalized_by_${selectedHotelId}`) || 'Self');
+                    setFinalizedAt(localStorage.getItem(`sbi_audit_finalized_at_${selectedHotelId}`) || new Date().toISOString());
+                } else {
+                    setFinalizedBy(null);
+                    setFinalizedAt(null);
+                }
+            } else if (data) {
+                setIsFinalized(!!data.is_finalized);
+                setFinalizedBy(data.finalized_by || null);
+                setFinalizedAt(data.finalized_at || null);
+                localStorage.setItem(`sbi_audit_finalized_${selectedHotelId}`, String(!!data.is_finalized));
+                if (data.finalized_by) localStorage.setItem(`sbi_audit_finalized_by_${selectedHotelId}`, data.finalized_by);
+                if (data.finalized_at) localStorage.setItem(`sbi_audit_finalized_at_${selectedHotelId}`, data.finalized_at);
+            } else {
+                setIsFinalized(false);
+                setFinalizedBy(null);
+                setFinalizedAt(null);
+                localStorage.setItem(`sbi_audit_finalized_${selectedHotelId}`, 'false');
+                localStorage.removeItem(`sbi_audit_finalized_by_${selectedHotelId}`);
+                localStorage.removeItem(`sbi_audit_finalized_at_${selectedHotelId}`);
+            }
+        } catch (err) {
+            console.warn("Error checking finalized status:", err);
+            const localFinalized = localStorage.getItem(`sbi_audit_finalized_${selectedHotelId}`) === 'true';
+            setIsFinalized(localFinalized);
+            if (localFinalized) {
+                setFinalizedBy(localStorage.getItem(`sbi_audit_finalized_by_${selectedHotelId}`) || 'Self');
+                setFinalizedAt(localStorage.getItem(`sbi_audit_finalized_at_${selectedHotelId}`) || new Date().toISOString());
+            }
+        }
+    };
+
+    const handleFinalize = async () => {
+        if (!selectedHotelId) return;
+        const confirmMsg = `Are you sure you want to finalise and submit your self-audit?\n\nTasks Completed: ${totalCompleted} / ${totalTasks}\n\nOnce finalised, you cannot submit or edit any evidence or responses again unless updated/unlocked by an admin.`;
+        if (!window.confirm(confirmMsg)) return;
+
+        setIsSubmittingFinalize(true);
+        const submitterName = userProfile?.full_name || userProfile?.email || 'Hotel Representative';
+        const finalizedDate = new Date().toISOString();
+
+        try {
+            const { error } = await supabase
+                .from('hotel_audit_status')
+                .upsert({
+                    hotel_id: selectedHotelId,
+                    is_finalized: true,
+                    finalized_at: finalizedDate,
+                    finalized_by: submitterName,
+                    updated_at: finalizedDate
+                }, { onConflict: 'hotel_id' });
+
+            if (error) {
+                console.warn("Database save failed, using local storage fallback for finalized status:", error);
+                if (error.code === '42P01') {
+                    alert("Self-audit finalised in offline fallback. To enable live sync, please ask your admin to run the SQL migration in Supabase.");
+                } else {
+                    alert("Failed to submit to database: " + error.message + ". Finalised offline.");
+                }
+            }
+
+            // Always save to localStorage as fallback
+            localStorage.setItem(`sbi_audit_finalized_${selectedHotelId}`, 'true');
+            localStorage.setItem(`sbi_audit_finalized_by_${selectedHotelId}`, submitterName);
+            localStorage.setItem(`sbi_audit_finalized_at_${selectedHotelId}`, finalizedDate);
+
+            setIsFinalized(true);
+            setFinalizedBy(submitterName);
+            setFinalizedAt(finalizedDate);
+        } catch (err) {
+            console.error(err);
+            alert("An error occurred during finalisation.");
+        } finally {
+            setIsSubmittingFinalize(false);
+        }
+    };
+
+    const handleUnlockByAdmin = async () => {
+        if (!selectedHotelId) return;
+        if (!window.confirm("Admin/Auditor: Are you sure you want to unlock this self-audit? This will allow the hotel to edit and submit evidence again.")) return;
+
+        setIsSubmittingFinalize(true);
+        try {
+            const { error } = await supabase
+                .from('hotel_audit_status')
+                .upsert({
+                    hotel_id: selectedHotelId,
+                    is_finalized: false,
+                    updated_at: new Date().toISOString()
+                }, { onConflict: 'hotel_id' });
+
+            if (error) {
+                console.warn("Database unlock failed, using local storage fallback:", error);
+            }
+
+            localStorage.setItem(`sbi_audit_finalized_${selectedHotelId}`, 'false');
+            localStorage.removeItem(`sbi_audit_finalized_by_${selectedHotelId}`);
+            localStorage.removeItem(`sbi_audit_finalized_at_${selectedHotelId}`);
+
+            setIsFinalized(false);
+            setFinalizedBy(null);
+            setFinalizedAt(null);
+        } catch (err) {
+            console.error(err);
+            alert("An error occurred.");
+        } finally {
+            setIsSubmittingFinalize(false);
+        }
+    };
+
     useEffect(() => {
         fetchCategoriesAndItems();
+        checkFinalizedStatus();
     }, [selectedHotelId, hotels]);
 
     const totalTasks = categories.reduce((sum, c) => sum + c.total, 0);
@@ -414,6 +544,18 @@ export default function PendingCategoriesScreen({ onBack, onNavigate, userProfil
                 <h1 className="text-sm sm:text-lg font-bold text-slate-900 tracking-tight ml-2.5 sm:ml-4">Self-Audit Pending Tasks</h1>
             </header>
             <main className="max-w-4xl mx-auto py-3 sm:py-5 px-1 sm:px-3 space-y-3 sm:space-y-4">
+                {isFinalized && (
+                    <div className="bg-amber-50 border border-amber-200/80 rounded-xl sm:rounded-2xl p-3 sm:p-4 shadow-xs flex items-start gap-3 animate-fadeIn mb-1">
+                        <Lock className="text-amber-600 shrink-0 mt-0.5" size={18} />
+                        <div>
+                            <p className="text-xs font-black text-amber-850">Self-Audit Finalised & Locked</p>
+                            <p className="text-[11px] text-amber-700 mt-0.5 leading-relaxed">
+                                This property's self-audit is finalised and locked for editing. You cannot upload new evidence, change inputs, or edit notes unless an administrator unlocks the property.
+                            </p>
+                        </div>
+                    </div>
+                )}
+
                 {/* For Auditees, show assigned hotel */}
                 {isAuditee && (
                     userProfile?.hotel_id ? (
@@ -518,6 +660,61 @@ export default function PendingCategoriesScreen({ onBack, onNavigate, userProfil
                                 </div>
                             );
                         })}
+                    </div>
+                )}
+
+                {/* Finalise & Submit Button at the bottom */}
+                {!isLoading && categories.length > 0 && (isFinalized || (isAuditee && userProfile?.is_brand_audit_lead)) && (
+                    <div className="bg-white border border-slate-200 rounded-xl sm:rounded-2xl p-4 sm:p-6 shadow-sm mt-6 flex flex-col sm:flex-row items-center justify-between gap-4">
+                        <div className="text-center sm:text-left">
+                            <h3 className="font-bold text-slate-900 text-sm sm:text-base flex items-center justify-center sm:justify-start gap-1.5">
+                                {isFinalized ? (
+                                    <><Lock size={16} className="text-amber-500" /> Self-Audit Finalised</>
+                                ) : (
+                                    'Wrap up Self-Audit'
+                                )}
+                            </h3>
+                            <p className="text-xs text-slate-500 mt-1">
+                                {isFinalized 
+                                    ? `Submitted on ${finalizedAt ? new Date(finalizedAt).toLocaleDateString() : ''} by ${finalizedBy || 'the hotel representative'}.`
+                                    : "Finalise and submit your self-audit to lock evidence for evaluation."
+                                }
+                            </p>
+                        </div>
+                        {isFinalized ? (
+                            <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+                                <span className="inline-flex items-center justify-center gap-1.5 px-4 py-2.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-xl text-xs sm:text-sm font-black w-full sm:w-auto">
+                                    <CheckCircle2 size={16} />
+                                    Audit Submitted & Locked
+                                </span>
+                                {!isAuditee && (
+                                    <button
+                                        onClick={handleUnlockByAdmin}
+                                        disabled={isSubmittingFinalize}
+                                        className="px-4 py-2.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 hover:border-rose-300 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-1.5 transition-all outline-none active:scale-95 disabled:opacity-50"
+                                    >
+                                        <Unlock size={14} />
+                                        Unlock Audit
+                                    </button>
+                                )}
+                            </div>
+                        ) : (
+                            totalCompleted > 0 && totalCompleted === totalTasks ? (
+                                <button
+                                    onClick={handleFinalize}
+                                    disabled={isSubmittingFinalize}
+                                    className="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-6 py-2.5 sm:py-3 rounded-xl text-xs sm:text-sm transition-all active:scale-[0.98] disabled:opacity-70 flex items-center justify-center gap-2"
+                                >
+                                    <Send size={14} />
+                                    {isSubmittingFinalize ? 'Submitting...' : 'Finalise & Submit'}
+                                </button>
+                            ) : (
+                                <span className="inline-flex items-center justify-center gap-1.5 px-4 py-2.5 bg-slate-50 text-slate-500 border border-slate-200 rounded-xl text-xs sm:text-sm font-bold w-full sm:w-auto">
+                                    <Clock size={16} className="text-slate-400 animate-pulse" />
+                                    Complete all tasks ({totalCompleted}/{totalTasks}) to finalise
+                                </span>
+                            )
+                        )}
                     </div>
                 )}
             </main>

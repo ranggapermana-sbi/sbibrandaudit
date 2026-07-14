@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, CheckCircle, Clock, Building, BarChart3, ChevronRight, Plus, Trash2, Edit, Search, X, AlertCircle, MapPin, Settings2, Calendar, Star, Briefcase, ClipboardList, FileCheck, Layers, Package, Camera, ImageIcon, FileText, Hash, Type, CheckSquare, Users, ShieldCheck, Percent, GripVertical, ChevronUp, ChevronDown, Eye, User, RefreshCw, CheckCircle2, Maximize2, ExternalLink, ZoomIn, Database, Copy, Check } from 'lucide-react';
+import { ArrowLeft, CheckCircle, Clock, Building, BarChart3, ChevronRight, Plus, Trash2, Edit, Search, X, AlertCircle, MapPin, Settings2, Calendar, Star, Briefcase, ClipboardList, FileCheck, Layers, Package, Camera, ImageIcon, FileText, Hash, Type, CheckSquare, Users, ShieldCheck, Percent, GripVertical, ChevronUp, ChevronDown, Eye, User, RefreshCw, CheckCircle2, Maximize2, ExternalLink, ZoomIn, Database, Copy, Check, Lock, Unlock } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
 import { Department, Hotel, AuditBatch, AuditCategory, AuditItem, AuditGroup } from '../types';
@@ -86,7 +86,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     const [groupAssignmentTab, setGroupAssignmentTab] = useState<'categories' | 'items'>('categories');
     const [groupSearchQuery, setGroupSearchQuery] = useState('');
     const [showSqlModal, setShowSqlModal] = useState(false);
-    const [sqlModalTab, setSqlModalTab] = useState<'auditor' | 'checklist'>('checklist');
+    const [sqlModalTab, setSqlModalTab] = useState<'auditor' | 'checklist' | 'finalize'>('checklist');
     const [groupExpandedCats, setGroupExpandedCats] = useState<Record<string, boolean>>({});
     const [enlargedImage, setEnlargedImage] = useState<{ url: string; title?: string } | null>(null);
 
@@ -1139,6 +1139,79 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         return DEFAULT_HOTELS;
     });
 
+    const [finalizedStatuses, setFinalizedStatuses] = useState<Record<string, { is_finalized: boolean, finalized_by?: string, finalized_at?: string }>>({});
+
+    const fetchFinalizedStatuses = async () => {
+        try {
+            const { data, error } = await supabase
+                .from('hotel_audit_status')
+                .select('*');
+            
+            if (error) {
+                console.warn("Could not fetch finalized statuses:", error);
+                const localStatuses: Record<string, any> = {};
+                for (let i = 0; i < localStorage.length; i++) {
+                    const key = localStorage.key(i);
+                    if (key && key.startsWith('sbi_audit_finalized_') && !key.includes('_by_') && !key.includes('_at_')) {
+                        const hId = key.replace('sbi_audit_finalized_', '');
+                        const isFinal = localStorage.getItem(key) === 'true';
+                        if (isFinal) {
+                            localStatuses[hId] = {
+                                is_finalized: true,
+                                finalized_by: localStorage.getItem(`sbi_audit_finalized_by_${hId}`) || 'Self',
+                                finalized_at: localStorage.getItem(`sbi_audit_finalized_at_${hId}`) || new Date().toISOString()
+                            };
+                        }
+                    }
+                }
+                setFinalizedStatuses(localStatuses);
+            } else if (data) {
+                const statusesMap: Record<string, any> = {};
+                data.forEach((row: any) => {
+                    statusesMap[row.hotel_id] = {
+                        is_finalized: !!row.is_finalized,
+                        finalized_by: row.finalized_by,
+                        finalized_at: row.finalized_at
+                    };
+                });
+                setFinalizedStatuses(statusesMap);
+            }
+        } catch (err) {
+            console.warn("Error fetching finalized statuses:", err);
+        }
+    };
+
+    const handleUnlockHotel = async (hotelId: string) => {
+        if (!window.confirm("Are you sure you want to unlock this hotel's self-audit? This will allow the hotel auditee to submit and edit responses again.")) return;
+        try {
+            const { error } = await supabase
+                .from('hotel_audit_status')
+                .upsert({
+                    hotel_id: hotelId,
+                    is_finalized: false,
+                    updated_at: new Date().toISOString()
+                }, { onConflict: 'hotel_id' });
+
+            if (error) {
+                console.warn("Could not save unlock to database:", error);
+            }
+
+            localStorage.setItem(`sbi_audit_finalized_${hotelId}`, 'false');
+            localStorage.removeItem(`sbi_audit_finalized_by_${hotelId}`);
+            localStorage.removeItem(`sbi_audit_finalized_at_${hotelId}`);
+
+            setFinalizedStatuses(prev => ({
+                ...prev,
+                [hotelId]: { is_finalized: false }
+            }));
+            
+            alert("Hotel's self-audit successfully unlocked!");
+        } catch (err) {
+            console.error("Error unlocking hotel:", err);
+            alert("An error occurred while unlocking.");
+        }
+    };
+
     // Fetch hotels function
     const fetchHotelsFromSupabase = async () => {
         setIsSupabaseLoading(true);
@@ -1393,6 +1466,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     useEffect(() => {
         if (subView === 'hotels') {
             fetchHotelsFromSupabase();
+            fetchFinalizedStatuses();
         } else if (subView === 'batches') {
             fetchHotelsFromSupabase();
             fetchBatchesFromSupabase();
@@ -5726,6 +5800,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                 <th className="px-6 py-4.5">Country</th>
                                                 <th className="px-6 py-4.5">Brand</th>
                                                 <th className="px-6 py-4.5">Star Rating</th>
+                                                <th className="px-6 py-4.5">Self-Audit Status</th>
                                                 <th className="px-6 py-4.5 text-right">Actions</th>
                                             </tr>
                                         </thead>
@@ -5766,6 +5841,27 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                 <Star key={i} size={14} fill="currentColor" className="shrink-0" />
                                                             ))}
                                                         </div>
+                                                    </td>
+                                                    <td className="px-6 py-4 whitespace-nowrap">
+                                                        {finalizedStatuses[hotel.id]?.is_finalized ? (
+                                                            <div className="flex items-center gap-2">
+                                                                <span className="inline-flex items-center gap-1.5 px-2 py-1 text-[10px] font-black text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-md">
+                                                                    <Lock size={10} />
+                                                                    Finalised
+                                                                </span>
+                                                                <button
+                                                                    onClick={() => handleUnlockHotel(hotel.id)}
+                                                                    title={`Finalised by ${finalizedStatuses[hotel.id]?.finalized_by || 'Representative'} on ${finalizedStatuses[hotel.id]?.finalized_at ? new Date(finalizedStatuses[hotel.id]?.finalized_at).toLocaleDateString() : ''}. Click to unlock.`}
+                                                                    className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-slate-100 rounded-md transition-all active:scale-95 flex items-center justify-center"
+                                                                >
+                                                                    <Unlock size={13} />
+                                                                </button>
+                                                            </div>
+                                                        ) : (
+                                                            <span className="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-bold text-slate-500 bg-slate-50 border border-slate-200 rounded-md">
+                                                                In Progress
+                                                            </span>
+                                                        )}
                                                     </td>
                                                     <td className="px-6 py-4 whitespace-nowrap text-right text-xs">
                                                         {confirmHotelDeleteId === hotel.id ? (
@@ -7292,6 +7388,16 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                             >
                                 Auditor Category Assignments SQL
                             </button>
+                            <button
+                                onClick={() => setSqlModalTab('finalize')}
+                                className={`flex-1 py-2 text-center text-xs font-black rounded-xl transition-all ${
+                                    sqlModalTab === 'finalize'
+                                        ? 'bg-slate-800 text-white shadow-2xs'
+                                        : 'text-slate-400 hover:text-white'
+                                }`}
+                            >
+                                Finalise & Submit Lock SQL
+                            </button>
                         </div>
 
                         <div className="p-6 overflow-y-auto space-y-4 text-xs">
@@ -7380,7 +7486,7 @@ CREATE POLICY "Allow public delete audit_group_hotels" ON audit_group_hotels FOR
                                         </pre>
                                     </div>
                                 </>
-                            ) : (
+                            ) : sqlModalTab === 'auditor' ? (
                                 <>
                                     <p className="text-slate-300 font-medium leading-relaxed">
                                         Execute the following SQL script in your <strong className="text-emerald-400">Supabase Dashboard → SQL Editor</strong> to enable permanent <strong className="text-emerald-400">Auditor Assignments</strong>:
@@ -7424,6 +7530,52 @@ ALTER TABLE auditor_category_assignments ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Allow public read auditor_category_assignments" ON auditor_category_assignments FOR SELECT USING (true);
 CREATE POLICY "Allow public insert auditor_category_assignments" ON auditor_category_assignments FOR INSERT WITH CHECK (true);
 CREATE POLICY "Allow public delete auditor_category_assignments" ON auditor_category_assignments FOR DELETE USING (true);`}
+                                        </pre>
+                                    </div>
+                                </>
+                            ) : (
+                                <>
+                                    <p className="text-slate-300 font-medium leading-relaxed">
+                                        Execute the following SQL script in your <strong className="text-emerald-400">Supabase Dashboard → SQL Editor</strong> to enable permanent <strong className="text-emerald-400">Self-Audit Locking & Submission Finalisation</strong>:
+                                    </p>
+
+                                    <div className="relative bg-slate-950 border border-slate-800 rounded-2xl p-4 font-mono text-[11px] text-emerald-300 overflow-x-auto leading-relaxed">
+                                        <button
+                                            onClick={() => {
+                                                const sqlText = `CREATE TABLE IF NOT EXISTS hotel_audit_status (\n    hotel_id VARCHAR(100) PRIMARY KEY,\n    is_finalized BOOLEAN DEFAULT false,\n    finalized_by VARCHAR(255),\n    finalized_at TIMESTAMP WITH TIME ZONE,\n    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL\n);\n\nALTER TABLE hotel_audit_status ENABLE ROW LEVEL SECURITY;\n\nCREATE POLICY "Allow public read hotel_audit_status" ON hotel_audit_status FOR SELECT USING (true);\nCREATE POLICY "Allow public insert/update hotel_audit_status" ON hotel_audit_status FOR ALL USING (true);`;
+                                                navigator.clipboard.writeText(sqlText);
+                                                setCopiedSql(true);
+                                                setTimeout(() => setCopiedSql(false), 2500);
+                                            }}
+                                            className="absolute top-3 right-3 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-lg font-sans text-[10px] font-bold flex items-center gap-1.5 transition-all border border-slate-700 active:scale-95"
+                                        >
+                                            {copiedSql ? (
+                                                <>
+                                                    <Check size={12} className="text-emerald-400" />
+                                                    <span>Copied!</span>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <Copy size={12} />
+                                                    <span>Copy SQL</span>
+                                                </>
+                                            )}
+                                        </button>
+                                        <pre className="pt-2">
+{`-- Create table for hotel audit status (locking & finalisation)
+CREATE TABLE IF NOT EXISTS hotel_audit_status (
+    hotel_id VARCHAR(100) PRIMARY KEY,
+    is_finalized BOOLEAN DEFAULT false,
+    finalized_by VARCHAR(255),
+    finalized_at TIMESTAMP WITH TIME ZONE,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- Enable Row Level Security & set access policies
+ALTER TABLE hotel_audit_status ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Allow public read hotel_audit_status" ON hotel_audit_status FOR SELECT USING (true);
+CREATE POLICY "Allow public insert/update hotel_audit_status" ON hotel_audit_status FOR ALL USING (true);`}
                                         </pre>
                                     </div>
                                 </>

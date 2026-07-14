@@ -19,6 +19,11 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
   const [expandedDepts, setExpandedDepts] = useState<Record<string, boolean>>({});
   const [expandedCats, setExpandedCats] = useState<Record<string, boolean>>({});
 
+  // Self-audit tasks statistics
+  const [totalTasks, setTotalTasks] = useState(0);
+  const [completedTasks, setCompletedTasks] = useState(0);
+  const [remainingTasks, setRemainingTasks] = useState(0);
+
   // Profile editing state
   const [isEditProfileOpen, setIsEditProfileOpen] = useState(false);
   const [editFirstName, setEditFirstName] = useState('');
@@ -101,22 +106,189 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
       setIsLoading(true);
     }
     try {
-      const { data, error } = await supabase
+      // 1. Fetch hotels
+      let hotels: any[] = [];
+      try {
+        const { data: hotelsData } = await supabase.from('hotels').select('*');
+        if (hotelsData) {
+          hotels = hotelsData.map((item: any) => ({
+            id: item.id || '',
+            name: item.name || item.hotel_name || '',
+            location: item.location || item.city_country || '',
+            code: item.code || ''
+          }));
+        }
+      } catch (err) {
+        console.warn("Could not fetch hotels in dashboard:", err);
+      }
+
+      // 2. Fetch categories
+      const { data: catsData, error: catsError } = await supabase
+        .from('audit_categories')
+        .select('*')
+        .order('sort_order', { ascending: true });
+      if (catsError) throw catsError;
+
+      // 3. Fetch items
+      const { data: itemsData, error: itemsError } = await supabase
         .from('audit_items')
         .select('*, audit_departments(name), audit_categories(name)');
-        
-      if (error) throw error;
-      
-      const filtered = (data || []).filter((item: any) => item.filled_by_hotel !== false && item.filled_by_hotel !== 'false');
-      
+      if (itemsError) throw itemsError;
+
+      // 4. Determine target hotel identifiers
+      const isAuditee = !!userProfile && userProfile.access_level !== 'admin' && userProfile.access_level !== 'auditor';
+      const selectedHotelId = isAuditee ? (userProfile?.hotel_id || '') : (userProfile?.hotel_id || localStorage.getItem('selected_hotel_id') || '');
+
+      const currentHotel = hotels.find(h => 
+        String(h.id).toLowerCase() === String(selectedHotelId).toLowerCase() || 
+        String(h.code).toLowerCase() === String(selectedHotelId).toLowerCase()
+      );
+
+      const possibleHotelIds = Array.from(new Set([
+        selectedHotelId,
+        String(selectedHotelId),
+        currentHotel?.id ? String(currentHotel.id) : null,
+        currentHotel?.code ? String(currentHotel.code) : null,
+        userProfile?.hotel_id ? String(userProfile.hotel_id) : null,
+        userProfile?.hotel_code ? String(userProfile.hotel_code) : null
+      ].filter(Boolean) as string[]));
+
+      const targetHotelIdsLower = new Set(possibleHotelIds.map(id => String(id).toLowerCase()));
+
+      // 5. Fetch checklist groups and filter items
+      let assignedCategoryIds: string[] | null = null;
+      let assignedItemIds: string[] | null = null;
+
+      try {
+        const { data: groupsData } = await supabase.from('audit_checklist_groups').select('*');
+        const { data: groupHotelsData } = await supabase.from('audit_group_hotels').select('*');
+
+        if (groupsData && groupHotelsData) {
+          const assignedGroupHotels = groupHotelsData.filter((gh: any) => 
+            possibleHotelIds.some(phId => String(gh.hotel_id).toLowerCase() === String(phId).toLowerCase())
+          );
+
+          if (assignedGroupHotels.length > 0) {
+            const groupIds = assignedGroupHotels.map((gh: any) => gh.group_id);
+            const matchedGroups = groupsData.filter((g: any) => groupIds.includes(g.id));
+            if (matchedGroups.length > 0) {
+              const allCatIds = new Set<string>();
+              const allItemIds = new Set<string>();
+              matchedGroups.forEach((g: any) => {
+                if (g.category_ids) {
+                  g.category_ids.forEach((id: string) => allCatIds.add(String(id)));
+                }
+                if (g.item_ids) {
+                  g.item_ids.forEach((id: string) => allItemIds.add(String(id)));
+                }
+              });
+              assignedCategoryIds = Array.from(allCatIds);
+              assignedItemIds = Array.from(allItemIds);
+            }
+          }
+        }
+      } catch (groupErr) {
+        console.warn("Could not fetch checklist groups for filtering in dashboard:", groupErr);
+      }
+
+      // Fallback to local storage if DB is not set or empty
+      if (!assignedCategoryIds || !assignedItemIds) {
+        const savedGroups = localStorage.getItem('sbi_audit_groups_v2');
+        if (savedGroups) {
+          try {
+            const parsedGroups = JSON.parse(savedGroups);
+            const assignedGroups = parsedGroups.filter((g: any) => 
+              g.hotelIds && g.hotelIds.some((hId: string) => 
+                possibleHotelIds.some(phId => String(hId).toLowerCase() === String(phId).toLowerCase())
+              )
+            );
+
+            if (assignedGroups.length > 0) {
+              const allCatIds = new Set<string>();
+              const allItemIds = new Set<string>();
+              assignedGroups.forEach((g: any) => {
+                const cids = g.categoryIds || g.category_ids || [];
+                const iids = g.itemIds || g.item_ids || [];
+                cids.forEach((id: string) => allCatIds.add(String(id)));
+                iids.forEach((id: string) => allItemIds.add(String(id)));
+              });
+              assignedCategoryIds = Array.from(allCatIds);
+              assignedItemIds = Array.from(allItemIds);
+            }
+          } catch (e) {}
+        }
+      }
+
+      // 6. Fetch submissions to calculate completed vs total tasks
+      let submittedItemIds = new Set<string>();
+      try {
+        let query = supabase.from('audit_submissions').select('item_id, hotel_id');
+        if (possibleHotelIds.length > 0) {
+          query = query.in('hotel_id', possibleHotelIds);
+        }
+
+        const { data: subsData, error: subsError } = await query;
+        if (!subsError && subsData && Array.isArray(subsData)) {
+          subsData.forEach((sub: any) => {
+            const subHotelIdLower = String(sub.hotel_id || '').toLowerCase();
+            const matchesHotel = targetHotelIdsLower.size === 0 || targetHotelIdsLower.has(subHotelIdLower);
+            if (matchesHotel && sub.item_id !== undefined && sub.item_id !== null) {
+              submittedItemIds.add(String(sub.item_id));
+            }
+          });
+        } else {
+          // Fallback fetch all submissions
+          const { data: fallbackSubs } = await supabase.from('audit_submissions').select('item_id, hotel_id');
+          if (fallbackSubs && Array.isArray(fallbackSubs)) {
+            fallbackSubs.forEach((sub: any) => {
+              const subHotelIdLower = String(sub.hotel_id || '').toLowerCase();
+              if (targetHotelIdsLower.size === 0 || targetHotelIdsLower.has(subHotelIdLower)) {
+                if (sub.item_id !== undefined && sub.item_id !== null) {
+                  submittedItemIds.add(String(sub.item_id));
+                }
+              }
+            });
+          }
+        }
+      } catch (subErr) {
+        console.warn("Could not fetch audit_submissions in dashboard:", subErr);
+      }
+
+      // 7. Filter items based on checklist group and active for hotel filled_by_hotel !== false
+      const filtered = (itemsData || []).filter((item: any) => {
+        // Must belong to category of group
+        if (assignedCategoryIds && !assignedCategoryIds.includes(String(item.category_id))) {
+          return false;
+        }
+        // Must belong to items of group
+        if (assignedItemIds && !assignedItemIds.includes(String(item.id))) {
+          return false;
+        }
+        // Must be filled by hotel
+        return item.filled_by_hotel !== false && item.filled_by_hotel !== 'false';
+      });
+
       const sortedData = filtered.sort((a: any, b: any) => {
         if (a.sort_order !== undefined && a.sort_order !== null && b.sort_order !== undefined && b.sort_order !== null) {
           return Number(a.sort_order) - Number(b.sort_order);
         }
         return (a.name || '').localeCompare(b.name || '');
       });
-      
+
       setAuditItems(sortedData);
+
+      // Calculate task statistics
+      const totalT = sortedData.length;
+      let completedT = 0;
+      sortedData.forEach((item: any) => {
+        if (submittedItemIds.has(String(item.id))) {
+          completedT++;
+        }
+      });
+
+      setTotalTasks(totalT);
+      setCompletedTasks(completedT);
+      setRemainingTasks(totalT - completedT);
 
       // Auto-expand the first department and its categories by default on load
       if (sortedData.length > 0 && Object.keys(expandedDepts).length === 0) {
@@ -450,21 +622,84 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
           </section>
         ) : null}
 
-        <section className="mb-4 sm:mb-8">
+        <section className="mb-6 sm:mb-10">
             <div 
               onClick={onViewPending} 
-              className="bg-white p-4 sm:p-6 rounded-xl sm:rounded-2xl border border-slate-200 shadow-sm cursor-pointer hover:border-indigo-300 transition-all duration-200 hover:shadow-md group max-w-md"
+              className="bg-white p-5 sm:p-7 rounded-2xl sm:rounded-3xl border-2 border-indigo-600/90 shadow-lg cursor-pointer hover:border-indigo-700 hover:shadow-xl transition-all duration-300 group relative overflow-hidden flex flex-col md:flex-row md:items-center justify-between gap-6"
               title="Click to perform self-audit and upload evidence photos"
             >
-                <div className="flex justify-between items-start mb-1.5 sm:mb-2">
-                    <CheckCircle className="text-indigo-600" size={20}/>
-                    <span className="text-indigo-600 text-[9px] sm:text-[10px] font-extrabold bg-indigo-50 px-2 py-0.5 rounded-md uppercase tracking-wider group-hover:scale-105 transition-transform">Start Self-Audit</span>
+                {/* Decorative background element */}
+                <div className="absolute right-0 bottom-0 w-36 h-36 bg-indigo-50/40 rounded-full blur-3xl -z-10 group-hover:bg-indigo-50 transition-all duration-300" />
+                
+                <div className="flex-1 space-y-4">
+                    <div className="flex items-center gap-2.5">
+                        <div className="p-2 bg-indigo-50 text-indigo-600 rounded-xl group-hover:bg-indigo-600 group-hover:text-white transition-all duration-300">
+                            <CheckCircle size={20}/>
+                        </div>
+                        <div>
+                            <span className="text-[10px] font-black tracking-widest text-indigo-600 uppercase">Self-Audit Portal</span>
+                            <h3 className="text-base sm:text-lg font-extrabold text-slate-900 tracking-tight leading-tight mt-0.5">Checklist Progress</h3>
+                        </div>
+                    </div>
+
+                    {/* Progress Bar & Stats */}
+                    <div className="space-y-2">
+                        <div className="flex items-center justify-between text-xs font-bold text-slate-600">
+                            <span className="flex items-center gap-1.5">
+                                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block animate-pulse" />
+                                {completedTasks} of {totalTasks} tasks completed
+                            </span>
+                            <span className="text-indigo-600 text-sm font-black">
+                                {totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0}%
+                            </span>
+                        </div>
+                        {/* Custom Progress Bar */}
+                        <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden">
+                            <div 
+                                className="h-full bg-indigo-600 rounded-full transition-all duration-500 ease-out"
+                                style={{ width: `${totalTasks > 0 ? (completedTasks / totalTasks) * 100 : 0}%` }}
+                            />
+                        </div>
+                    </div>
+
+                    {/* Detailed Counter Boxes */}
+                    <div className="grid grid-cols-2 gap-3 pt-1">
+                        <div className="bg-slate-50 border border-slate-150 p-3 rounded-xl flex items-center gap-3">
+                            <div className="p-1.5 bg-emerald-50 text-emerald-600 rounded-lg">
+                                <CheckCircle size={14} />
+                            </div>
+                            <div>
+                                <p className="text-[9px] font-black text-slate-400 uppercase tracking-wide leading-none">Completed</p>
+                                <p className="text-sm font-extrabold text-slate-800 mt-1">{completedTasks} <span className="text-[10px] text-slate-400 font-bold">tasks</span></p>
+                            </div>
+                        </div>
+                        <div className="bg-slate-50 border border-slate-150 p-3 rounded-xl flex items-center gap-3">
+                            <div className="p-1.5 bg-amber-50 text-amber-600 rounded-lg">
+                                <Clock size={14} />
+                            </div>
+                            <div>
+                                <p className="text-[9px] font-black text-slate-400 uppercase tracking-wide leading-none">Remaining</p>
+                                <p className="text-sm font-extrabold text-slate-800 mt-1">{remainingTasks} <span className="text-[10px] text-slate-400 font-bold">tasks</span></p>
+                            </div>
+                        </div>
+                    </div>
                 </div>
-                <p className="text-slate-500 text-[10px] sm:text-xs font-bold uppercase tracking-wide">Self-Audit Checklist</p>
-                <p className="text-2xl sm:text-3xl font-extrabold text-slate-900 mt-0.5 sm:mt-1 flex items-baseline gap-1.5">
-                  {totalItems}
-                  <span className="text-[10px] sm:text-xs text-slate-400 font-bold uppercase tracking-wider">items</span>
-                </p>
+
+                {/* Right Button/Indicator Block */}
+                <div className="flex md:flex-col items-center justify-between md:justify-center md:items-end gap-3 border-t md:border-t-0 border-slate-100 pt-4 md:pt-0 shrink-0">
+                    <div className="text-left md:text-right">
+                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Self-Audit Checklist</p>
+                        <p className="text-3xl sm:text-4xl font-black text-slate-900 tracking-tight mt-0.5">
+                            {totalTasks}
+                            <span className="text-xs text-slate-400 font-bold uppercase tracking-wider ml-1">tasks</span>
+                        </p>
+                    </div>
+                    
+                    <button className="bg-indigo-600 group-hover:bg-indigo-700 text-white font-extrabold px-5 py-2.5 rounded-xl text-xs sm:text-sm flex items-center gap-1.5 shadow-md shadow-indigo-500/10 group-hover:translate-x-1 transition-all">
+                        <span>Continue</span>
+                        <ChevronRight size={14} />
+                    </button>
+                </div>
             </div>
         </section>
 

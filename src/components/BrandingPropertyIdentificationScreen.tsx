@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ChevronRight, Camera, Loader2, CheckCircle2, Image as ImageIcon, FileUp, Hash, Type, CheckSquare, UploadCloud, X, AlertCircle, RefreshCw, User } from 'lucide-react';
+import { ChevronRight, Camera, Loader2, CheckCircle2, Image as ImageIcon, FileUp, Hash, Type, CheckSquare, UploadCloud, X, AlertCircle, RefreshCw, User, Lock, Unlock } from 'lucide-react';
 import { supabase, HOTELS_URL, HOTELS_KEY } from '../lib/supabase';
 
 interface BrandingPropertyProps {
@@ -91,7 +91,7 @@ const uploadToIMGBB = async (file: File): Promise<string> => {
     }
 }
 
-const AuditItemCard: React.FC<{ item: any, hotelId: string, userProfile?: any }> = ({ item, hotelId, userProfile }) => {
+const AuditItemCard: React.FC<{ item: any, hotelId: string, userProfile?: any, locked?: boolean }> = ({ item, hotelId, userProfile, locked }) => {
     const [value, setValue] = useState<string>('');
     const [isNa, setIsNa] = useState<boolean>(false);
     const [naReason, setNaReason] = useState<string>('');
@@ -100,6 +100,8 @@ const AuditItemCard: React.FC<{ item: any, hotelId: string, userProfile?: any }>
     const [submittedBy, setSubmittedBy] = useState<string>('');
     const [previewUrl, setPreviewUrl] = useState<string | null>(null);
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
+
+    const isFieldDisabled = isSubmitted || !!locked;
 
     // Camera specific state
     const [isCameraOpen, setIsCameraOpen] = useState(false);
@@ -110,6 +112,7 @@ const AuditItemCard: React.FC<{ item: any, hotelId: string, userProfile?: any }>
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     const startCamera = async (mode: 'environment' | 'user') => {
+        if (locked) return;
         setIsCameraOpen(true);
         try {
             if (streamRef.current) {
@@ -415,7 +418,7 @@ const AuditItemCard: React.FC<{ item: any, hotelId: string, userProfile?: any }>
                         {previewUrl ? (
                             <div className="relative inline-block group w-full sm:w-auto">
                                 <img src={previewUrl} alt="Preview" referrerPolicy="no-referrer" className="w-full sm:w-48 h-40 sm:h-48 object-cover rounded-xl border border-slate-200 shadow-sm" />
-                                {!isSubmitted && (
+                                {!isFieldDisabled && (
                                     <button 
                                         onClick={() => { setPreviewUrl(null); setSelectedFile(null); setValue(''); }}
                                         className="absolute -top-3 -right-3 bg-red-500 text-white p-1.5 rounded-full shadow-lg hover:scale-110 transition-transform"
@@ -427,8 +430,9 @@ const AuditItemCard: React.FC<{ item: any, hotelId: string, userProfile?: any }>
                         ) : (
                             <div>
                                 <button 
-                                    onClick={() => startCamera(facingMode)}
-                                    className="flex items-center justify-center gap-2 w-full py-3.5 sm:py-5 border-2 border-dashed border-indigo-200 bg-indigo-50/50 hover:bg-indigo-50 text-indigo-600 rounded-xl font-bold text-xs sm:text-sm transition-colors active:scale-95"
+                                    onClick={() => !locked && startCamera(facingMode)}
+                                    disabled={locked}
+                                    className="flex items-center justify-center gap-2 w-full py-3.5 sm:py-5 border-2 border-dashed border-indigo-200 bg-indigo-50/50 hover:bg-indigo-50 text-indigo-600 rounded-xl font-bold text-xs sm:text-sm transition-colors active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                     <Camera size={20} className="sm:w-5 sm:h-5" />
                                     Take Photo
@@ -443,7 +447,7 @@ const AuditItemCard: React.FC<{ item: any, hotelId: string, userProfile?: any }>
                         {previewUrl ? (
                             <div className="relative inline-block group w-full sm:w-auto">
                                 <img src={previewUrl} alt="Preview" referrerPolicy="no-referrer" className="w-full sm:w-48 h-40 sm:h-48 object-cover rounded-xl border border-slate-200 shadow-sm" />
-                                {!isSubmitted && (
+                                {!isFieldDisabled && (
                                     <button 
                                         onClick={() => { setPreviewUrl(null); setSelectedFile(null); setValue(''); }}
                                         className="absolute -top-3 -right-3 bg-red-500 text-white p-1.5 rounded-full shadow-lg hover:scale-110 transition-transform"
@@ -460,10 +464,12 @@ const AuditItemCard: React.FC<{ item: any, hotelId: string, userProfile?: any }>
                                     className="hidden" 
                                     ref={fileInputRef} 
                                     onChange={handleFileChange} 
+                                    disabled={locked}
                                 />
                                 <button 
-                                    onClick={() => fileInputRef.current?.click()}
-                                    className="flex flex-col items-center justify-center gap-1.5 w-full py-4 sm:py-6 border-2 border-dashed border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-xl font-bold text-xs sm:text-sm transition-colors active:scale-95"
+                                    onClick={() => !locked && fileInputRef.current?.click()}
+                                    disabled={locked}
+                                    className="flex flex-col items-center justify-center gap-1.5 w-full py-4 sm:py-6 border-2 border-dashed border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-xl font-bold text-xs sm:text-sm transition-colors active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                     <ImageIcon size={22} className="text-slate-400 sm:w-6 sm:h-6" />
                                     Browse Image
@@ -484,7 +490,7 @@ const AuditItemCard: React.FC<{ item: any, hotelId: string, userProfile?: any }>
                                         {selectedFile?.name || "Uploaded Document"}
                                     </p>
                                 </div>
-                                {!isSubmitted && (
+                                {!isFieldDisabled && (
                                     <button 
                                         onClick={() => { setSelectedFile(null); setValue(''); }}
                                         className="text-red-500 hover:bg-red-50 p-1.5 rounded-full shrink-0"
@@ -501,10 +507,12 @@ const AuditItemCard: React.FC<{ item: any, hotelId: string, userProfile?: any }>
                                     className="hidden" 
                                     ref={fileInputRef} 
                                     onChange={handleFileChange} 
+                                    disabled={locked}
                                 />
                                 <button 
-                                    onClick={() => fileInputRef.current?.click()}
-                                    className="flex items-center justify-center gap-2 w-full py-3.5 sm:py-5 border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 shadow-sm rounded-xl font-bold text-xs sm:text-sm transition-all active:scale-95"
+                                    onClick={() => !locked && fileInputRef.current?.click()}
+                                    disabled={locked}
+                                    className="flex items-center justify-center gap-2 w-full py-3.5 sm:py-5 border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 shadow-sm rounded-xl font-bold text-xs sm:text-sm transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                     <UploadCloud size={18} className="text-slate-400 sm:w-5 sm:h-5" />
                                     Select Document
@@ -635,15 +643,15 @@ const AuditItemCard: React.FC<{ item: any, hotelId: string, userProfile?: any }>
                     <button
                         type="button"
                         onClick={() => {
-                            if (!isSubmitted) {
+                            if (!isFieldDisabled) {
                                 setIsNa(!isNa);
                                 if (!isNa) setValue(''); // Clear value if toggling to NA
                             }
                         }}
-                        disabled={isSubmitted}
+                        disabled={isFieldDisabled}
                         className={`relative inline-flex h-6 sm:h-7 w-11 sm:w-12 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
                             isNa ? 'bg-amber-500' : 'bg-slate-300'
-                        } ${isSubmitted ? 'opacity-60 cursor-not-allowed' : ''}`}
+                        } ${isFieldDisabled ? 'opacity-60 cursor-not-allowed' : ''}`}
                     >
                         <span
                             className={`pointer-events-none inline-block h-5 sm:h-6 w-5 sm:w-6 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
@@ -661,7 +669,7 @@ const AuditItemCard: React.FC<{ item: any, hotelId: string, userProfile?: any }>
                         rows={2}
                         value={naReason}
                         onChange={(e) => setNaReason(e.target.value)}
-                        disabled={isSubmitted}
+                        disabled={isFieldDisabled}
                     />
                 </div>
 
@@ -669,7 +677,7 @@ const AuditItemCard: React.FC<{ item: any, hotelId: string, userProfile?: any }>
                 {!isSubmitted ? (
                     <button 
                         onClick={handleSubmit}
-                        disabled={isSubmitting}
+                        disabled={isSubmitting || locked}
                         className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 sm:py-3.5 rounded-lg sm:rounded-xl text-xs sm:text-sm transition-all active:scale-[0.98] disabled:opacity-70 flex justify-center items-center gap-2 shadow-sm hover:shadow-md"
                     >
                         {isSubmitting ? (
@@ -679,12 +687,19 @@ const AuditItemCard: React.FC<{ item: any, hotelId: string, userProfile?: any }>
                         )}
                     </button>
                 ) : (
-                    <button 
-                        onClick={() => setIsSubmitted(false)}
-                        className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2.5 sm:py-3.5 rounded-lg sm:rounded-xl text-xs sm:text-sm transition-all active:scale-[0.98]"
-                    >
-                        Edit Submission
-                    </button>
+                    locked ? (
+                        <div className="w-full bg-slate-50 border border-slate-200 text-slate-500 font-bold py-2.5 sm:py-3.5 rounded-lg sm:rounded-xl text-xs sm:text-sm flex justify-center items-center gap-1.5 select-none">
+                            <Lock size={14} className="text-slate-400" />
+                            <span>Audit Finalised - Locked</span>
+                        </div>
+                    ) : (
+                        <button 
+                            onClick={() => setIsSubmitted(false)}
+                            className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2.5 sm:py-3.5 rounded-lg sm:rounded-xl text-xs sm:text-sm transition-all active:scale-[0.98]"
+                        >
+                            Edit Submission
+                        </button>
+                    )
                 )}
             </div>
         </div>
@@ -695,12 +710,44 @@ export default function BrandingPropertyIdentificationScreen({ selectedCategory,
     const [items, setItems] = useState<any[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [hotels, setHotels] = useState<any[]>([]);
+    const [isHotelFinalized, setIsHotelFinalized] = useState(false);
     
     const isAuditee = !!userProfile && userProfile.access_level !== 'admin' && userProfile.access_level !== 'auditor';
     
     // Get actual hotel ID from user profile or fallback
     const initialHotelId = isAuditee ? (userProfile?.hotel_id || '') : (userProfile?.hotel_id || localStorage.getItem('selected_hotel_id') || '');
     const [selectedHotelId, setSelectedHotelId] = useState<string>(initialHotelId);
+
+    const checkFinalizedStatus = async () => {
+        if (!selectedHotelId) return;
+        try {
+            const { data, error } = await supabase
+                .from('hotel_audit_status')
+                .select('is_finalized')
+                .eq('hotel_id', selectedHotelId)
+                .maybeSingle();
+            
+            if (error) {
+                console.warn("Could not fetch finalized status:", error);
+                const localFinalized = localStorage.getItem(`sbi_audit_finalized_${selectedHotelId}`) === 'true';
+                setIsHotelFinalized(localFinalized);
+            } else if (data) {
+                setIsHotelFinalized(!!data.is_finalized);
+                localStorage.setItem(`sbi_audit_finalized_${selectedHotelId}`, String(!!data.is_finalized));
+            } else {
+                setIsHotelFinalized(false);
+                localStorage.setItem(`sbi_audit_finalized_${selectedHotelId}`, 'false');
+            }
+        } catch (err) {
+            console.warn("Error checking finalized status:", err);
+            const localFinalized = localStorage.getItem(`sbi_audit_finalized_${selectedHotelId}`) === 'true';
+            setIsHotelFinalized(localFinalized);
+        }
+    };
+
+    useEffect(() => {
+        checkFinalizedStatus();
+    }, [selectedHotelId]);
 
     useEffect(() => {
         if (isAuditee && userProfile?.hotel_id) {
@@ -935,6 +982,18 @@ export default function BrandingPropertyIdentificationScreen({ selectedCategory,
                     </div>
                 )}
 
+                {isHotelFinalized && (
+                    <div className="bg-amber-50 border border-amber-200/80 rounded-xl sm:rounded-2xl p-3 sm:p-4 shadow-xs flex items-start gap-3 animate-fadeIn mb-2 sm:mb-3">
+                        <Lock className="text-amber-600 shrink-0 mt-0.5" size={18} />
+                        <div>
+                            <p className="text-xs font-black text-amber-850">Read-Only Mode: Self-Audit Finalised</p>
+                            <p className="text-[11px] text-amber-700 mt-0.5 leading-relaxed">
+                                This property's self-audit has been finalised and locked. You can view all submitted evidence, but editing is disabled unless unlocked by an Admin.
+                            </p>
+                        </div>
+                    </div>
+                )}
+
                 {isLoading ? (
                     <div className="text-center py-12 sm:py-16 text-slate-500 font-bold text-xs sm:text-sm animate-pulse flex flex-col items-center justify-center gap-3 bg-white rounded-2xl sm:rounded-3xl border border-slate-200 shadow-sm">
                         <Loader2 className="animate-spin text-indigo-600" size={28} />
@@ -947,7 +1006,7 @@ export default function BrandingPropertyIdentificationScreen({ selectedCategory,
                 ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
                         {items.map((item) => (
-                            <AuditItemCard key={item.id} item={item} hotelId={selectedHotelId} userProfile={userProfile} />
+                            <AuditItemCard key={item.id} item={item} hotelId={selectedHotelId} userProfile={userProfile} locked={isHotelFinalized} />
                         ))}
                     </div>
                 )}
