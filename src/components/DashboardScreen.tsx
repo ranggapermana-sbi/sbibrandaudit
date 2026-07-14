@@ -595,19 +595,19 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
         <section className="mb-6 sm:mb-10">
             <div 
               onClick={onViewPending} 
-              className="bg-gradient-to-br from-indigo-50/70 via-indigo-50/30 to-white p-5 sm:p-7 rounded-2xl sm:rounded-3xl border-2 border-indigo-500/60 shadow-md cursor-pointer hover:border-indigo-600 hover:shadow-xl hover:scale-[1.005] transition-all duration-300 group relative overflow-hidden flex flex-col md:flex-row md:items-center justify-between gap-6"
+              className="bg-gradient-to-br from-emerald-50/80 via-emerald-50/30 to-white p-5 sm:p-7 rounded-2xl sm:rounded-3xl border-2 border-emerald-500/60 shadow-md cursor-pointer hover:border-emerald-600 hover:shadow-xl hover:scale-[1.005] transition-all duration-300 group relative overflow-hidden flex flex-col md:flex-row md:items-center justify-between gap-6"
               title="Click to perform self-audit and upload evidence photos"
             >
                 {/* Decorative background element */}
-                <div className="absolute right-0 bottom-0 w-36 h-36 bg-indigo-100/50 rounded-full blur-3xl -z-10 group-hover:bg-indigo-100/70 transition-all duration-300" />
+                <div className="absolute right-0 bottom-0 w-36 h-36 bg-emerald-100/50 rounded-full blur-3xl -z-10 group-hover:bg-emerald-100/70 transition-all duration-300" />
                 
                 <div className="flex-1 space-y-4">
                     <div className="flex items-center gap-2.5">
-                        <div className="p-2 bg-indigo-100/80 text-indigo-600 rounded-xl group-hover:bg-indigo-600 group-hover:text-white transition-all duration-300">
+                        <div className="p-2 bg-emerald-100/80 text-emerald-600 rounded-xl group-hover:bg-emerald-600 group-hover:text-white transition-all duration-300">
                             <CheckCircle size={20}/>
                         </div>
                         <div>
-                            <span className="text-[10px] font-black tracking-widest text-indigo-600 uppercase">Self-Audit Portal</span>
+                            <span className="text-[10px] font-black tracking-widest text-emerald-600 uppercase">Self-Audit Portal</span>
                             <h3 className="text-base sm:text-lg font-extrabold text-slate-900 tracking-tight leading-tight mt-0.5">Checklist Progress</h3>
                         </div>
                     </div>
@@ -619,14 +619,14 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
                                 <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block animate-pulse" />
                                 {completedTasks} of {totalTasks} tasks completed
                             </span>
-                            <span className="text-indigo-600 text-sm font-black">
+                            <span className="text-emerald-600 text-sm font-black">
                                 {totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0}%
                             </span>
                         </div>
                         {/* Custom Progress Bar */}
                         <div className="w-full h-2.5 bg-slate-100/80 rounded-full overflow-hidden border border-slate-200/30">
                             <div 
-                                className="h-full bg-indigo-600 rounded-full transition-all duration-500 ease-out"
+                                className="h-full bg-emerald-500 rounded-full transition-all duration-500 ease-out"
                                 style={{ width: `${totalTasks > 0 ? (completedTasks / totalTasks) * 100 : 0}%` }}
                             />
                         </div>
@@ -634,7 +634,7 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
 
                     {/* Detailed Counter Boxes */}
                     <div className="grid grid-cols-2 gap-3 pt-1">
-                        <div className="bg-white/80 backdrop-blur-xs border border-indigo-100/60 p-3 rounded-xl flex items-center gap-3 shadow-xs">
+                        <div className="bg-white/80 backdrop-blur-xs border border-emerald-100/60 p-3 rounded-xl flex items-center gap-3 shadow-xs">
                             <div className="p-1.5 bg-emerald-50 text-emerald-600 rounded-lg">
                                 <CheckCircle size={14} />
                             </div>
@@ -643,7 +643,7 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
                                 <p className="text-sm font-extrabold text-slate-800 mt-1">{completedTasks} <span className="text-[10px] text-slate-400 font-bold">tasks</span></p>
                             </div>
                         </div>
-                        <div className="bg-white/80 backdrop-blur-xs border border-indigo-100/60 p-3 rounded-xl flex items-center gap-3 shadow-xs">
+                        <div className="bg-white/80 backdrop-blur-xs border border-emerald-100/60 p-3 rounded-xl flex items-center gap-3 shadow-xs">
                             <div className="p-1.5 bg-amber-50 text-amber-600 rounded-lg">
                                 <Clock size={14} />
                             </div>
@@ -656,7 +656,7 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
                 </div>
 
                 {/* Right Button/Indicator Block */}
-                <div className="flex md:flex-col items-center justify-between md:justify-center md:items-end gap-3 border-t md:border-t-0 border-indigo-100/50 pt-4 md:pt-0 shrink-0">
+                <div className="flex md:flex-col items-center justify-between md:justify-center md:items-end gap-3 border-t md:border-t-0 border-emerald-100/50 pt-4 md:pt-0 shrink-0">
                     <div className="text-left md:text-right">
                         <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Self-Audit Checklist</p>
                         <p className="text-3xl sm:text-4xl font-black text-slate-900 tracking-tight mt-0.5">
@@ -665,7 +665,7 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
                         </p>
                     </div>
                     
-                    <button className="bg-indigo-600 group-hover:bg-indigo-700 text-white font-extrabold px-5 py-2.5 rounded-xl text-xs sm:text-sm flex items-center gap-1.5 shadow-md shadow-indigo-500/10 group-hover:translate-x-1 transition-all">
+                    <button className="bg-emerald-600 group-hover:bg-emerald-700 text-white font-extrabold px-5 py-2.5 rounded-xl text-xs sm:text-sm flex items-center gap-1.5 shadow-md shadow-emerald-500/10 group-hover:translate-x-1 transition-all">
                         <span>Continue</span>
                         <ChevronRight size={14} />
                     </button>
