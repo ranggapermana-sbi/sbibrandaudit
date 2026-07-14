@@ -584,56 +584,20 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
             </div>
         </section>
 
-        {/* Assigned Batches / Schedules program sync */}
-        {isFetchingBatches ? (
-          <section className="mb-4 sm:mb-8 bg-white border border-slate-200/60 p-3.5 sm:p-5 rounded-xl sm:rounded-2xl animate-pulse">
-            <div className="h-4 bg-slate-200 rounded w-1/4 mb-3" />
-            <div className="h-10 bg-slate-100 rounded w-full" />
-          </section>
-        ) : assignedBatches.length > 0 ? (
-          <section className="mb-4 sm:mb-8">
-            <h3 className="text-[10px] sm:text-xs font-extrabold text-slate-500 uppercase tracking-widest mb-2.5 sm:mb-3 flex items-center gap-1.5 pl-0.5 select-none">
-              <Building size={13} className="text-slate-400" />
-              Your Active Brand Audit Schedules ({assignedBatches.length})
-            </h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
-              {assignedBatches.map((batch) => (
-                <div key={batch.id} className="bg-gradient-to-r from-slate-900 via-slate-850 to-indigo-950 p-3.5 sm:p-5 rounded-xl sm:rounded-[22px] border border-slate-800 text-white shadow-lg relative overflow-hidden group">
-                  <div className="absolute right-0 top-0 w-24 h-24 bg-indigo-500/10 rounded-full blur-2xl group-hover:bg-indigo-500/20 transition-all duration-300" />
-                  <div className="flex justify-between items-start mb-2 sm:mb-3">
-                    <span className="text-[8px] sm:text-[9px] font-extrabold uppercase tracking-widest px-2 sm:px-2.5 py-0.5 sm:py-1 bg-indigo-500/30 text-indigo-100 rounded-full select-none border border-indigo-400/10">
-                      {batch.status || 'Active'}
-                    </span>
-                    <Clock size={14} className="text-slate-400 sm:w-4 sm:h-4" />
-                  </div>
-                  <h4 className="font-extrabold text-xs sm:text-sm text-slate-50 tracking-tight mb-1">{batch.name}</h4>
-                  <p className="text-[9px] sm:text-[10px] text-slate-400 font-bold uppercase tracking-wider">Assigned Property: {userProfile?.hotel_name}</p>
-                </div>
-              ))}
-            </div>
-          </section>
-        ) : userProfile?.hotel_id ? (
-          <section className="mb-4 sm:mb-8 bg-slate-50 border border-slate-200/60 p-3.5 sm:p-5 rounded-xl sm:rounded-2xl flex items-center justify-between gap-3 sm:gap-4">
-            <div className="space-y-0.5">
-              <h4 className="font-extrabold text-xs sm:text-sm text-slate-800 tracking-tight">No Active Audit Schedule Assigned</h4>
-              <p className="text-[11px] sm:text-xs text-slate-400 font-medium leading-tight">Please coordinate with the Swiss-Belhotel International brand audit team to schedule your property.</p>
-            </div>
-            <span className="text-[8px] sm:text-[9px] font-extrabold px-2 sm:px-2.5 py-1 sm:py-1.5 bg-slate-200 text-slate-500 rounded-lg uppercase tracking-wider select-none shrink-0">Unassigned</span>
-          </section>
-        ) : null}
+
 
         <section className="mb-6 sm:mb-10">
             <div 
               onClick={onViewPending} 
-              className="bg-white p-5 sm:p-7 rounded-2xl sm:rounded-3xl border-2 border-indigo-600/90 shadow-lg cursor-pointer hover:border-indigo-700 hover:shadow-xl transition-all duration-300 group relative overflow-hidden flex flex-col md:flex-row md:items-center justify-between gap-6"
+              className="bg-gradient-to-br from-indigo-50/70 via-indigo-50/30 to-white p-5 sm:p-7 rounded-2xl sm:rounded-3xl border-2 border-indigo-500/60 shadow-md cursor-pointer hover:border-indigo-600 hover:shadow-xl hover:scale-[1.005] transition-all duration-300 group relative overflow-hidden flex flex-col md:flex-row md:items-center justify-between gap-6"
               title="Click to perform self-audit and upload evidence photos"
             >
                 {/* Decorative background element */}
-                <div className="absolute right-0 bottom-0 w-36 h-36 bg-indigo-50/40 rounded-full blur-3xl -z-10 group-hover:bg-indigo-50 transition-all duration-300" />
+                <div className="absolute right-0 bottom-0 w-36 h-36 bg-indigo-100/50 rounded-full blur-3xl -z-10 group-hover:bg-indigo-100/70 transition-all duration-300" />
                 
                 <div className="flex-1 space-y-4">
                     <div className="flex items-center gap-2.5">
-                        <div className="p-2 bg-indigo-50 text-indigo-600 rounded-xl group-hover:bg-indigo-600 group-hover:text-white transition-all duration-300">
+                        <div className="p-2 bg-indigo-100/80 text-indigo-600 rounded-xl group-hover:bg-indigo-600 group-hover:text-white transition-all duration-300">
                             <CheckCircle size={20}/>
                         </div>
                         <div>
@@ -654,7 +618,7 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
                             </span>
                         </div>
                         {/* Custom Progress Bar */}
-                        <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden">
+                        <div className="w-full h-2.5 bg-slate-100/80 rounded-full overflow-hidden border border-slate-200/30">
                             <div 
                                 className="h-full bg-indigo-600 rounded-full transition-all duration-500 ease-out"
                                 style={{ width: `${totalTasks > 0 ? (completedTasks / totalTasks) * 100 : 0}%` }}
@@ -664,7 +628,7 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
 
                     {/* Detailed Counter Boxes */}
                     <div className="grid grid-cols-2 gap-3 pt-1">
-                        <div className="bg-slate-50 border border-slate-150 p-3 rounded-xl flex items-center gap-3">
+                        <div className="bg-white/80 backdrop-blur-xs border border-indigo-100/60 p-3 rounded-xl flex items-center gap-3 shadow-xs">
                             <div className="p-1.5 bg-emerald-50 text-emerald-600 rounded-lg">
                                 <CheckCircle size={14} />
                             </div>
@@ -673,7 +637,7 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
                                 <p className="text-sm font-extrabold text-slate-800 mt-1">{completedTasks} <span className="text-[10px] text-slate-400 font-bold">tasks</span></p>
                             </div>
                         </div>
-                        <div className="bg-slate-50 border border-slate-150 p-3 rounded-xl flex items-center gap-3">
+                        <div className="bg-white/80 backdrop-blur-xs border border-indigo-100/60 p-3 rounded-xl flex items-center gap-3 shadow-xs">
                             <div className="p-1.5 bg-amber-50 text-amber-600 rounded-lg">
                                 <Clock size={14} />
                             </div>
@@ -686,7 +650,7 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
                 </div>
 
                 {/* Right Button/Indicator Block */}
-                <div className="flex md:flex-col items-center justify-between md:justify-center md:items-end gap-3 border-t md:border-t-0 border-slate-100 pt-4 md:pt-0 shrink-0">
+                <div className="flex md:flex-col items-center justify-between md:justify-center md:items-end gap-3 border-t md:border-t-0 border-indigo-100/50 pt-4 md:pt-0 shrink-0">
                     <div className="text-left md:text-right">
                         <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Self-Audit Checklist</p>
                         <p className="text-3xl sm:text-4xl font-black text-slate-900 tracking-tight mt-0.5">
@@ -870,18 +834,6 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
             </div>
         </section>
       </main>
-
-      {/* Mobile nav */}
-      <nav className="md:hidden fixed bottom-0 w-full bg-white border-t border-slate-100 flex justify-around p-4 text-[10px] font-bold text-slate-400">
-        <button className="flex flex-col items-center gap-1 text-slate-900"><LayoutDashboard size={20} /> Dashboard</button>
-        <button className="flex flex-col items-center gap-1"><History size={20} /> History</button>
-        <button 
-          onClick={() => setIsEditProfileOpen(true)}
-          className="flex flex-col items-center gap-1 hover:text-indigo-600 transition-colors"
-        >
-          <User size={20} /> Profile
-        </button>
-      </nav>
 
       {/* Edit Profile Modal */}
       {isEditProfileOpen && (
