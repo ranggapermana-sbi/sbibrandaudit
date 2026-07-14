@@ -5448,27 +5448,32 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                                 <div className="space-y-3">
                                                                                                     {/* Visual Evidence with In-App Lightbox */}
                                                                                                     {(item.inputType === 'camera' || item.inputType === 'image') && submission.value && (
-                                                                                                        <div 
-                                                                                                            className="group/img relative rounded-xl border border-slate-200 overflow-hidden bg-slate-900/5 flex items-center justify-center min-h-[140px] max-h-[280px] cursor-zoom-in transition-all hover:border-indigo-300 hover:shadow-sm"
-                                                                                                            onClick={() => setEnlargedImage({ url: submission.value, title: `${item.name} — ${hotel.name}` })}
-                                                                                                        >
-                                                                                                            <img 
-                                                                                                                src={submission.value} 
-                                                                                                                alt="Submission" 
-                                                                                                                referrerPolicy="no-referrer" 
-                                                                                                                className="w-auto h-auto max-h-[280px] object-contain rounded-lg py-1 shadow-2xs" 
-                                                                                                            />
-                                                                                                            <div className="absolute inset-0 bg-slate-950/40 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center text-white font-black text-xs uppercase tracking-wider gap-2">
-                                                                                                                <Maximize2 size={16} />
-                                                                                                                Click to enlarge in Lightbox
-                                                                                                            </div>
-                                                                                                            <div className="absolute bottom-2 right-2 bg-slate-900/80 backdrop-blur-md text-white text-[9px] font-extrabold px-2 py-0.5 rounded-md opacity-90 group-hover/img:opacity-0 transition-opacity flex items-center gap-1">
-                                                                                                                <Eye size={12} /> Preview
-                                                                                                            </div>
-                                                                                                        </div>
-                                                                                                    )}
+                                                                                                         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                                                                                                             {String(submission.value).split(',').map(u => u.trim()).filter(Boolean).map((url, urlIdx) => (
+                                                                                                                 <div 
+                                                                                                                     key={urlIdx}
+                                                                                                                     className="group/img relative rounded-xl border border-slate-200 overflow-hidden bg-slate-900/5 flex items-center justify-center aspect-square cursor-zoom-in transition-all hover:border-indigo-300 hover:shadow-sm"
+                                                                                                                     onClick={() => setEnlargedImage({ url: url, title: `${item.name} — Photo ${urlIdx + 1} — ${hotel.name}` })}
+                                                                                                                 >
+                                                                                                                     <img 
+                                                                                                                         src={url} 
+                                                                                                                         alt={`Submission Photo ${urlIdx + 1}`} 
+                                                                                                                         referrerPolicy="no-referrer" 
+                                                                                                                         className="w-full h-full object-cover" 
+                                                                                                                     />
+                                                                                                                     <div className="absolute inset-0 bg-slate-950/40 opacity-0 group-hover/img:opacity-100 transition-opacity flex flex-col items-center justify-center text-white font-black text-[10px] uppercase tracking-wider text-center p-2 gap-1">
+                                                                                                                         <Maximize2 size={14} />
+                                                                                                                         <span>Enlarge</span>
+                                                                                                                     </div>
+                                                                                                                     <div className="absolute bottom-1.5 right-1.5 bg-slate-900/80 backdrop-blur-md text-white text-[8px] font-extrabold px-1.5 py-0.5 rounded opacity-90 group-hover/img:opacity-0 transition-opacity flex items-center gap-1">
+                                                                                                                         <Eye size={10} /> Photo ${urlIdx + 1}
+                                                                                                                     </div>
+                                                                                                                 </div>
+                                                                                                             ))}
+                                                                                                         </div>
+                                                                                                     )}
 
-                                                                                                    {/* Document Evidence */}
+                                                                                                     {/* Document Evidence */}
                                                                                                     {item.inputType === 'document' && submission.value && (
                                                                                                         <a href={submission.value} target="_blank" rel="noreferrer" className="flex items-center gap-3 p-3 bg-white border border-slate-200 rounded-xl hover:border-indigo-300 hover:shadow-xs transition-all group/doc">
                                                                                                             <div className="w-10 h-10 bg-indigo-50 rounded-lg flex items-center justify-center text-indigo-600 group-hover/doc:bg-indigo-600 group-hover/doc:text-white transition-colors shrink-0">

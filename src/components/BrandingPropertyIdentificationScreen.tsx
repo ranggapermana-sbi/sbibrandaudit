@@ -91,6 +91,12 @@ const uploadToIMGBB = async (file: File): Promise<string> => {
     }
 }
 
+interface PhotoItem {
+    id: string;
+    url: string;
+    file: File | null;
+}
+
 const AuditItemCard: React.FC<{ item: any, hotelId: string, userProfile?: any, locked?: boolean }> = ({ item, hotelId, userProfile, locked }) => {
     const [value, setValue] = useState<string>('');
     const [isNa, setIsNa] = useState<boolean>(false);
@@ -100,6 +106,7 @@ const AuditItemCard: React.FC<{ item: any, hotelId: string, userProfile?: any, l
     const [submittedBy, setSubmittedBy] = useState<string>('');
     const [previewUrl, setPreviewUrl] = useState<string | null>(null);
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
+    const [photos, setPhotos] = useState<PhotoItem[]>([]);
 
     const isFieldDisabled = isSubmitted || !!locked;
 
@@ -157,13 +164,27 @@ const AuditItemCard: React.FC<{ item: any, hotelId: string, userProfile?: any, l
                 canvas.toBlob((blob) => {
                     if (blob) {
                         const file = new File([blob], `capture_${Date.now()}.jpg`, { type: 'image/jpeg' });
-                        setSelectedFile(file);
-                        setPreviewUrl(URL.createObjectURL(file));
+                        const newPhoto: PhotoItem = {
+                            id: `local_cap_${Date.now()}`,
+                            url: URL.createObjectURL(file),
+                            file: file
+                        };
+                        setPhotos(prev => [...prev, newPhoto]);
                         stopCamera();
                     }
                 }, 'image/jpeg', 0.8);
             }
         }
+    };
+
+    const removePhoto = (id: string) => {
+        setPhotos(prev => {
+            const itemToRemove = prev.find(p => p.id === id);
+            if (itemToRemove && itemToRemove.url.startsWith('blob:')) {
+                URL.revokeObjectURL(itemToRemove.url);
+            }
+            return prev.filter(p => p.id !== id);
+        });
     };
 
     useEffect(() => {
@@ -188,14 +209,28 @@ const AuditItemCard: React.FC<{ item: any, hotelId: string, userProfile?: any, l
                 
                 if (!error && data && data.length > 0 && active) {
                     const submission = data[0];
-                    setValue(submission.value || '');
+                    const val = submission.value || '';
+                    setValue(val);
                     setIsNa(submission.is_na || false);
                     setNaReason(submission.na_reason || submission.notes || submission.remark || '');
                     setIsSubmitted(true);
                     setSubmittedBy(submission.submitted_by_name || submission.submitted_by || submission.user_name || '');
-                    if (submission.value && (item.input_type === 'camera' || item.input_type === 'image')) {
-                        setPreviewUrl(submission.value);
+                    
+                    if (val && (item.input_type === 'camera' || item.input_type === 'image')) {
+                        const urls = val.split(',').map((u: string) => u.trim()).filter(Boolean);
+                        setPhotos(urls.map((u: string, idx: number) => ({
+                            id: `loaded_${idx}_${Date.now()}`,
+                            url: u,
+                            file: null
+                        })));
+                    } else if (item.input_type === 'camera' || item.input_type === 'image') {
+                        setPhotos([]);
                     }
+
+                    if (val && item.input_type === 'document') {
+                        setPreviewUrl(val);
+                    }
+                    
                     // Sync to local storage
                     localStorage.setItem(`sbi_audit_${hotelId}_${item.id}`, JSON.stringify({
                         ...submission,
@@ -207,13 +242,26 @@ const AuditItemCard: React.FC<{ item: any, hotelId: string, userProfile?: any, l
                     if (stored && active) {
                         try {
                             const localData = JSON.parse(stored);
-                            setValue(localData.value || '');
+                            const val = localData.value || '';
+                            setValue(val);
                             setIsNa(localData.is_na || false);
                             setNaReason(localData.na_reason || localData.notes || localData.remark || '');
                             setIsSubmitted(localData.isSubmitted || false);
                             setSubmittedBy(localData.submitted_by_name || localData.submitted_by || localData.submitted_by_user || '');
-                            if (localData.value && (item.input_type === 'camera' || item.input_type === 'image')) {
-                                setPreviewUrl(localData.value);
+                            
+                            if (val && (item.input_type === 'camera' || item.input_type === 'image')) {
+                                const urls = val.split(',').map((u: string) => u.trim()).filter(Boolean);
+                                setPhotos(urls.map((u: string, idx: number) => ({
+                                    id: `loaded_${idx}_${Date.now()}`,
+                                    url: u,
+                                    file: null
+                                })));
+                            } else if (item.input_type === 'camera' || item.input_type === 'image') {
+                                setPhotos([]);
+                            }
+
+                            if (val && item.input_type === 'document') {
+                                setPreviewUrl(val);
                             }
                         } catch (e) {}
                     } else if (active) {
@@ -224,6 +272,7 @@ const AuditItemCard: React.FC<{ item: any, hotelId: string, userProfile?: any, l
                         setIsSubmitted(false);
                         setPreviewUrl(null);
                         setSubmittedBy('');
+                        setPhotos([]);
                     }
                 }
             } catch (err) {
@@ -235,14 +284,23 @@ const AuditItemCard: React.FC<{ item: any, hotelId: string, userProfile?: any, l
     }, [hotelId, item.id, item.input_type]);
 
     const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (e.target.files && e.target.files[0]) {
-            const file = e.target.files[0];
-            setSelectedFile(file);
-            
-            if (file.type.startsWith('image/')) {
-                setPreviewUrl(URL.createObjectURL(file));
-            } else {
-                setPreviewUrl(null); 
+        if (e.target.files) {
+            const files = Array.from(e.target.files) as File[];
+            if (item.input_type === 'image' || item.input_type === 'camera') {
+                const newPhotos: PhotoItem[] = files.map((file: File, idx) => ({
+                    id: `local_${idx}_${Date.now()}`,
+                    url: URL.createObjectURL(file),
+                    file: file
+                }));
+                setPhotos(prev => [...prev, ...newPhotos]);
+            } else if (files[0]) {
+                const file = files[0];
+                setSelectedFile(file);
+                if (file.type.startsWith('image/')) {
+                    setPreviewUrl(URL.createObjectURL(file));
+                } else {
+                    setPreviewUrl(null); 
+                }
             }
         }
     };
@@ -261,16 +319,25 @@ const AuditItemCard: React.FC<{ item: any, hotelId: string, userProfile?: any, l
                 finalValue = ''; 
             } else {
                 if (item.input_type === 'camera' || item.input_type === 'image') {
-                    if (selectedFile) {
-                        let fileToUpload = selectedFile;
-                        try {
-                            fileToUpload = await resizeImage(selectedFile, 1);
-                        } catch (resizeErr) {
-                            console.warn("Resize failed, using original file", resizeErr);
+                    if (photos.length > 0) {
+                        const uploadedUrls: string[] = [];
+                        for (const p of photos) {
+                            if (p.file) {
+                                let fileToUpload = p.file;
+                                try {
+                                    fileToUpload = await resizeImage(p.file, 1);
+                                } catch (resizeErr) {
+                                    console.warn("Resize failed, using original file", resizeErr);
+                                }
+                                const uploadedUrl = await uploadToIMGBB(fileToUpload);
+                                uploadedUrls.push(uploadedUrl);
+                            } else {
+                                uploadedUrls.push(p.url);
+                            }
                         }
-                        finalValue = await uploadToIMGBB(fileToUpload);
-                    } else if (!finalValue) {
-                        alert("Please select or capture an image.");
+                        finalValue = uploadedUrls.join(',');
+                    } else {
+                        alert("Please select or capture at least one image.");
                         setIsSubmitting(false);
                         return;
                     }
@@ -392,7 +459,7 @@ const AuditItemCard: React.FC<{ item: any, hotelId: string, userProfile?: any, l
         switch (item.input_type) {
             case 'camera':
                 return (
-                    <div className="mt-3">
+                    <div className="mt-3 space-y-3">
                         {isCameraOpen && (
                             <div className="fixed inset-0 z-[100] bg-black flex flex-col animate-fadeIn">
                                 <div className="absolute top-4 right-4 z-[110] flex gap-4">
@@ -415,19 +482,29 @@ const AuditItemCard: React.FC<{ item: any, hotelId: string, userProfile?: any, l
                             </div>
                         )}
                         
-                        {previewUrl ? (
-                            <div className="relative inline-block group w-full sm:w-auto">
-                                <img src={previewUrl} alt="Preview" referrerPolicy="no-referrer" className="w-full sm:w-48 h-40 sm:h-48 object-cover rounded-xl border border-slate-200 shadow-sm" />
-                                {!isFieldDisabled && (
-                                    <button 
-                                        onClick={() => { setPreviewUrl(null); setSelectedFile(null); setValue(''); }}
-                                        className="absolute -top-3 -right-3 bg-red-500 text-white p-1.5 rounded-full shadow-lg hover:scale-110 transition-transform"
-                                    >
-                                        <X size={16} />
-                                    </button>
-                                )}
+                        {photos.length > 0 && (
+                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                                {photos.map((p, idx) => (
+                                    <div key={p.id} className="relative group rounded-xl border border-slate-200 shadow-2xs overflow-hidden aspect-square bg-slate-50">
+                                        <img src={p.url} alt={`Evidence ${idx + 1}`} referrerPolicy="no-referrer" className="w-full h-full object-cover" />
+                                        {!isFieldDisabled && (
+                                            <button 
+                                                onClick={() => removePhoto(p.id)}
+                                                className="absolute top-1.5 right-1.5 bg-red-500 hover:bg-red-600 text-white p-1.5 rounded-full shadow-md hover:scale-110 transition-transform"
+                                                type="button"
+                                            >
+                                                <X size={14} />
+                                            </button>
+                                        )}
+                                        <div className="absolute bottom-1 left-1 bg-slate-900/70 text-white text-[8px] font-bold px-1.5 py-0.5 rounded">
+                                            Photo {idx + 1}
+                                        </div>
+                                    </div>
+                                ))}
                             </div>
-                        ) : (
+                        )}
+
+                        {!isFieldDisabled && photos.length < 5 && (
                             <div>
                                 <button 
                                     onClick={() => !locked && startCamera(facingMode)}
@@ -435,7 +512,7 @@ const AuditItemCard: React.FC<{ item: any, hotelId: string, userProfile?: any, l
                                     className="flex items-center justify-center gap-2 w-full py-3.5 sm:py-5 border-2 border-dashed border-indigo-200 bg-indigo-50/50 hover:bg-indigo-50 text-indigo-600 rounded-xl font-bold text-xs sm:text-sm transition-colors active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                     <Camera size={20} className="sm:w-5 sm:h-5" />
-                                    Take Photo
+                                    {photos.length > 0 ? 'Add Another Photo' : 'Take Photo'}
                                 </button>
                             </div>
                         )}
@@ -443,20 +520,30 @@ const AuditItemCard: React.FC<{ item: any, hotelId: string, userProfile?: any, l
                 );
             case 'image':
                 return (
-                    <div className="mt-3">
-                        {previewUrl ? (
-                            <div className="relative inline-block group w-full sm:w-auto">
-                                <img src={previewUrl} alt="Preview" referrerPolicy="no-referrer" className="w-full sm:w-48 h-40 sm:h-48 object-cover rounded-xl border border-slate-200 shadow-sm" />
-                                {!isFieldDisabled && (
-                                    <button 
-                                        onClick={() => { setPreviewUrl(null); setSelectedFile(null); setValue(''); }}
-                                        className="absolute -top-3 -right-3 bg-red-500 text-white p-1.5 rounded-full shadow-lg hover:scale-110 transition-transform"
-                                    >
-                                        <X size={16} />
-                                    </button>
-                                )}
+                    <div className="mt-3 space-y-3">
+                        {photos.length > 0 && (
+                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                                {photos.map((p, idx) => (
+                                    <div key={p.id} className="relative group rounded-xl border border-slate-200 shadow-2xs overflow-hidden aspect-square bg-slate-50">
+                                        <img src={p.url} alt={`Evidence ${idx + 1}`} referrerPolicy="no-referrer" className="w-full h-full object-cover" />
+                                        {!isFieldDisabled && (
+                                            <button 
+                                                onClick={() => removePhoto(p.id)}
+                                                className="absolute top-1.5 right-1.5 bg-red-500 hover:bg-red-600 text-white p-1.5 rounded-full shadow-md hover:scale-110 transition-transform"
+                                                type="button"
+                                            >
+                                                <X size={14} />
+                                            </button>
+                                        )}
+                                        <div className="absolute bottom-1 left-1 bg-slate-900/70 text-white text-[8px] font-bold px-1.5 py-0.5 rounded">
+                                            Photo {idx + 1}
+                                        </div>
+                                    </div>
+                                ))}
                             </div>
-                        ) : (
+                        )}
+
+                        {!isFieldDisabled && photos.length < 5 && (
                             <div>
                                 <input 
                                     type="file" 
@@ -465,6 +552,7 @@ const AuditItemCard: React.FC<{ item: any, hotelId: string, userProfile?: any, l
                                     ref={fileInputRef} 
                                     onChange={handleFileChange} 
                                     disabled={locked}
+                                    multiple
                                 />
                                 <button 
                                     onClick={() => !locked && fileInputRef.current?.click()}
@@ -472,8 +560,8 @@ const AuditItemCard: React.FC<{ item: any, hotelId: string, userProfile?: any, l
                                     className="flex flex-col items-center justify-center gap-1.5 w-full py-4 sm:py-6 border-2 border-dashed border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-xl font-bold text-xs sm:text-sm transition-colors active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                     <ImageIcon size={22} className="text-slate-400 sm:w-6 sm:h-6" />
-                                    Browse Image
-                                    <span className="text-[10px] font-medium text-slate-400">Max size: 1MB</span>
+                                    {photos.length > 0 ? 'Add Another Image' : 'Browse Image'}
+                                    <span className="text-[10px] font-medium text-slate-400">Max size: 1MB per image (Up to 5)</span>
                                 </button>
                             </div>
                         )}
