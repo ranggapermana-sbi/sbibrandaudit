@@ -814,8 +814,10 @@ export default function BrandingPropertyIdentificationScreen({ selectedCategory,
                 const filtered = (data || []).filter((item: any) => item.filled_by_hotel !== false && item.filled_by_hotel !== 'false');
                 
                 const sorted = filtered.sort((a: any, b: any) => {
-                    if (a.sort_order !== undefined && a.sort_order !== null && b.sort_order !== undefined && b.sort_order !== null) {
-                        return Number(a.sort_order) - Number(b.sort_order);
+                    const sA = a.sort_order !== undefined && a.sort_order !== null ? Number(a.sort_order) : 999999;
+                    const sB = b.sort_order !== undefined && b.sort_order !== null ? Number(b.sort_order) : 999999;
+                    if (sA !== sB) {
+                        return sA - sB;
                     }
                     return (a.name || '').localeCompare(b.name || '');
                 });

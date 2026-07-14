@@ -280,9 +280,16 @@ export default function PendingCategoriesScreen({ onBack, onNavigate, userProfil
                     id: cat.id,
                     name: cat.name,
                     total: catItems.length,
-                    completed: Math.min(completedCount, catItems.length)
+                    completed: Math.min(completedCount, catItems.length),
+                    sort_order: cat.sort_order
                 };
-            }).filter((cat: any) => cat.total > 0);
+            }).filter((cat: any) => cat.total > 0)
+              .sort((a: any, b: any) => {
+                  const sA = a.sort_order !== undefined && a.sort_order !== null ? Number(a.sort_order) : 999999;
+                  const sB = b.sort_order !== undefined && b.sort_order !== null ? Number(b.sort_order) : 999999;
+                  if (sA !== sB) return sA - sB;
+                  return (a.name || '').localeCompare(b.name || '');
+              });
 
             setCategories(mapped);
         } catch (err) {
@@ -392,9 +399,16 @@ export default function PendingCategoriesScreen({ onBack, onNavigate, userProfil
                     id: cat.id,
                     name: cat.name,
                     total: catItems.length,
-                    completed: Math.min(completedCount, catItems.length)
+                    completed: Math.min(completedCount, catItems.length),
+                    sort_order: cat.sort_order
                 };
-            }).filter((cat: any) => cat.total > 0);
+            }).filter((cat: any) => cat.total > 0)
+              .sort((a: any, b: any) => {
+                  const sA = a.sort_order !== undefined && a.sort_order !== null ? Number(a.sort_order) : 999999;
+                  const sB = b.sort_order !== undefined && b.sort_order !== null ? Number(b.sort_order) : 999999;
+                  if (sA !== sB) return sA - sB;
+                  return (a.name || '').localeCompare(b.name || '');
+              });
 
             setCategories(mappedFallback);
         } finally {

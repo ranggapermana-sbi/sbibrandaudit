@@ -269,8 +269,10 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
       });
 
       const sortedData = filtered.sort((a: any, b: any) => {
-        if (a.sort_order !== undefined && a.sort_order !== null && b.sort_order !== undefined && b.sort_order !== null) {
-          return Number(a.sort_order) - Number(b.sort_order);
+        const sA = a.sort_order !== undefined && a.sort_order !== null ? Number(a.sort_order) : 999999;
+        const sB = b.sort_order !== undefined && b.sort_order !== null ? Number(b.sort_order) : 999999;
+        if (sA !== sB) {
+          return sA - sB;
         }
         return (a.name || '').localeCompare(b.name || '');
       });
@@ -438,8 +440,10 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
       const sortedCategories = Object.values(dept.categoriesMap).map(cat => {
         // Sort items by sort_order, then name
         const sortedItems = [...cat.items].sort((a, b) => {
-          if (a.sort_order !== undefined && a.sort_order !== null && b.sort_order !== undefined && b.sort_order !== null) {
-            return Number(a.sort_order) - Number(b.sort_order);
+          const sA = a.sort_order !== undefined && a.sort_order !== null ? Number(a.sort_order) : 999999;
+          const sB = b.sort_order !== undefined && b.sort_order !== null ? Number(b.sort_order) : 999999;
+          if (sA !== sB) {
+            return sA - sB;
           }
           return (a.name || '').localeCompare(b.name || '');
         });
@@ -449,8 +453,10 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
         };
       }).sort((a, b) => {
         // Sort categories by sort_order, then name
-        if (a.sort_order !== undefined && a.sort_order !== null && b.sort_order !== undefined && b.sort_order !== null) {
-          return Number(a.sort_order) - Number(b.sort_order);
+        const sA = a.sort_order !== undefined && a.sort_order !== null ? Number(a.sort_order) : 999999;
+        const sB = b.sort_order !== undefined && b.sort_order !== null ? Number(b.sort_order) : 999999;
+        if (sA !== sB) {
+          return sA - sB;
         }
         return (a.name || '').localeCompare(b.name || '');
       });
