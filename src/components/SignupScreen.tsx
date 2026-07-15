@@ -26,8 +26,6 @@ const FALLBACK_HOTELS: Hotel[] = [
 ];
 
 const ROLES = [
-    'Admin',
-    'Auditor',
     'General Manager',
     'GM Secretary',
     'Marcomm/PR',
