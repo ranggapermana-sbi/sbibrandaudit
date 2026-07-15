@@ -464,13 +464,18 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     };
 
     const updateApprovalStatus = async (userId: string, isApproved: boolean) => {
+        const adminName = userProfile ? `${userProfile.first_name || ''} ${userProfile.last_name || ''}`.trim() || userProfile.display_name || userProfile.email : 'Admin';
+        const approvalDate = new Date().toISOString();
+
         try {
             const updatedList = profilesList.map(p => {
                 if (p.id === userId) {
                     const updatedUser = { 
                         ...p, 
                         is_approved: isApproved, 
-                        updated_at: new Date().toISOString() 
+                        approved_by_name: isApproved ? adminName : null,
+                        approved_at: isApproved ? approvalDate : null,
+                        updated_at: approvalDate 
                     };
                     localStorage.setItem(`sbi_profile_${userId}`, JSON.stringify(updatedUser));
                     return updatedUser;
@@ -480,7 +485,8 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             setProfilesList(updatedList);
             setToastMessage(`Updated approval status to ${isApproved ? 'Approved' : 'Pending'} locally.`);
 
-            const response = await fetch(`${MAIN_URL}audit_users?id=eq.${userId}`, {
+            // Try to update with full details first
+            let response = await fetch(`${MAIN_URL}audit_users?id=eq.${userId}`, {
                 method: 'PATCH',
                 headers: {
                     'apikey': MAIN_KEY,
@@ -490,9 +496,29 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 },
                 body: JSON.stringify({ 
                     is_approved: isApproved,
-                    updated_at: new Date().toISOString()
+                    approved_by_name: isApproved ? adminName : null,
+                    approved_at: isApproved ? approvalDate : null,
+                    updated_at: approvalDate
                 })
             });
+
+            if (!response.ok) {
+                console.warn("Failed with full fields. Attempting core fields fallback...");
+                // Core fields fallback
+                response = await fetch(`${MAIN_URL}audit_users?id=eq.${userId}`, {
+                    method: 'PATCH',
+                    headers: {
+                        'apikey': MAIN_KEY,
+                        'Authorization': `Bearer ${MAIN_KEY}`,
+                        'Content-Type': 'application/json',
+                        'Prefer': 'return=representation'
+                    },
+                    body: JSON.stringify({ 
+                        is_approved: isApproved,
+                        updated_at: approvalDate
+                    })
+                });
+            }
 
             if (response.ok) {
                 fetchProfilesFromSupabase();
@@ -582,8 +608,10 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         }
 
         const selectedHotelsList = hotels.filter(h => userFormHotelIds.includes(h.id));
-        
-        const payload = {
+        const adminName = userProfile ? `${userProfile.first_name || ''} ${userProfile.last_name || ''}`.trim() || userProfile.display_name || userProfile.email : 'Admin';
+        const currentDate = new Date().toISOString();
+
+        const payload: any = {
             id: editingUser ? editingUser.id : crypto.randomUUID(),
             email: userFormEmail.trim(),
             first_name: userFormFirstName.trim(),
@@ -596,19 +624,28 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             hotel_code: selectedHotelsList.length > 0 ? selectedHotelsList.map(h => h.code || 'SBI').join(',') : null,
             is_brand_audit_lead: userFormIsBrandAuditLead,
             is_approved: userFormIsApproved,
-            updated_at: new Date().toISOString()
+            updated_at: currentDate
         };
+
+        if (userFormIsApproved) {
+            payload.approved_by_name = editingUser?.approved_by_name || adminName;
+            payload.approved_at = editingUser?.approved_at || currentDate;
+        } else {
+            payload.approved_by_name = null;
+            payload.approved_at = null;
+        }
 
         try {
             setIsSupabaseLoading(true);
             
-            // 1. Save locally to localStorage (as fallback or active state representation)
+            // 1. Save locally to localStorage
             localStorage.setItem(`sbi_profile_${payload.id}`, JSON.stringify(payload));
 
             // 2. Write to Supabase REST endpoint
+            let res;
             if (editingUser) {
                 // UPDATE / PATCH
-                const res = await fetch(`${MAIN_URL}audit_users?id=eq.${payload.id}`, {
+                res = await fetch(`${MAIN_URL}audit_users?id=eq.${payload.id}`, {
                     method: 'PATCH',
                     headers: {
                         'apikey': MAIN_KEY,
@@ -618,13 +655,35 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                     },
                     body: JSON.stringify(payload)
                 });
+
+                if (!res.ok) {
+                    console.warn("Full PATCH failed. Retrying without approval details...");
+                    const fallbackPayload = { ...payload };
+                    delete fallbackPayload.approved_by_name;
+                    delete fallbackPayload.approved_at;
+                    res = await fetch(`${MAIN_URL}audit_users?id=eq.${payload.id}`, {
+                        method: 'PATCH',
+                        headers: {
+                            'apikey': MAIN_KEY,
+                            'Authorization': `Bearer ${MAIN_KEY}`,
+                            'Content-Type': 'application/json',
+                            'Prefer': 'return=representation'
+                        },
+                        body: JSON.stringify(fallbackPayload)
+                    });
+                }
+
                 if (!res.ok) {
                     throw new Error(`Database profiles update returned status: ${res.status}`);
                 }
                 setToastMessage('User profile updated successfully!');
             } else {
                 // CREATE / POST
-                const res = await fetch(`${MAIN_URL}audit_users`, {
+                const fullPayload = {
+                    ...payload,
+                    created_at: currentDate
+                };
+                res = await fetch(`${MAIN_URL}audit_users`, {
                     method: 'POST',
                     headers: {
                         'apikey': MAIN_KEY,
@@ -632,11 +691,26 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                         'Content-Type': 'application/json',
                         'Prefer': 'return=representation'
                     },
-                    body: JSON.stringify({
-                        ...payload,
-                        created_at: new Date().toISOString()
-                    })
+                    body: JSON.stringify(fullPayload)
                 });
+
+                if (!res.ok) {
+                    console.warn("Full POST failed. Retrying without approval details...");
+                    const fallbackPayload = { ...fullPayload };
+                    delete fallbackPayload.approved_by_name;
+                    delete fallbackPayload.approved_at;
+                    res = await fetch(`${MAIN_URL}audit_users`, {
+                        method: 'POST',
+                        headers: {
+                            'apikey': MAIN_KEY,
+                            'Authorization': `Bearer ${MAIN_KEY}`,
+                            'Content-Type': 'application/json',
+                            'Prefer': 'return=representation'
+                        },
+                        body: JSON.stringify(fallbackPayload)
+                    });
+                }
+
                 if (!res.ok) {
                     throw new Error(`Database profiles creation returned status: ${res.status}`);
                 }
@@ -1540,7 +1614,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 .select('*, hotels(name, code)')
                 .order('finalized_at', { ascending: false });
 
-            // Fetch user enrollments
+            // Fetch user enrollments and approvals
             const { data: enrollmentsData, error: enrollmentsError } = await supabase
                 .from('audit_users')
                 .select('*')
@@ -1585,7 +1659,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 });
             }
 
-            // Add enrollments
+            // Add enrollments and approvals
             if (enrollmentsData && !enrollmentsError) {
                 enrollmentsData.forEach((user: any) => {
                     const firstName = user.first_name || '';
@@ -1593,6 +1667,8 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                     const fullName = (firstName + ' ' + lastName).trim() || user.display_name || user.email?.split('@')[0] || 'Unknown User';
                     const roleName = user.role || (user.access_level ? (user.access_level.charAt(0).toUpperCase() + user.access_level.slice(1)) : 'Representative');
                     const hotelName = user.hotel_name || 'Swiss-Belhotel International';
+                    
+                    // 1. Enrollment Event
                     events.push({
                         id: `enroll-${user.id}`,
                         type: 'enrollment',
@@ -1602,6 +1678,21 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                         roleName,
                         timestamp: user.created_at || user.updated_at || new Date().toISOString(),
                     });
+
+                    // 2. Approval Event (if approved)
+                    if (user.is_approved && user.approved_at) {
+                        const adminName = user.approved_by_name || 'Admin';
+                        events.push({
+                            id: `approve-${user.id}`,
+                            type: 'admin_approval',
+                            hotelId: user.hotel_id?.split(',')[0] || null,
+                            hotelName,
+                            fullName,
+                            roleName,
+                            adminName,
+                            timestamp: user.approved_at,
+                        });
+                    }
                 });
             }
 
@@ -3833,11 +3924,12 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                 {paginated.map((event) => {
                                                     const isFinal = event.type === 'finalization';
                                                     const isEnroll = event.type === 'enrollment';
+                                                    const isAdminApproval = event.type === 'admin_approval';
                                                     return (
                                                         <div 
                                                             key={event.id} 
                                                             onClick={() => {
-                                                                if (isEnroll) {
+                                                                if (isEnroll || isAdminApproval) {
                                                                     setSubView('users');
                                                                 } else {
                                                                     setSelectedInspectionHotelId(event.hotelId);
@@ -3849,7 +3941,9 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                     ? 'bg-emerald-50/30 border-emerald-100 hover:bg-emerald-50/60 hover:border-emerald-200' 
                                                                     : isEnroll
                                                                         ? 'bg-indigo-50/30 border-indigo-100/70 hover:bg-indigo-50/60 hover:border-indigo-200'
-                                                                        : 'bg-slate-50/50 border-slate-100 hover:bg-white hover:border-indigo-100 hover:shadow-md'
+                                                                        : isAdminApproval
+                                                                            ? 'bg-rose-50/25 border-rose-100/70 hover:bg-rose-50/50 hover:border-rose-200'
+                                                                            : 'bg-slate-50/50 border-slate-100 hover:bg-white hover:border-indigo-100 hover:shadow-md'
                                                             }`}
                                                         >
                                                             <div className="flex items-start gap-3 sm:items-center">
@@ -3858,32 +3952,56 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                         ? 'bg-emerald-100/60 border-emerald-200/80 text-emerald-700' 
                                                                         : isEnroll
                                                                             ? 'bg-indigo-100/60 border-indigo-200/80 text-indigo-700'
-                                                                            : 'bg-white border-slate-100 text-slate-600 group-hover:bg-indigo-50 group-hover:text-indigo-600'
+                                                                            : isAdminApproval
+                                                                                ? 'bg-rose-100/60 border-rose-200/80 text-rose-700'
+                                                                                : 'bg-white border-slate-100 text-slate-600 group-hover:bg-indigo-50 group-hover:text-indigo-600'
                                                                 }`}>
                                                                     {isFinal ? (
                                                                         <FileCheck size={16} />
                                                                     ) : isEnroll ? (
                                                                         <Users size={16} />
+                                                                    ) : isAdminApproval ? (
+                                                                        <ShieldCheck size={16} />
                                                                     ) : (
                                                                         <ClipboardList size={16} />
                                                                     )}
                                                                 </div>
                                                                 <div className="leading-relaxed">
-                                                                    <p className="text-xs text-slate-700 font-medium font-sans">
-                                                                        {isEnroll ? (
+                                                                    <p className="text-xs text-slate-700 font-medium font-sans flex flex-wrap items-center gap-x-1.5 gap-y-1">
+                                                                        {isAdminApproval ? (
                                                                             <>
-                                                                                <strong className="text-slate-900 font-bold">{event.hotelName}</strong>: <span className="font-bold text-slate-800">{event.fullName}</span> enrolled as <span className="text-indigo-600 font-semibold">{event.roleName}</span>
+                                                                                <span className="text-rose-700 bg-rose-50 border border-rose-150 px-2 py-0.5 rounded-md font-bold text-[10px] uppercase tracking-wider mr-1">Admin Activity:</span>
+                                                                                <span className="font-bold text-amber-800 bg-amber-50 border border-amber-100/50 px-1.5 py-0.5 rounded-md">{event.adminName}</span>
+                                                                                <span>approved</span>
+                                                                                <span className="font-bold text-amber-800 bg-amber-50 border border-amber-100/50 px-1.5 py-0.5 rounded-md">{event.fullName}</span>
+                                                                                <span>as</span>
+                                                                                <span className="text-indigo-600 font-semibold">{event.roleName}</span>
+                                                                                <span>for</span>
+                                                                                <span className="font-bold text-indigo-700 bg-indigo-50/70 border border-indigo-100/60 px-1.5 py-0.5 rounded-md">{event.hotelName}</span>
+                                                                            </>
+                                                                        ) : isEnroll ? (
+                                                                            <>
+                                                                                <span className="font-bold text-indigo-700 bg-indigo-50/70 border border-indigo-100/60 px-1.5 py-0.5 rounded-md">{event.hotelName}</span>
+                                                                                <span>:</span>
+                                                                                <span className="font-bold text-amber-800 bg-amber-50 border border-amber-100/50 px-1.5 py-0.5 rounded-md">{event.fullName}</span>
+                                                                                <span>enrolled as</span>
+                                                                                <span className="text-indigo-600 font-semibold">{event.roleName}</span>
                                                                             </>
                                                                         ) : (
                                                                             <>
-                                                                                <strong className="text-slate-900 font-bold">{event.hotelName}</strong>: {event.submitter}{' '}
+                                                                                <span className="font-bold text-indigo-700 bg-indigo-50/70 border border-indigo-100/60 px-1.5 py-0.5 rounded-md">{event.hotelName}</span>
+                                                                                <span>:</span>
+                                                                                <span className="font-bold text-amber-800 bg-amber-50 border border-amber-100/50 px-1.5 py-0.5 rounded-md">{event.submitter}</span>
                                                                                 {isFinal ? (
                                                                                     <>
-                                                                                        submitted and <span className="text-emerald-700 font-semibold">finalised</span> the Brand Audit
+                                                                                        <span>submitted and</span>
+                                                                                        <span className="text-emerald-700 font-bold bg-emerald-50 px-1.5 py-0.5 rounded-md border border-emerald-100">finalised</span>
+                                                                                        <span>the Brand Audit</span>
                                                                                     </>
                                                                                 ) : (
                                                                                     <>
-                                                                                        submitted <span className="text-indigo-600 font-medium">{event.itemName}</span>
+                                                                                        <span>submitted</span>
+                                                                                        <span className="text-indigo-600 font-semibold bg-indigo-50/40 px-1.5 py-0.5 rounded-md border border-indigo-100/20">{event.itemName}</span>
                                                                                     </>
                                                                                 )}
                                                                             </>
