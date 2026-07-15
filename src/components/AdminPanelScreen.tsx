@@ -94,16 +94,110 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     const [groupExpandedCats, setGroupExpandedCats] = useState<Record<string, boolean>>({});
     const [enlargedImage, setEnlargedImage] = useState<{ url: string; title?: string } | null>(null);
 
+    // Reset Progress PIN Modal States
+    const [isResetPinModalOpen, setIsResetPinModalOpen] = useState(false);
+    const [resetPinValue, setResetPinValue] = useState('');
+    const [resetPinError, setResetPinError] = useState('');
+    const [hotelToReset, setHotelToReset] = useState<Hotel | null>(null);
+    const [isResetting, setIsResetting] = useState(false);
+
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
             if (e.key === 'Escape') {
                 setEnlargedImage(null);
                 setShowSqlModal(false);
+                setIsResetPinModalOpen(false);
+                setResetPinValue('');
+                setResetPinError('');
+                setHotelToReset(null);
+                return;
+            }
+
+            if (isResetPinModalOpen) {
+                if (e.key >= '0' && e.key <= '9') {
+                    setResetPinValue(prev => prev.length < 6 ? prev + e.key : prev);
+                    setResetPinError('');
+                } else if (e.key === 'Backspace') {
+                    setResetPinValue(prev => prev.slice(0, -1));
+                    setResetPinError('');
+                } else if (e.key === 'Enter') {
+                    handleVerifyResetPin();
+                }
             }
         };
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, []);
+    }, [isResetPinModalOpen, resetPinValue, hotelToReset]);
+
+    const handleVerifyResetPin = async () => {
+        if (resetPinValue !== '230987') {
+            setResetPinError('Incorrect Super Admin PIN. Access Denied.');
+            setResetPinValue('');
+            return;
+        }
+
+        if (!hotelToReset) return;
+
+        setIsResetting(true);
+        try {
+            const hId = hotelToReset.id;
+
+            // 1. Delete from Supabase 'audit_submissions'
+            const { error: subError } = await supabase
+                .from('audit_submissions')
+                .delete()
+                .eq('hotel_id', hId);
+
+            if (subError) {
+                console.error("Error deleting submissions from Supabase:", subError);
+            }
+
+            // 2. Delete from Supabase 'hotel_audit_status'
+            const { error: statusError } = await supabase
+                .from('hotel_audit_status')
+                .delete()
+                .eq('hotel_id', hId);
+
+            if (statusError) {
+                console.error("Error deleting audit status from Supabase:", statusError);
+            }
+
+            // 3. Clear localStorage fallbacks
+            for (let i = localStorage.length - 1; i >= 0; i--) {
+                const key = localStorage.key(i);
+                if (key) {
+                    if (key.startsWith(`sbi_audit_${hId}_`) || key.startsWith(`sbi_audit_finalized_${hId}`)) {
+                        localStorage.removeItem(key);
+                    }
+                    if (key.startsWith(`sbi_audit_finalized_by_${hId}`) || key.startsWith(`sbi_audit_finalized_at_${hId}`)) {
+                        localStorage.removeItem(key);
+                    }
+                }
+            }
+
+            // 4. Update local states so that UI updates instantly
+            setAllSubmissions(prev => prev.filter(sub => String(sub.hotel_id).toLowerCase() !== String(hId).toLowerCase()));
+            setFinalizedStatuses(prev => {
+                const updated = { ...prev };
+                delete updated[hId];
+                return updated;
+            });
+
+            // Show success alert
+            alert(`Successfully reset all audit progress for ${hotelToReset.name}!`);
+            
+            // Close modal & reset states
+            setIsResetPinModalOpen(false);
+            setResetPinValue('');
+            setResetPinError('');
+            setHotelToReset(null);
+        } catch (error) {
+            console.error("Error resetting progress:", error);
+            alert("An error occurred while resetting the hotel's progress. Please try again.");
+        } finally {
+            setIsResetting(false);
+        }
+    };
 
     useEffect(() => {
         const fetchAuditorAssignments = async () => {
@@ -6076,16 +6170,31 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                         </span>
                                                                     </td>
                                                                     <td className="px-6 py-4 text-right">
-                                                                        <button
-                                                                            onClick={() => {
-                                                                                setSelectedInspectionHotelId(h.id);
-                                                                                setSubView('inspection');
-                                                                            }}
-                                                                            className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-indigo-600 hover:text-indigo-800 bg-indigo-50/50 hover:bg-indigo-100/80 px-3.5 py-2 rounded-xl border border-indigo-100/60 active:scale-95 transition-all shadow-2xs"
-                                                                        >
-                                                                            <span>Review</span>
-                                                                            <ChevronRight size={12} />
-                                                                        </button>
+                                                                        <div className="flex items-center justify-end gap-2">
+                                                                            <button
+                                                                                onClick={() => {
+                                                                                    setHotelToReset(h);
+                                                                                    setIsResetPinModalOpen(true);
+                                                                                    setResetPinValue('');
+                                                                                    setResetPinError('');
+                                                                                }}
+                                                                                className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-rose-600 hover:text-rose-800 bg-rose-50 hover:bg-rose-100/80 px-3 py-2 rounded-xl border border-rose-100/60 active:scale-95 transition-all shadow-2xs"
+                                                                                title="Reset all progress made by this hotel"
+                                                                            >
+                                                                                <RefreshCw size={11} />
+                                                                                <span>Reset Progress</span>
+                                                                            </button>
+                                                                            <button
+                                                                                onClick={() => {
+                                                                                    setSelectedInspectionHotelId(h.id);
+                                                                                    setSubView('inspection');
+                                                                                }}
+                                                                                className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-indigo-600 hover:text-indigo-800 bg-indigo-50/50 hover:bg-indigo-100/80 px-3.5 py-2 rounded-xl border border-indigo-100/60 active:scale-95 transition-all shadow-2xs"
+                                                                            >
+                                                                                <span>Review</span>
+                                                                                <ChevronRight size={12} />
+                                                                            </button>
+                                                                        </div>
                                                                     </td>
                                                                 </tr>
                                                             );
@@ -7748,6 +7857,123 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                             >
                                 Cancel
                             </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* RESET PROGRESS SUPER ADMIN PIN MODAL */}
+            {isResetPinModalOpen && hotelToReset && (
+                <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-slate-950/65 backdrop-blur-md animate-fadeIn">
+                    <div className="bg-white w-full max-w-md p-6 rounded-3xl border border-slate-100 shadow-2xl relative animate-scaleUp">
+                        {/* Close button */}
+                        <button 
+                            onClick={() => {
+                                setIsResetPinModalOpen(false);
+                                setResetPinValue('');
+                                setResetPinError('');
+                                setHotelToReset(null);
+                            }}
+                            className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-50 rounded-xl transition-all animate-fadeIn"
+                        >
+                            <X size={18} />
+                        </button>
+
+                        <div className="text-center space-y-2 mb-6">
+                            <div className="w-12 h-12 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center mx-auto border border-rose-100">
+                                <AlertCircle size={24} />
+                            </div>
+                            <h3 className="text-lg font-black text-slate-900">Reset Audit Progress</h3>
+                            <p className="text-xs text-rose-600 font-extrabold max-w-sm mx-auto uppercase tracking-wider bg-rose-50/50 py-1 px-3 rounded-lg border border-rose-100/50">
+                                Warning: Highly Destructive
+                            </p>
+                            <p className="text-xs text-slate-500 leading-relaxed font-semibold">
+                                This will permanently delete all completed task responses and uploaded evidence files for <span className="text-slate-900 font-extrabold">{hotelToReset.name}</span>.
+                            </p>
+                            <p className="text-[11px] text-slate-400 font-bold">
+                                Please enter the <span className="text-indigo-600">Super Admin PIN</span> to proceed.
+                            </p>
+                        </div>
+
+                        {/* PIN Entry Display */}
+                        <div className="space-y-4">
+                            {resetPinError && (
+                                <p className="text-rose-500 text-xs text-center font-extrabold bg-rose-50/70 border border-rose-100 py-2 rounded-xl animate-pulse">
+                                    {resetPinError}
+                                </p>
+                            )}
+
+                            <div className="flex justify-center gap-2.5">
+                                {[0, 1, 2, 3, 4, 5].map((i) => (
+                                    <div 
+                                        key={i} 
+                                        className={`w-11 h-11 rounded-2xl border-2 flex items-center justify-center text-xl font-bold transition-all ${
+                                            resetPinValue[i] 
+                                                ? 'border-rose-500 bg-rose-50/40 text-rose-900 scale-105 shadow-xs' 
+                                                : 'border-slate-200 bg-slate-50/30'
+                                        }`}
+                                    >
+                                        {resetPinValue[i] ? '•' : ''}
+                                    </div>
+                                ))}
+                            </div>
+
+                            {/* PIN Virtual Keyboard */}
+                            <div className="grid grid-cols-3 gap-2.5 max-w-[280px] mx-auto pt-2">
+                                {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((digit) => (
+                                    <button
+                                        key={digit}
+                                        type="button"
+                                        onClick={() => {
+                                            if (resetPinValue.length < 6) {
+                                                setResetPinValue(prev => prev + digit.toString());
+                                                setResetPinError('');
+                                            }
+                                        }}
+                                        className="h-12 bg-slate-50 hover:bg-slate-100/80 active:scale-95 border border-slate-150/40 text-slate-800 font-extrabold text-base rounded-2xl transition-all shadow-3xs"
+                                    >
+                                        {digit}
+                                    </button>
+                                ))}
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setResetPinValue('');
+                                        setResetPinError('');
+                                    }}
+                                    className="h-12 bg-slate-100/60 hover:bg-slate-200 text-slate-600 hover:text-slate-800 font-extrabold text-[10px] uppercase tracking-wider rounded-2xl transition-all active:scale-95"
+                                >
+                                    Clear
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        if (resetPinValue.length < 6) {
+                                            setResetPinValue(prev => prev + '0');
+                                            setResetPinError('');
+                                        }
+                                    }}
+                                    className="h-12 bg-slate-50 hover:bg-slate-100/80 active:scale-95 border border-slate-150/40 text-slate-800 font-extrabold text-base rounded-2xl transition-all shadow-3xs"
+                                >
+                                    0
+                                </button>
+                                <button
+                                    type="button"
+                                    disabled={resetPinValue.length < 6 || isResetting}
+                                    onClick={handleVerifyResetPin}
+                                    className={`h-12 font-extrabold text-[10px] uppercase tracking-widest rounded-2xl transition-all active:scale-95 flex items-center justify-center ${
+                                        resetPinValue.length === 6 && !isResetting
+                                            ? 'bg-rose-600 hover:bg-rose-700 text-white shadow-md shadow-rose-200'
+                                            : 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                                    }`}
+                                >
+                                    {isResetting ? (
+                                        <div className="w-4 h-4 border-2 border-rose-600 border-t-transparent rounded-full animate-spin" />
+                                    ) : (
+                                        "Confirm"
+                                    )}
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
