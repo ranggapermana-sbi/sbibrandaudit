@@ -58,6 +58,8 @@ export default function SignupScreen({ onComplete, onLogout }: SignupScreenProps
     const [errors, setErrors] = useState<{ [key: string]: string }>({});
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [userEmail, setUserEmail] = useState('');
+    const [allUsers, setAllUsers] = useState<any[]>([]);
+    const [currentUserId, setCurrentUserId] = useState<string>('');
 
     const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -66,6 +68,7 @@ export default function SignupScreen({ onComplete, onLogout }: SignupScreenProps
         supabase.auth.getSession().then(({ data: { session } }) => {
             if (session?.user) {
                 setUserEmail(session.user.email || '');
+                setCurrentUserId(session.user.id || '');
                 // Try prefilling first/last name if user has a metadata name
                 const fullName = session.user.user_metadata?.full_name || '';
                 if (fullName) {
@@ -141,7 +144,31 @@ export default function SignupScreen({ onComplete, onLogout }: SignupScreenProps
             }
         };
 
+        // Fetch audit users to check for existing Brand Audit Leads
+        const loadAuditUsers = async () => {
+            try {
+                const mainUrl = import.meta.env.MAIN_SUPABASE_URL || 'https://gvnwxrejgdkixbszhxkw.supabase.co/rest/v1/';
+                const cleanMainUrl = mainUrl.replace(/\/rest\/v1\/?$/, '').trim();
+                const mainAnonKey = import.meta.env.MAIN_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd2bnd4cmVqZ2RraXhic3poeGt3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkxNTE2ODcsImV4cCI6MjA5NDcyNzY4N30.Pvv9rgR_Vr9McwxLrYfELeSpWYLNH2NPw0nkeGD6ZXo';
+                const response = await fetch(`${cleanMainUrl}/rest/v1/audit_users?select=*`, {
+                    headers: {
+                        'apikey': mainAnonKey,
+                        'Authorization': `Bearer ${mainAnonKey}`
+                    }
+                });
+                if (response.ok) {
+                    const data = await response.json();
+                    if (Array.isArray(data)) {
+                        setAllUsers(data);
+                    }
+                }
+            } catch (err) {
+                console.warn("Failed to fetch audit users during onboarding:", err);
+            }
+        };
+
         loadHotels();
+        loadAuditUsers();
     }, []);
 
     // Outside click handler to close the dropdown menu
@@ -163,6 +190,33 @@ export default function SignupScreen({ onComplete, onLogout }: SignupScreenProps
             (hotel.code && hotel.code.toLowerCase().includes(hotelSearch.toLowerCase())) ||
             (hotel.location && hotel.location.toLowerCase().includes(hotelSearch.toLowerCase()))
         );
+
+    // Check if any of the selected hotels already has a Brand Audit Lead
+    const getExistingBrandLeadForSelected = () => {
+        if (selectedHotels.length === 0) return null;
+        for (const hotel of selectedHotels) {
+            // Find another user who is Brand Audit Lead for this hotel
+            const lead = allUsers.find(user => {
+                if (user.id === currentUserId) return false;
+                if (!user.is_brand_audit_lead) return false;
+                const hotelIds = (user.hotel_id || '').split(',').map((id: string) => id.trim().toLowerCase());
+                return hotelIds.includes(hotel.id.toLowerCase());
+            });
+            if (lead) {
+                return { hotel, lead };
+            }
+        }
+        return null;
+    };
+
+    const existingLeadConflict = getExistingBrandLeadForSelected();
+
+    // Auto-disable if conflict arises
+    useEffect(() => {
+        if (existingLeadConflict) {
+            setIsAuditLead(false);
+        }
+    }, [existingLeadConflict]);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -487,24 +541,63 @@ export default function SignupScreen({ onComplete, onLogout }: SignupScreenProps
                         </div>
 
                         {/* Toggle Brand Audit Lead */}
-                        <div className="p-5 bg-indigo-50/30 border border-slate-100/80 rounded-2xl flex items-start justify-between gap-5 select-none hover:bg-indigo-50/50 transition-colors">
-                            <div className="space-y-1">
-                                <span className="block text-slate-800 text-xs font-black tracking-tight flex items-center gap-1.5">
-                                    Brand Audit Lead
-                                </span>
-                                <span className="block text-[10px] text-slate-450 leading-relaxed font-semibold">
-                                    Check this active toggle indicator if you are the main leader executing and managing Brand Audit sessions for this property.
-                                </span>
+                        <div className={`p-5 rounded-2xl flex flex-col gap-4 border transition-colors ${
+                            existingLeadConflict 
+                                ? 'bg-amber-50/40 border-amber-200/60' 
+                                : 'bg-indigo-50/30 border-slate-100/80 hover:bg-indigo-50/50'
+                        }`}>
+                            <div className="flex items-start justify-between gap-5 select-none">
+                                <div className="space-y-1">
+                                    <span className={`block text-xs font-black tracking-tight flex items-center gap-1.5 ${
+                                        existingLeadConflict ? 'text-slate-800' : 'text-slate-800'
+                                    }`}>
+                                        Brand Audit Lead
+                                    </span>
+                                    <span className="block text-[10px] text-slate-450 leading-relaxed font-semibold">
+                                        Check this active toggle indicator if you are the main leader executing and managing Brand Audit sessions for this property.
+                                    </span>
+                                </div>
+                                
+                                {/* Stylish IOS-style switch */}
+                                <button
+                                    type="button"
+                                    disabled={!!existingLeadConflict}
+                                    onClick={() => {
+                                        if (!existingLeadConflict) {
+                                            setIsAuditLead(!isAuditLead);
+                                        }
+                                    }}
+                                    className={`w-12 h-6 flex items-center rounded-full p-0.5 transition-colors duration-250 shrink-0 ${
+                                        existingLeadConflict 
+                                            ? 'bg-slate-100 cursor-not-allowed opacity-50' 
+                                            : isAuditLead 
+                                                ? 'bg-emerald-600 cursor-pointer' 
+                                                : 'bg-slate-200 cursor-pointer'
+                                    }`}
+                                >
+                                    <div className={`bg-white w-5 h-5 rounded-full shadow-md transform transition-transform duration-250 ${isAuditLead ? 'translate-x-6' : 'translate-x-0'}`} />
+                                </button>
                             </div>
-                            
-                            {/* Stylish IOS-style switch */}
-                            <button
-                                type="button"
-                                onClick={() => setIsAuditLead(!isAuditLead)}
-                                className={`w-12 h-6 flex items-center rounded-full p-0.5 transition-colors duration-250 cursor-pointer shrink-0 ${isAuditLead ? 'bg-emerald-600' : 'bg-slate-200'}`}
-                            >
-                                <div className={`bg-white w-5 h-5 rounded-full shadow-md transform transition-transform duration-250 ${isAuditLead ? 'translate-x-6' : 'translate-x-0'}`} />
-                            </button>
+
+                            {existingLeadConflict && (
+                                <div className="p-3.5 bg-amber-50/80 border border-amber-100 rounded-xl text-[11px] text-slate-600 leading-relaxed animate-fadeIn">
+                                    <p className="font-bold text-amber-800 mb-1 flex items-center gap-1">
+                                        <Sparkles size={12} className="shrink-0 text-amber-600" />
+                                        Brand Audit Lead Registered
+                                    </p>
+                                    <p className="text-slate-600 font-medium">
+                                        This hotel property already has an assigned Brand Audit Lead:
+                                    </p>
+                                    <div className="mt-1.5 bg-white/70 px-2.5 py-1.5 rounded-lg border border-amber-200/50">
+                                        <p className="font-extrabold text-slate-800">
+                                            {[existingLeadConflict.lead.first_name, existingLeadConflict.lead.last_name].filter(Boolean).join(' ') || 'Registered Lead'}
+                                        </p>
+                                        <p className="text-[10px] font-semibold text-slate-500 font-mono">
+                                            {existingLeadConflict.lead.email}
+                                        </p>
+                                    </div>
+                                </div>
+                            )}
                         </div>
 
                         {/* Core Form Actions */}
