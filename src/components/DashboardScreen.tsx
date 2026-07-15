@@ -308,18 +308,6 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
       setRemainingTasks(totalT - completedT);
       setTotalPoints(totalP);
       setCompletedPoints(completedP);
-
-      // Auto-expand the first department and its categories by default on load
-      if (sortedData.length > 0 && Object.keys(expandedDepts).length === 0) {
-        const firstDeptId = sortedData[0].department_id || 'unassigned-dept';
-        setExpandedDepts({ [firstDeptId]: true });
-        
-        const firstDeptCats = sortedData.filter(i => (i.department_id || 'unassigned-dept') === firstDeptId);
-        if (firstDeptCats.length > 0) {
-          const firstCatId = firstDeptCats[0].category_id || 'unassigned-cat';
-          setExpandedCats({ [firstCatId]: true });
-        }
-      }
     } catch (err) {
       console.error('Error fetching audit items:', err);
     } finally {
