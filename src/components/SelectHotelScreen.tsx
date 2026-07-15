@@ -188,7 +188,7 @@ export default function SelectHotelScreen({ userProfile, onSelectHotel, onLogout
                                                     {hotel.name}
                                                 </p>
                                                 <p className="text-[10px] text-slate-400 font-extrabold tracking-tight uppercase mt-0.5">
-                                                    {hotel.code ? `${hotel.code} • ` : ''}{hotel.brandClass} • {hotel.location}
+                                                    {hotel.code || 'N/A'} - {hotel.region || 'Region'} - {hotel.brandClass || 'Brand'}
                                                 </p>
                                             </div>
                                         </div>

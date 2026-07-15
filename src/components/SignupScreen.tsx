@@ -402,7 +402,7 @@ export default function SignupScreen({ onComplete, onLogout }: SignupScreenProps
                                                             {hotel.name}
                                                         </p>
                                                         <p className="text-[10px] text-slate-400 font-extrabold tracking-tight mt-0.5 uppercase">
-                                                            {hotel.code ? `${hotel.code} • ` : ''}{hotel.brandClass} • <span className="text-slate-400">{hotel.location}</span>
+                                                            {hotel.code || 'N/A'} - {hotel.region || 'Region'} - {hotel.brandClass || 'Brand'}
                                                         </p>
                                                     </div>
                                                     <div className="flex items-center gap-1.5 shrink-0">

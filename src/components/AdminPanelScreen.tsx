@@ -7746,7 +7746,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                     <div className="min-w-0 leading-none">
                                                         <p className="text-xs font-black text-slate-750 truncate">{h.name}</p>
                                                         <p className="text-[9px] text-slate-400 font-bold uppercase tracking-tight mt-0.5">
-                                                            {h.code ? `${h.code} • ` : ''}{h.brandClass} • {h.location}
+                                                            {h.code || 'N/A'} - {h.region || 'Region'} - {h.brandClass || 'Brand'}
                                                         </p>
                                                     </div>
                                                 </label>
