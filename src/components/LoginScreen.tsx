@@ -116,7 +116,7 @@ export default function LoginScreen({ onLogin, onAdminAccess }: { onLogin: () =>
           if (data?.url) {
               const authWindow = window.open(data.url, 'supabase_oauth_popup', 'width=550,height=680,resizable=yes,scrollbars=yes');
               if (!authWindow) {
-                  alert('Popup blocked! Please allow popups for Swiss-Belhotel Property Audit Portal.');
+                  alert('Popup blocked! Please allow popups for Swiss-Belhotel Brand Audit Portal.');
                   setIsLoading(false);
               }
           } else {
@@ -152,22 +152,22 @@ export default function LoginScreen({ onLogin, onAdminAccess }: { onLogin: () =>
             {/* Header section with brand identity */}
             <header className="mb-8 text-center">
               <div className="inline-flex justify-center mb-6">
-                <div className="p-4 bg-white rounded-2xl shadow-sm border border-slate-100/80 hover:scale-105 hover:rotate-1 transition-transform duration-300">
+                <div className="hover:scale-105 hover:rotate-1 transition-transform duration-300">
                   <img 
                     id="brand-logo-img"
                     src="https://i.ibb.co.com/WNB70XBz/sbi-logo.png" 
                     alt="Swiss-Belhotel Logo" 
-                    className="h-[64px] object-contain" 
+                    className="h-[84px] object-contain" 
                   />
                 </div>
               </div>
               
               <h2 className="text-slate-800 text-2xl font-black tracking-tight leading-none mb-2 font-sans">
-                Property Audit Portal
+                Brand Audit Portal
               </h2>
               <p className="text-slate-400 text-[11px] uppercase tracking-widest font-extrabold flex items-center justify-center gap-1.5 mt-2">
                 <Building2 size={12} className="text-indigo-500" />
-                Swiss-Belhotel International
+                July - November 2026
               </p>
             </header>
 

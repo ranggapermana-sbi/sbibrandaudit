@@ -69,7 +69,11 @@ const getAlignedMainUrl = (rawUrl: string, key: string): string => {
 const MAIN_URL = getAlignedMainUrl(MAIN_URL_RAW, MAIN_KEY);
 
 export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { userProfile: any, onBack: () => void, onLogout: () => void }) {
-    const [subView, setSubView] = useState<'dashboard' | 'departments' | 'hotels' | 'batches' | 'categories' | 'items' | 'groups' | 'users' | 'access' | 'inspection' | 'auditor_assignment'>('dashboard');
+    const [subView, setSubView] = useState<'dashboard' | 'departments' | 'hotels' | 'batches' | 'categories' | 'items' | 'groups' | 'users' | 'access' | 'inspection' | 'auditor_assignment' | 'progress_report'>('dashboard');
+    const [progressRegionFilter, setProgressRegionFilter] = useState<string>('');
+    const [progressCountryFilter, setProgressCountryFilter] = useState<string>('');
+    const [progressBrandFilter, setProgressBrandFilter] = useState<string>('');
+    const [progressSearchQuery, setProgressSearchQuery] = useState<string>('');
     const [auditorAccess, setAuditorAccess] = useState<Record<string, boolean>>({});
     const [auditorAssignments, setAuditorAssignments] = useState<any[]>([]);
     const [auditorCategoryAssignments, setAuditorCategoryAssignments] = useState<any[]>(() => {
@@ -645,7 +649,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     }, []);
 
     useEffect(() => {
-        if (subView !== 'inspection') return;
+        if (subView !== 'inspection' && subView !== 'progress_report') return;
 
         let active = true;
         const fetchAllSubmissions = async () => {
@@ -3284,7 +3288,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                         </button>
                     )}
                     <h1 className="text-xl font-bold text-slate-900 tracking-tight ml-3">
-                        {subView === 'departments' ? 'Audit Departments' : subView === 'hotels' ? 'Master Hotel List' : subView === 'batches' ? 'Audit Batch' : subView === 'categories' ? 'Audit Category' : subView === 'items' ? 'Audit Items' : subView === 'groups' ? 'Audit Groups' : subView === 'users' ? 'User Management' : subView === 'inspection' ? 'Audit Inspection' : 'Admin Dashboard'}
+                        {subView === 'departments' ? 'Audit Departments' : subView === 'hotels' ? 'Master Hotel List' : subView === 'batches' ? 'Audit Batch' : subView === 'categories' ? 'Audit Category' : subView === 'items' ? 'Audit Items' : subView === 'groups' ? 'Audit Groups' : subView === 'users' ? 'User Management' : subView === 'inspection' ? 'Audit Inspection' : subView === 'progress_report' ? 'Audit Progress Report' : 'Admin Dashboard'}
                     </h1>
                 </div>
                 <div className="flex items-center gap-3">
@@ -3556,7 +3560,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                         <section className="bg-white p-6 sm:p-8 rounded-[28px] border border-slate-150/80 shadow-[0_12px_40px_rgba(15,23,42,0.02)] mt-6">
                             <h2 className="text-lg font-bold text-slate-900 mb-6 flex items-center gap-2.5">
                                 <FileCheck size={20} className="text-indigo-600" />
-                                <span className="tracking-tight font-bold">Audit Report & Inspection <span className="text-xs text-slate-400 font-normal font-sans ml-1">(coming soon)</span></span>
+                                <span className="tracking-tight font-bold">Audit Report & Inspection</span>
                             </h2>
                             <div className="space-y-6">
                                 <div>
@@ -3564,17 +3568,19 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                         
                                         {/* Audit Progress Report */}
                                         <div 
-                                            className="flex items-center justify-between p-5 bg-slate-50/40 rounded-[20px] border border-slate-150/50 transition-all opacity-75"
+                                            onClick={() => { setSubView('progress_report'); setProgressSearchQuery(''); }}
+                                            className="flex items-center justify-between p-5 bg-white hover:bg-slate-50/80 rounded-[20px] border border-slate-150/80 cursor-pointer hover:border-indigo-200 active:scale-[0.99] transition-all duration-200 group shadow-[0_4px_24px_rgba(15,23,42,0.01)] hover:shadow-[0_8px_32px_rgba(15,23,42,0.02)]"
                                         >
                                             <div className="flex items-center gap-4">
-                                                <div className="w-11 h-11 rounded-2xl bg-slate-100/70 text-slate-400 flex items-center justify-center shrink-0">
+                                                <div className="w-11 h-11 rounded-2xl bg-indigo-50 text-indigo-700 flex items-center justify-center shrink-0 transition-transform duration-300 group-hover:scale-105">
                                                     <Percent size={20} />
                                                 </div>
                                                 <div>
-                                                    <p className="text-sm font-bold text-slate-600 tracking-tight">Audit Progress Report</p>
-                                                    <p className="text-xs text-slate-400 mt-0.5">View monitoring progress</p>
+                                                    <p className="text-sm font-bold text-slate-800 tracking-tight">Audit Progress Report</p>
+                                                    <p className="text-xs text-slate-400 mt-0.5">Real-time completion monitoring and analytics</p>
                                                 </div>
                                             </div>
+                                            <ChevronRight className="text-slate-300 group-hover:text-indigo-600 group-hover:translate-x-1 transition-all" size={18} />
                                         </div>
 
                                             <div 
@@ -5641,6 +5647,464 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                             })()}
                             </React.Fragment>
                         )}
+                    </div>
+                ) : subView === 'progress_report' ? (
+                    <div className="space-y-6 animate-fadeIn">
+                        {/* BACK BUTTON & HEADER */}
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                            <div>
+                                <button 
+                                    onClick={() => { setSubView('dashboard'); setSearchQuery(''); }} 
+                                    className="inline-flex items-center gap-1.5 text-xs font-bold text-indigo-600 bg-indigo-50/50 hover:bg-indigo-55/80 px-3.5 py-1.5 rounded-full border border-indigo-100/50 mb-3 hover:shadow-sm active:scale-95 transition-all outline-none"
+                                >
+                                    <ArrowLeft size={12} /> Back to Dashboard
+                                </button>
+                                <h2 className="text-2xl font-extrabold text-slate-900 tracking-tight">Audit Progress Report</h2>
+                                <p className="text-xs text-slate-500 mt-1">
+                                    Real-time monitoring of self-audit checklist compliance across all properties.
+                                </p>
+                            </div>
+                        </div>
+
+                        {(() => {
+                            // Filter out corporate hotels/properties at the start of progress report calculations
+                            const nonCorporateHotels = hotels.filter(h => {
+                                const bClass = (h.brandClass || '').toLowerCase();
+                                const hType = (h as any).type ? String((h as any).type).toLowerCase() : '';
+                                return bClass !== 'corporate' && hType !== 'corporate';
+                            });
+
+                            // 1. Helper to calculate progress for a single hotel
+                            const getHotelProgress = (hotelId: string) => {
+                                const hIdLower = String(hotelId).toLowerCase();
+                                const assignedGroups = groups.filter(g => {
+                                    const hotelIds = g.hotelIds || g.hotel_id || [];
+                                    return hotelIds.some(hId => String(hId).toLowerCase() === hIdLower);
+                                });
+
+                                let assignedCategoryIds: string[] | null = null;
+                                let assignedItemIds: string[] | null = null;
+
+                                if (assignedGroups.length > 0) {
+                                    const allCatIds = new Set<string>();
+                                    const allItemIds = new Set<string>();
+                                    assignedGroups.forEach((g: any) => {
+                                        const cids = g.categoryIds || g.category_ids || [];
+                                        const iids = g.itemIds || g.item_ids || [];
+                                        cids.forEach((id: any) => allCatIds.add(String(id)));
+                                        iids.forEach((id: any) => allItemIds.add(String(id)));
+                                    });
+                                    assignedCategoryIds = Array.from(allCatIds);
+                                    assignedItemIds = Array.from(allItemIds);
+                                }
+
+                                const hotelItems = items.filter((item: any) => {
+                                    if (assignedCategoryIds && !assignedCategoryIds.includes(String(item.categoryId || item.category_id))) {
+                                        return false;
+                                    }
+                                    if (assignedItemIds && !assignedItemIds.includes(String(item.id))) {
+                                        return false;
+                                    }
+                                    return item.filled_by_hotel !== false && item.filled_by_hotel !== 'false';
+                                });
+
+                                const totalT = hotelItems.length;
+                                const submittedItemIdsForHotel = new Set<string>();
+                                allSubmissions.forEach((sub: any) => {
+                                    if (String(sub.hotel_id || '').toLowerCase() === hIdLower) {
+                                        submittedItemIdsForHotel.add(String(sub.item_id));
+                                    }
+                                });
+
+                                let completedT = 0;
+                                hotelItems.forEach((item: any) => {
+                                    if (submittedItemIdsForHotel.has(String(item.id))) {
+                                        completedT++;
+                                    }
+                                });
+
+                                const percentage = totalT > 0 ? Math.round((completedT / totalT) * 100) : 0;
+                                return { completed: completedT, total: totalT, percentage };
+                            };
+
+                            // Helper to check if a hotel is completed
+                            const isHotelCompleted = (hotelId: string) => {
+                                const { completed, total, percentage } = getHotelProgress(hotelId);
+                                const isFinalized = finalizedStatuses[hotelId]?.is_finalized === true;
+                                return isFinalized || (total > 0 && percentage === 100);
+                            };
+
+                            // 2. Helper to calculate combined hotel-based progress for a list of hotels
+                            const calculateHotelBasedProgress = (hotelList: Hotel[]) => {
+                                const totalHotels = hotelList.length;
+                                const completedHotels = hotelList.filter(h => isHotelCompleted(h.id)).length;
+                                const percentage = totalHotels > 0 ? Math.round((completedHotels / totalHotels) * 100) : 0;
+                                return { completedHotels, totalHotels, percentage };
+                            };
+
+                            // Unique categories for filtering / summary cards (excluding corporate assets)
+                            const uniqueRegions = Array.from(new Set(nonCorporateHotels.map(h => h.region).filter(Boolean))) as string[];
+                            const uniqueCountries = Array.from(new Set(nonCorporateHotels.map(h => h.country).filter(Boolean))) as string[];
+                            const uniqueBrands = Array.from(new Set(nonCorporateHotels.map(h => h.brandClass).filter(Boolean))) as string[];
+
+                            // Summaries
+                            const regionProgresses = uniqueRegions.map(region => {
+                                const regionHotels = nonCorporateHotels.filter(h => h.region === region);
+                                const prog = calculateHotelBasedProgress(regionHotels);
+                                return { name: region, ...prog };
+                            });
+                            const countryProgresses = uniqueCountries.map(country => {
+                                const countryHotels = nonCorporateHotels.filter(h => h.country === country);
+                                const prog = calculateHotelBasedProgress(countryHotels);
+                                return { name: country, ...prog };
+                            });
+                            const brandProgresses = uniqueBrands.map(brand => {
+                                const brandHotels = nonCorporateHotels.filter(h => h.brandClass === brand);
+                                const prog = calculateHotelBasedProgress(brandHotels);
+                                return { name: brand, ...prog };
+                            });
+
+                            // Filtered Hotels
+                            const filteredHotels = nonCorporateHotels.filter(h => {
+                                const matchesRegion = !progressRegionFilter || h.region === progressRegionFilter;
+                                const matchesCountry = !progressCountryFilter || h.country === progressCountryFilter;
+                                const matchesBrand = !progressBrandFilter || h.brandClass === progressBrandFilter;
+                                
+                                const q = progressSearchQuery.toLowerCase().trim();
+                                const matchesSearch = !q || 
+                                    (h.name || '').toLowerCase().includes(q) || 
+                                    (h.code || '').toLowerCase().includes(q);
+
+                                return matchesRegion && matchesCountry && matchesBrand && matchesSearch;
+                            });
+
+                            return (
+                                <div className="space-y-6">
+                                    {/* PROGRESS CARDS ROW (Region, Country, Brand) */}
+                                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                                        {/* Region Progress Column */}
+                                        <div className="bg-slate-50/60 p-5 rounded-3xl border border-slate-150/50 shadow-[0_4px_20px_rgba(15,23,42,0.01)] flex flex-col h-[320px]">
+                                            <h3 className="text-xs font-black uppercase text-slate-500 tracking-wider mb-4 flex items-center gap-1.5 shrink-0">
+                                                <Percent size={14} className="text-indigo-600" />
+                                                Region Progress Summary
+                                            </h3>
+                                            <div className="space-y-2.5 overflow-y-auto pr-1 flex-1 custom-scrollbar">
+                                                {regionProgresses.map((rp, i) => (
+                                                    <div 
+                                                        key={rp.name || i}
+                                                        onClick={() => setProgressRegionFilter(progressRegionFilter === rp.name ? '' : rp.name)}
+                                                        className={`p-3.5 rounded-2xl border transition-all cursor-pointer hover:scale-[1.015] active:scale-[0.99] duration-200 ${
+                                                            progressRegionFilter === rp.name 
+                                                                ? 'bg-gradient-to-br from-indigo-600 to-indigo-700 text-white border-indigo-600 shadow-md shadow-indigo-600/10' 
+                                                                : 'bg-white hover:bg-slate-50 border-slate-150/60 text-slate-800'
+                                                        }`}
+                                                    >
+                                                        <div className="flex justify-between items-center text-xs font-bold mb-2">
+                                                            <span className="truncate max-w-[170px] tracking-tight">{rp.name}</span>
+                                                            <span className={progressRegionFilter === rp.name ? 'text-white' : 'text-indigo-600'}>{rp.percentage}%</span>
+                                                        </div>
+                                                        <div className="w-full h-2 bg-slate-100/80 rounded-full overflow-hidden border border-slate-200/10">
+                                                            <div 
+                                                                className={`h-full rounded-full transition-all duration-300 ${progressRegionFilter === rp.name ? 'bg-white' : 'bg-indigo-600'}`}
+                                                                style={{ width: `${rp.percentage}%` }}
+                                                            />
+                                                        </div>
+                                                        <p className={`text-[10px] font-medium mt-1.5 flex justify-between items-center ${progressRegionFilter === rp.name ? 'text-indigo-200' : 'text-slate-400'}`}>
+                                                            <span>{rp.completedHotels} of {rp.totalHotels} {rp.totalHotels === 1 ? 'hotel' : 'hotels'} completed</span>
+                                                            {progressRegionFilter === rp.name && <span className="text-[9px] font-black uppercase bg-indigo-500/50 px-1.5 py-0.5 rounded">Active Filter</span>}
+                                                        </p>
+                                                    </div>
+                                                ))}
+                                                {regionProgresses.length === 0 && (
+                                                    <p className="text-xs text-slate-400 text-center py-10 font-bold">No region data available</p>
+                                                )}
+                                            </div>
+                                        </div>
+
+                                        {/* Country Progress Column */}
+                                        <div className="bg-slate-50/60 p-5 rounded-3xl border border-slate-150/50 shadow-[0_4px_20px_rgba(15,23,42,0.01)] flex flex-col h-[320px]">
+                                            <h3 className="text-xs font-black uppercase text-slate-500 tracking-wider mb-4 flex items-center gap-1.5 shrink-0">
+                                                <MapPin size={14} className="text-emerald-600" />
+                                                Country Progress Summary
+                                            </h3>
+                                            <div className="space-y-2.5 overflow-y-auto pr-1 flex-1 custom-scrollbar">
+                                                {countryProgresses.map((cp, i) => (
+                                                    <div 
+                                                        key={cp.name || i}
+                                                        onClick={() => setProgressCountryFilter(progressCountryFilter === cp.name ? '' : cp.name)}
+                                                        className={`p-3.5 rounded-2xl border transition-all cursor-pointer hover:scale-[1.015] active:scale-[0.99] duration-200 ${
+                                                            progressCountryFilter === cp.name 
+                                                                ? 'bg-gradient-to-br from-emerald-600 to-emerald-700 text-white border-emerald-600 shadow-md shadow-emerald-600/10' 
+                                                                : 'bg-white hover:bg-slate-50 border-slate-150/60 text-slate-800'
+                                                        }`}
+                                                    >
+                                                        <div className="flex justify-between items-center text-xs font-bold mb-2">
+                                                            <span className="truncate max-w-[170px] tracking-tight">{cp.name}</span>
+                                                            <span className={progressCountryFilter === cp.name ? 'text-white' : 'text-emerald-600'}>{cp.percentage}%</span>
+                                                        </div>
+                                                        <div className="w-full h-2 bg-slate-100/80 rounded-full overflow-hidden border border-slate-200/10">
+                                                            <div 
+                                                                className={`h-full rounded-full transition-all duration-300 ${progressCountryFilter === cp.name ? 'bg-white' : 'bg-emerald-600'}`}
+                                                                style={{ width: `${cp.percentage}%` }}
+                                                            />
+                                                        </div>
+                                                        <p className={`text-[10px] font-medium mt-1.5 flex justify-between items-center ${progressCountryFilter === cp.name ? 'text-emerald-200' : 'text-slate-400'}`}>
+                                                            <span>{cp.completedHotels} of {cp.totalHotels} {cp.totalHotels === 1 ? 'hotel' : 'hotels'} completed</span>
+                                                            {progressCountryFilter === cp.name && <span className="text-[9px] font-black uppercase bg-emerald-500/50 px-1.5 py-0.5 rounded">Active Filter</span>}
+                                                        </p>
+                                                    </div>
+                                                ))}
+                                                {countryProgresses.length === 0 && (
+                                                    <p className="text-xs text-slate-400 text-center py-10 font-bold">No country data available</p>
+                                                )}
+                                            </div>
+                                        </div>
+
+                                        {/* Brand Progress Column */}
+                                        <div className="bg-slate-50/60 p-5 rounded-3xl border border-slate-150/50 shadow-[0_4px_20px_rgba(15,23,42,0.01)] flex flex-col h-[320px]">
+                                            <h3 className="text-xs font-black uppercase text-slate-500 tracking-wider mb-4 flex items-center gap-1.5 shrink-0">
+                                                <Building size={14} className="text-amber-600" />
+                                                Brand Progress Summary
+                                            </h3>
+                                            <div className="space-y-2.5 overflow-y-auto pr-1 flex-1 custom-scrollbar">
+                                                {brandProgresses.map((bp, i) => (
+                                                    <div 
+                                                        key={bp.name || i}
+                                                        onClick={() => setProgressBrandFilter(progressBrandFilter === bp.name ? '' : bp.name)}
+                                                        className={`p-3.5 rounded-2xl border transition-all cursor-pointer hover:scale-[1.015] active:scale-[0.99] duration-200 ${
+                                                            progressBrandFilter === bp.name 
+                                                                ? 'bg-gradient-to-br from-amber-600 to-amber-700 text-white border-amber-600 shadow-md shadow-amber-600/10' 
+                                                                : 'bg-white hover:bg-slate-50 border-slate-150/60 text-slate-800'
+                                                        }`}
+                                                    >
+                                                        <div className="flex justify-between items-center text-xs font-bold mb-2">
+                                                            <span className="truncate max-w-[170px] tracking-tight">{bp.name}</span>
+                                                            <span className={progressBrandFilter === bp.name ? 'text-white' : 'text-amber-600'}>{bp.percentage}%</span>
+                                                        </div>
+                                                        <div className="w-full h-2 bg-slate-100/80 rounded-full overflow-hidden border border-slate-200/10">
+                                                            <div 
+                                                                className={`h-full rounded-full transition-all duration-300 ${progressBrandFilter === bp.name ? 'bg-white' : 'bg-amber-600'}`}
+                                                                style={{ width: `${bp.percentage}%` }}
+                                                            />
+                                                        </div>
+                                                        <p className={`text-[10px] font-medium mt-1.5 flex justify-between items-center ${progressBrandFilter === bp.name ? 'text-amber-200' : 'text-slate-400'}`}>
+                                                            <span>{bp.completedHotels} of {bp.totalHotels} {bp.totalHotels === 1 ? 'hotel' : 'hotels'} completed</span>
+                                                            {progressBrandFilter === bp.name && <span className="text-[9px] font-black uppercase bg-amber-500/50 px-1.5 py-0.5 rounded">Active Filter</span>}
+                                                        </p>
+                                                    </div>
+                                                ))}
+                                                {brandProgresses.length === 0 && (
+                                                    <p className="text-xs text-slate-400 text-center py-10 font-bold">No brand data available</p>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* SEARCH & FILTERS BAR */}
+                                    <div className="bg-white p-5 rounded-3xl border border-slate-150/80 shadow-[0_12px_40px_rgba(15,23,42,0.015)]">
+                                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                                            {/* Search box */}
+                                            <div className="relative flex-1">
+                                                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                                                    <Search size={16} />
+                                                </div>
+                                                <input
+                                                    type="text"
+                                                    className="w-full pl-10 pr-8 py-2.5 text-xs border border-slate-200 rounded-xl bg-slate-50/50 focus:bg-white focus:outline-none focus:border-indigo-500 font-medium transition-all"
+                                                    placeholder="Search registered hotel properties by name or code..."
+                                                    value={progressSearchQuery}
+                                                    onChange={(e) => {
+                                                        setProgressSearchQuery(e.target.value);
+                                                    }}
+                                                />
+                                                {progressSearchQuery && (
+                                                    <button 
+                                                        onClick={() => {
+                                                            setProgressSearchQuery('');
+                                                        }}
+                                                        className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-600"
+                                                    >
+                                                        <X size={14} />
+                                                    </button>
+                                                )}
+                                            </div>
+
+                                            {/* Dropdowns */}
+                                            <div className="flex flex-wrap items-center gap-3">
+                                                {/* Region Filter */}
+                                                <div className="w-full sm:w-[150px]">
+                                                    <select
+                                                        className="w-full px-3 py-2.5 text-xs border border-slate-200 rounded-xl bg-slate-50/50 focus:bg-white focus:outline-none focus:border-indigo-500 font-bold transition-all text-slate-700"
+                                                        value={progressRegionFilter}
+                                                        onChange={(e) => setProgressRegionFilter(e.target.value)}
+                                                    >
+                                                        <option value="">All Regions</option>
+                                                        {uniqueRegions.map(r => (
+                                                            <option key={r} value={r}>{r}</option>
+                                                        ))}
+                                                    </select>
+                                                </div>
+
+                                                {/* Country Filter */}
+                                                <div className="w-full sm:w-[150px]">
+                                                    <select
+                                                        className="w-full px-3 py-2.5 text-xs border border-slate-200 rounded-xl bg-slate-50/50 focus:bg-white focus:outline-none focus:border-indigo-500 font-bold transition-all text-slate-700"
+                                                        value={progressCountryFilter}
+                                                        onChange={(e) => setProgressCountryFilter(e.target.value)}
+                                                    >
+                                                        <option value="">All Countries</option>
+                                                        {uniqueCountries.map(c => (
+                                                            <option key={c} value={c}>{c}</option>
+                                                        ))}
+                                                    </select>
+                                                </div>
+
+                                                {/* Brand Filter */}
+                                                <div className="w-full sm:w-[150px]">
+                                                    <select
+                                                        className="w-full px-3 py-2.5 text-xs border border-slate-200 rounded-xl bg-slate-50/50 focus:bg-white focus:outline-none focus:border-indigo-500 font-bold transition-all text-slate-700"
+                                                        value={progressBrandFilter}
+                                                        onChange={(e) => setProgressBrandFilter(e.target.value)}
+                                                    >
+                                                        <option value="">All Brands</option>
+                                                        {uniqueBrands.map(b => (
+                                                            <option key={b} value={b}>{b}</option>
+                                                        ))}
+                                                    </select>
+                                                </div>
+
+                                                {/* Clear filters trigger */}
+                                                {(progressRegionFilter || progressCountryFilter || progressBrandFilter || progressSearchQuery) && (
+                                                    <button
+                                                        onClick={() => {
+                                                            setProgressRegionFilter('');
+                                                            setProgressCountryFilter('');
+                                                            setProgressBrandFilter('');
+                                                            setProgressSearchQuery('');
+                                                        }}
+                                                        className="text-xs text-indigo-600 hover:text-indigo-800 font-black uppercase tracking-wider flex items-center gap-1.5 px-3 py-2.5 hover:bg-indigo-50 rounded-xl transition-all"
+                                                    >
+                                                        <X size={12} /> Reset Filters
+                                                    </button>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* LIST TABLE CONTAINING ALL HOTELS AND THEIR PROGRESS */}
+                                    <div className="bg-white border border-slate-150/80 rounded-3xl overflow-hidden shadow-[0_12px_40px_rgba(15,23,42,0.015)]">
+                                        <div className="overflow-x-auto">
+                                            <table className="w-full text-left border-collapse">
+                                                <thead>
+                                                    <tr className="bg-slate-50/70 border-b border-slate-150/50 text-[10px] font-black uppercase text-slate-500 tracking-widest">
+                                                        <th className="px-6 py-4.5">Hotel Property</th>
+                                                        <th className="px-6 py-4.5">Brand</th>
+                                                        <th className="px-6 py-4.5">Location</th>
+                                                        <th className="px-6 py-4.5">Audit Progress</th>
+                                                        <th className="px-6 py-4.5">Status</th>
+                                                        <th className="px-6 py-4.5 text-right">Actions</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody className="divide-y divide-slate-100 text-xs text-slate-700">
+                                                    {filteredHotels.length > 0 ? (
+                                                        filteredHotels.map((h, i) => {
+                                                            const { completed, total, percentage } = getHotelProgress(h.id);
+                                                            const finalInfo = finalizedStatuses[h.id] || { is_finalized: false };
+                                                            
+                                                            let statusText = "Not Started";
+                                                            let statusStyle = "bg-slate-50 text-slate-600 border-slate-200/50";
+                                                            
+                                                            if (finalInfo.is_finalized) {
+                                                                statusText = "Finalized";
+                                                                statusStyle = "bg-emerald-50 text-emerald-700 border-emerald-200/60";
+                                                            } else if (percentage === 100) {
+                                                                statusText = "Completed";
+                                                                statusStyle = "bg-indigo-50 text-indigo-700 border-indigo-200/60";
+                                                            } else if (percentage > 0) {
+                                                                statusText = "In Progress";
+                                                                statusStyle = "bg-amber-50 text-amber-700 border-amber-200/60";
+                                                            }
+
+                                                            return (
+                                                                <tr key={h.id || i} className="hover:bg-slate-50/40 transition-colors group">
+                                                                    <td className="px-6 py-4">
+                                                                        <div className="flex items-center gap-3">
+                                                                            <div className="w-9 h-9 rounded-xl bg-indigo-50/80 group-hover:bg-indigo-600 group-hover:text-white text-indigo-600 flex items-center justify-center font-black text-xs shrink-0 transition-all">
+                                                                                {(h.name || '?').charAt(0).toUpperCase()}
+                                                                            </div>
+                                                                            <div>
+                                                                                <span className="font-extrabold text-slate-900 block tracking-tight leading-tight group-hover:text-indigo-600 transition-colors">{h.name}</span>
+                                                                                {h.code && (
+                                                                                    <span className="text-[10px] text-slate-400 font-bold font-mono">ID: {h.code}</span>
+                                                                                )}
+                                                                            </div>
+                                                                        </div>
+                                                                    </td>
+                                                                    <td className="px-6 py-4 font-extrabold text-slate-600">
+                                                                        {h.brandClass}
+                                                                    </td>
+                                                                    <td className="px-6 py-4 text-slate-500 font-medium">
+                                                                        <div className="flex flex-col">
+                                                                            <span className="font-bold text-slate-800">{h.country || 'Unknown Country'}</span>
+                                                                            <span className="text-[10px] text-slate-400 font-bold">{h.region || 'Unknown Region'}</span>
+                                                                        </div>
+                                                                    </td>
+                                                                    <td className="px-6 py-4">
+                                                                        <div className="w-[180px]">
+                                                                            <div className="flex items-center justify-between text-[10px] font-black text-slate-500 mb-1">
+                                                                                <span>{completed} / {total} Tasks</span>
+                                                                                <span className="text-indigo-600">{percentage}%</span>
+                                                                            </div>
+                                                                            <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden border border-slate-200/20">
+                                                                                <div 
+                                                                                    className={`h-full rounded-full transition-all duration-500 ease-out ${
+                                                                                        percentage === 100 ? 'bg-indigo-600' : 'bg-emerald-500'
+                                                                                    }`}
+                                                                                    style={{ width: `${percentage}%` }}
+                                                                                />
+                                                                            </div>
+                                                                        </div>
+                                                                    </td>
+                                                                    <td className="px-6 py-4">
+                                                                        <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full border text-[9px] font-black uppercase tracking-wider ${statusStyle}`}>
+                                                                            <span className={`w-1.5 h-1.5 rounded-full ${
+                                                                                statusText === 'Finalized' ? 'bg-emerald-500 animate-pulse' :
+                                                                                statusText === 'Completed' ? 'bg-indigo-500' :
+                                                                                statusText === 'In Progress' ? 'bg-amber-500 animate-pulse' : 'bg-slate-400'
+                                                                            }`} />
+                                                                            {statusText}
+                                                                        </span>
+                                                                    </td>
+                                                                    <td className="px-6 py-4 text-right">
+                                                                        <button
+                                                                            onClick={() => {
+                                                                                setSelectedInspectionHotelId(h.id);
+                                                                                setSubView('inspection');
+                                                                            }}
+                                                                            className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-indigo-600 hover:text-indigo-800 bg-indigo-50/50 hover:bg-indigo-100/80 px-3.5 py-2 rounded-xl border border-indigo-100/60 active:scale-95 transition-all shadow-2xs"
+                                                                        >
+                                                                            <span>Review</span>
+                                                                            <ChevronRight size={12} />
+                                                                        </button>
+                                                                    </td>
+                                                                </tr>
+                                                            );
+                                                        })
+                                                    ) : (
+                                                        <tr>
+                                                            <td colSpan={6} className="text-center py-16 text-slate-400 font-extrabold text-sm bg-slate-50/20">
+                                                                <AlertCircle className="mx-auto text-slate-300 mb-2" size={24} />
+                                                                No hotel properties match the filter criteria.
+                                                            </td>
+                                                        </tr>
+                                                    )}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                </div>
+                            );
+                        })()}
                     </div>
                 ) : (
                     <div className="space-y-6">
