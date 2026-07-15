@@ -342,7 +342,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             const subviewMap: Record<string, string> = {
                 'Dashboard': 'dashboard',
                 'Audit Report & Inspection': 'inspection', 
-                'Recent Submissions': 'dashboard',
+                'Recent Activity': 'dashboard',
                 'Hotels': 'hotels',
                 'Departments': 'departments',
                 'Categories': 'categories',
@@ -724,23 +724,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     });
 
     // Fetch categories function
-    const [recentSubmissionsData, setRecentSubmissionsData] = useState<any[]>([]);
     const [allSubmissions, setAllSubmissions] = useState<any[]>([]);
-
-    useEffect(() => {
-        const fetchRecent = async () => {
-            const { data, error } = await supabase
-                .from('audit_submissions')
-                .select('*, hotels(name, code)')
-                .order('created_at', { ascending: false })
-                .limit(10);
-            
-            if (!error && data) {
-                setRecentSubmissionsData(data);
-            }
-        };
-        fetchRecent();
-    }, []);
 
     useEffect(() => {
         if (subView !== 'inspection' && subView !== 'progress_report') return;
@@ -1518,6 +1502,128 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     useEffect(() => {
         localStorage.setItem('sbi_audit_hotels_v2', JSON.stringify(hotels));
     }, [hotels]);
+
+    // Recent activity logs states
+    const [recentActivityEvents, setRecentActivityEvents] = useState<any[]>([]);
+    const [activityCurrentPage, setActivityCurrentPage] = useState<number>(1);
+    const [isActivityLoading, setIsActivityLoading] = useState<boolean>(false);
+
+    const formatActivityTimestamp = (dateStr: any) => {
+        if (!dateStr) return '';
+        try {
+            const d = new Date(dateStr);
+            if (isNaN(d.getTime())) return '';
+            const day = String(d.getDate()).padStart(2, '0');
+            const month = String(d.getMonth() + 1).padStart(2, '0');
+            const year = d.getFullYear();
+            const hours = String(d.getHours()).padStart(2, '0');
+            const minutes = String(d.getMinutes()).padStart(2, '0');
+            return `${day}-${month}-${year} (${hours}:${minutes})`;
+        } catch (e) {
+            return '';
+        }
+    };
+
+    const fetchRecentActivity = async () => {
+        setIsActivityLoading(true);
+        try {
+            // Fetch recent item submissions
+            const { data: subsData, error: subsError } = await supabase
+                .from('audit_submissions')
+                .select('*, hotels(name, code)')
+                .order('created_at', { ascending: false })
+                .limit(200);
+            
+            // Fetch hotel audit statuses
+            const { data: statusData, error: statusError } = await supabase
+                .from('hotel_audit_status')
+                .select('*, hotels(name, code)')
+                .order('finalized_at', { ascending: false });
+
+            // Fetch user enrollments
+            const { data: enrollmentsData, error: enrollmentsError } = await supabase
+                .from('audit_users')
+                .select('*')
+                .order('created_at', { ascending: false })
+                .limit(100);
+
+            const events: any[] = [];
+
+            // Add submissions
+            if (subsData && !subsError) {
+                subsData.forEach((sub: any) => {
+                    const hotelName = sub.hotels?.name || hotels.find((h: any) => String(h.id) === String(sub.hotel_id))?.name || 'Unknown Property';
+                    const submitter = sub.submitted_by || sub.submitted_by_name || 'Representative';
+                    const itemName = items.find((it: any) => String(it.id) === String(sub.item_id))?.name || 'Brand Audit Item';
+                    events.push({
+                        id: `sub-${sub.id || sub.hotel_id + '-' + sub.item_id}`,
+                        type: 'submission',
+                        hotelId: sub.hotel_id,
+                        hotelName,
+                        submitter,
+                        itemName,
+                        timestamp: sub.created_at || sub.updated_at || new Date().toISOString(),
+                    });
+                });
+            }
+
+            // Add finalised status events (only where is_finalized is true)
+            if (statusData && !statusError) {
+                statusData.forEach((st: any) => {
+                    if (st.is_finalized) {
+                        const hotelName = st.hotels?.name || hotels.find((h: any) => String(h.id) === String(st.hotel_id))?.name || 'Unknown Property';
+                        const submitter = st.finalized_by || 'Representative';
+                        events.push({
+                            id: `final-${st.hotel_id}`,
+                            type: 'finalization',
+                            hotelId: st.hotel_id,
+                            hotelName,
+                            submitter,
+                            timestamp: st.finalized_at || st.updated_at || new Date().toISOString(),
+                        });
+                    }
+                });
+            }
+
+            // Add enrollments
+            if (enrollmentsData && !enrollmentsError) {
+                enrollmentsData.forEach((user: any) => {
+                    const firstName = user.first_name || '';
+                    const lastName = user.last_name || '';
+                    const fullName = (firstName + ' ' + lastName).trim() || user.display_name || user.email?.split('@')[0] || 'Unknown User';
+                    const roleName = user.role || (user.access_level ? (user.access_level.charAt(0).toUpperCase() + user.access_level.slice(1)) : 'Representative');
+                    const hotelName = user.hotel_name || 'Swiss-Belhotel International';
+                    events.push({
+                        id: `enroll-${user.id}`,
+                        type: 'enrollment',
+                        hotelId: user.hotel_id?.split(',')[0] || null,
+                        hotelName,
+                        fullName,
+                        roleName,
+                        timestamp: user.created_at || user.updated_at || new Date().toISOString(),
+                    });
+                });
+            }
+
+            // Sort combined by timestamp descending
+            events.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+            setRecentActivityEvents(events);
+        } catch (e) {
+            console.error("Error fetching recent activity:", e);
+        } finally {
+            setIsActivityLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        fetchRecentActivity();
+
+        const interval = setInterval(() => {
+            fetchRecentActivity();
+        }, 20000);
+
+        return () => clearInterval(interval);
+    }, [hotels, items]);
 
     // Perform database sync on subView transition and initialization
     useEffect(() => {
@@ -3697,55 +3803,137 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                             </div>
                         </section>
 
-                        {/* Recent submissions info */}
-                        <section className="bg-white p-6 sm:p-8 rounded-[28px] border border-slate-150/80 shadow-[0_12px_40px_rgba(15,23,42,0.02)] mt-6">
-                            <h2 className="text-lg font-bold text-slate-900 mb-6 flex items-center gap-2">
-                                <CheckCircle size={18} className="text-indigo-600" />
-                                <span className="tracking-tight">Recent Submissions</span>
+                        {/* Recent Activity info */}
+                        <section className="bg-white p-6 sm:p-8 rounded-[28px] border border-slate-150/80 shadow-[0_12px_40px_rgba(15,23,42,0.02)] mt-6 animate-fadeIn">
+                            <h2 className="text-lg font-bold text-slate-900 mb-6 flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                    <Clock size={18} className="text-indigo-600 animate-pulse" />
+                                    <span className="tracking-tight">Recent Activity</span>
+                                </div>
+                                {isActivityLoading && (
+                                    <span className="text-xs text-slate-400 font-medium flex items-center gap-1.5">
+                                        <RefreshCw size={12} className="animate-spin text-indigo-500" />
+                                        Updating...
+                                    </span>
+                                )}
                             </h2>
-                            <div className="space-y-4">
-                                {recentSubmissionsData.length > 0 ? (
-                                    recentSubmissionsData.map((sub, i) => (
-                                        <div key={sub.id || i} className="group flex items-center justify-between p-5 bg-slate-50/60 rounded-[20px] border border-slate-100/85 hover:bg-white hover:border-indigo-100 hover:shadow-lg transition-all duration-300 cursor-pointer"
-                                            onClick={() => {
-                                                setSelectedInspectionHotelId(sub.hotel_id);
-                                                setSubView('inspection');
-                                            }}
-                                        >
-                                            <div className="flex items-center gap-4">
-                                                <div className="w-12 h-12 rounded-xl bg-white border border-slate-100 flex items-center justify-center text-indigo-600 font-black text-sm group-hover:bg-indigo-600 group-hover:text-white transition-all shadow-sm">
-                                                    {(sub.hotels?.name || sub.hotel_id || '?').charAt(0).toUpperCase()}
-                                                </div>
-                                                <div>
-                                                    <p className="text-sm font-black text-slate-800 tracking-tight">{sub.hotels?.name || sub.hotel_id || 'Unknown Property'}</p>
-                                                    <div className="flex items-center gap-2 mt-1">
-                                                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{safeFormatDate(sub.created_at)}</span>
-                                                        <span className="w-1 h-1 rounded-full bg-slate-300" />
-                                                        <span className="text-[10px] font-black text-indigo-500 uppercase tracking-widest">
-                                                            {items.find(it => it.id === sub.item_id)?.name.substring(0, 30) || 'Linked Item'}...
+                            <div className="space-y-3">
+                                {recentActivityEvents.length > 0 ? (
+                                    (() => {
+                                        const itemsPerPage = 10;
+                                        const totalPages = Math.ceil(recentActivityEvents.length / itemsPerPage);
+                                        const currentPage = Math.min(activityCurrentPage, Math.max(1, totalPages));
+                                        const paginated = recentActivityEvents.slice(
+                                            (currentPage - 1) * itemsPerPage,
+                                            currentPage * itemsPerPage
+                                        );
+
+                                        return (
+                                            <>
+                                                {paginated.map((event) => {
+                                                    const isFinal = event.type === 'finalization';
+                                                    const isEnroll = event.type === 'enrollment';
+                                                    return (
+                                                        <div 
+                                                            key={event.id} 
+                                                            onClick={() => {
+                                                                if (isEnroll) {
+                                                                    setSubView('users');
+                                                                } else {
+                                                                    setSelectedInspectionHotelId(event.hotelId);
+                                                                    setSubView('inspection');
+                                                                }
+                                                            }}
+                                                            className={`group flex items-start sm:items-center justify-between p-4 rounded-2xl border transition-all duration-200 cursor-pointer ${
+                                                                isFinal 
+                                                                    ? 'bg-emerald-50/30 border-emerald-100 hover:bg-emerald-50/60 hover:border-emerald-200' 
+                                                                    : isEnroll
+                                                                        ? 'bg-indigo-50/30 border-indigo-100/70 hover:bg-indigo-50/60 hover:border-indigo-200'
+                                                                        : 'bg-slate-50/50 border-slate-100 hover:bg-white hover:border-indigo-100 hover:shadow-md'
+                                                            }`}
+                                                        >
+                                                            <div className="flex items-start gap-3 sm:items-center">
+                                                                <div className={`p-2.5 rounded-xl border flex-shrink-0 transition-all ${
+                                                                    isFinal 
+                                                                        ? 'bg-emerald-100/60 border-emerald-200/80 text-emerald-700' 
+                                                                        : isEnroll
+                                                                            ? 'bg-indigo-100/60 border-indigo-200/80 text-indigo-700'
+                                                                            : 'bg-white border-slate-100 text-slate-600 group-hover:bg-indigo-50 group-hover:text-indigo-600'
+                                                                }`}>
+                                                                    {isFinal ? (
+                                                                        <FileCheck size={16} />
+                                                                    ) : isEnroll ? (
+                                                                        <Users size={16} />
+                                                                    ) : (
+                                                                        <ClipboardList size={16} />
+                                                                    )}
+                                                                </div>
+                                                                <div className="leading-relaxed">
+                                                                    <p className="text-xs text-slate-700 font-medium font-sans">
+                                                                        {isEnroll ? (
+                                                                            <>
+                                                                                <strong className="text-slate-900 font-bold">{event.hotelName}</strong>: <span className="font-bold text-slate-800">{event.fullName}</span> enrolled as <span className="text-indigo-600 font-semibold">{event.roleName}</span>
+                                                                            </>
+                                                                        ) : (
+                                                                            <>
+                                                                                <strong className="text-slate-900 font-bold">{event.hotelName}</strong>: {event.submitter}{' '}
+                                                                                {isFinal ? (
+                                                                                    <>
+                                                                                        submitted and <span className="text-emerald-700 font-semibold">finalised</span> the Brand Audit
+                                                                                    </>
+                                                                                ) : (
+                                                                                    <>
+                                                                                        submitted <span className="text-indigo-600 font-medium">{event.itemName}</span>
+                                                                                    </>
+                                                                                )}
+                                                                            </>
+                                                                        )}{' '}
+                                                                        at <span className="font-mono text-slate-500 font-semibold">{formatActivityTimestamp(event.timestamp)}</span>.
+                                                                    </p>
+                                                                </div>
+                                                            </div>
+                                                            <ChevronRight size={16} className="text-slate-300 group-hover:text-indigo-600 group-hover:translate-x-0.5 transition-all self-center ml-3" />
+                                                        </div>
+                                                    );
+                                                })}
+
+                                                {totalPages > 1 && (
+                                                    <div className="mt-6 flex items-center justify-between border-t border-slate-100 pt-4 font-sans">
+                                                        <button
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                setActivityCurrentPage(prev => Math.max(prev - 1, 1));
+                                                            }}
+                                                            disabled={currentPage === 1}
+                                                            className="px-3.5 py-1.5 text-xs font-bold text-slate-600 bg-slate-50 hover:bg-slate-100 disabled:opacity-45 disabled:cursor-not-allowed rounded-xl transition-all border border-slate-200/60"
+                                                        >
+                                                            &larr; Previous
+                                                        </button>
+                                                        <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider">
+                                                            Page {currentPage} of {totalPages}
                                                         </span>
+                                                        <button
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                setActivityCurrentPage(prev => Math.min(prev + 1, totalPages));
+                                                            }}
+                                                            disabled={currentPage === totalPages}
+                                                            className="px-3.5 py-1.5 text-xs font-bold text-slate-600 bg-slate-50 hover:bg-slate-100 disabled:opacity-45 disabled:cursor-not-allowed rounded-xl transition-all border border-slate-200/60"
+                                                        >
+                                                            Next &rarr;
+                                                        </button>
                                                     </div>
-                                                </div>
-                                            </div>
-                                            <div className="flex items-center gap-3">
-                                                <div className="text-right hidden sm:block">
-                                                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-0.5">Audit Sync</span>
-                                                    <span className="text-[10px] font-black text-emerald-600 flex items-center gap-1">
-                                                        <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                                                        LIVE DATA
-                                                    </span>
-                                                </div>
-                                                <ChevronRight size={18} className="text-slate-300 group-hover:text-indigo-600 group-hover:translate-x-1 transition-all" />
-                                            </div>
-                                        </div>
-                                    ))
+                                                )}
+                                            </>
+                                        );
+                                    })()
                                 ) : (
                                     <div className="py-16 text-center bg-slate-50/50 rounded-3xl border border-dashed border-slate-200">
                                         <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 mx-auto mb-3">
                                             <Search size={20} />
                                         </div>
-                                        <p className="text-slate-400 text-sm font-black uppercase tracking-widest">No Submissions Found</p>
-                                        <p className="text-[11px] text-slate-300 font-bold mt-1">Property data will appear here once submitted.</p>
+                                        <p className="text-slate-400 text-sm font-black uppercase tracking-widest">No Activity Found</p>
+                                        <p className="text-[11px] text-slate-300 font-bold mt-1">Property updates and brand audit statuses will appear here.</p>
                                     </div>
                                 )}
                             </div>
@@ -4018,7 +4206,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                     <tbody className="divide-y divide-slate-100">
                                         {[
                                             { parent: 'Dashboard', children: [] },
-                                            { parent: 'Audit & Reporting', children: ['Audit Report & Inspection', 'Recent Submissions'] },
+                                            { parent: 'Audit & Reporting', children: ['Audit Report & Inspection', 'Recent Activity'] },
                                             { parent: 'Manage Master Data', children: ['Hotels', 'Departments', 'Categories', 'Items', 'Groups', 'Batches'] },
                                             { parent: 'Access Right Management', children: ['User Management', 'Access Rights'] }
                                         ].map((group) => (
