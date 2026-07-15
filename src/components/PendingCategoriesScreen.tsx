@@ -248,9 +248,13 @@ export default function PendingCategoriesScreen({ onBack, onNavigate, userProfil
                 );
                 
                 let completedCount = 0;
+                let catPointsTotal = 0;
+                let catPointsCompleted = 0;
                 catItems.forEach((item: any) => {
                     const itemIdStr = String(item.id);
                     let isCompleted = submittedItemIds.has(itemIdStr);
+                    const itemPoints = item.points !== undefined && item.points !== null ? Number(item.points) : 5;
+                    catPointsTotal += itemPoints;
 
                     // Check local storage fallback for any target hotel ID
                     if (!isCompleted) {
@@ -271,6 +275,7 @@ export default function PendingCategoriesScreen({ onBack, onNavigate, userProfil
 
                     if (isCompleted) {
                         completedCount++;
+                        catPointsCompleted += itemPoints;
                     }
                 });
 
@@ -281,6 +286,8 @@ export default function PendingCategoriesScreen({ onBack, onNavigate, userProfil
                     name: cat.name,
                     total: catItems.length,
                     completed: Math.min(completedCount, catItems.length),
+                    pointsTotal: catPointsTotal,
+                    pointsCompleted: catPointsCompleted,
                     sort_order: cat.sort_order
                 };
             }).filter((cat: any) => cat.total > 0)
@@ -548,6 +555,8 @@ export default function PendingCategoriesScreen({ onBack, onNavigate, userProfil
     const totalTasks = categories.reduce((sum, c) => sum + c.total, 0);
     const totalCompleted = categories.reduce((sum, c) => sum + c.completed, 0);
     const progress = totalTasks > 0 ? (totalCompleted / totalTasks) * 100 : 0;
+    const totalPoints = categories.reduce((sum, c) => sum + (c.pointsTotal || 0), 0);
+    const completedPoints = categories.reduce((sum, c) => sum + (c.pointsCompleted || 0), 0);
 
     return (
         <div className="min-h-screen pt-16 sm:pt-20 pb-8 bg-slate-50/50 px-2 sm:px-4">
@@ -615,10 +624,19 @@ export default function PendingCategoriesScreen({ onBack, onNavigate, userProfil
 
                 <div className="bg-white p-3.5 sm:p-6 rounded-xl sm:rounded-2xl border border-slate-200 shadow-sm mb-4 sm:mb-6">
                     <h2 className="text-[10px] sm:text-xs font-bold text-slate-500 uppercase tracking-widest">Overall Self-Audit Progress</h2>
-                    <p className="text-2xl sm:text-4xl font-bold text-slate-900 mt-1 sm:mt-2">
-                        {totalCompleted} <span className="text-xs sm:text-base text-slate-400 font-normal">/ {totalTasks} tasks completed</span>
-                    </p>
-                    <div className="w-full bg-slate-100 rounded-full h-1.5 sm:h-2 mt-3 sm:mt-4 overflow-hidden">
+                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-2 mt-1 sm:mt-2">
+                        <div>
+                            <p className="text-2xl sm:text-4xl font-black text-slate-900 tracking-tight">
+                                {totalCompleted} <span className="text-xs sm:text-base text-slate-400 font-normal">/ {totalTasks} tasks completed</span>
+                            </p>
+                        </div>
+                        <div className="text-left sm:text-right">
+                            <p className="text-xs sm:text-sm font-black text-indigo-600">
+                                {completedPoints} <span className="text-slate-400 font-bold">/ {totalPoints} PTS</span>
+                            </p>
+                        </div>
+                    </div>
+                    <div className="w-full bg-slate-100 rounded-full h-1.5 sm:h-2 mt-3 sm:mt-4 overflow-hidden border border-slate-250/20">
                         <div className="bg-indigo-600 h-1.5 sm:h-2 rounded-full transition-all duration-500" style={{ width: `${progress}%` }}></div>
                     </div>
                 </div>
@@ -670,6 +688,12 @@ export default function PendingCategoriesScreen({ onBack, onNavigate, userProfil
                                             }`} 
                                             style={{ width: `${catProgress}%` }}
                                         />
+                                    </div>
+                                    <div className="flex justify-between items-center text-[10px] font-bold text-slate-500 mt-2">
+                                        <span>{category.completed} of {category.total} items done</span>
+                                        <span className={isAllDone ? 'text-emerald-600' : 'text-indigo-600'}>
+                                            {category.pointsCompleted || 0} / {category.pointsTotal || 0} PTS
+                                        </span>
                                     </div>
                                 </div>
                             );

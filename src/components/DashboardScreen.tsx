@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Menu, CheckCircle, Clock, Edit3, Building, ChevronRight, ChevronDown, PlusCircle, LayoutDashboard, History, User, LogOut, FileText, Folder, Layers, Maximize2, Minimize2, RefreshCw } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { supabase, HOTELS_URL, HOTELS_KEY } from '../lib/supabase';
 
 interface DashboardProps {
   onViewPending: () => void;
@@ -23,6 +23,8 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
   const [totalTasks, setTotalTasks] = useState(0);
   const [completedTasks, setCompletedTasks] = useState(0);
   const [remainingTasks, setRemainingTasks] = useState(0);
+  const [totalPoints, setTotalPoints] = useState(0);
+  const [completedPoints, setCompletedPoints] = useState(0);
 
   // Profile editing state
   const [isEditProfileOpen, setIsEditProfileOpen] = useState(false);
@@ -109,14 +111,22 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
       // 1. Fetch hotels
       let hotels: any[] = [];
       try {
-        const { data: hotelsData } = await supabase.from('hotels').select('*');
-        if (hotelsData) {
-          hotels = hotelsData.map((item: any) => ({
-            id: item.id || '',
-            name: item.name || item.hotel_name || '',
-            location: item.location || item.city_country || '',
-            code: item.code || ''
-          }));
+        const response = await fetch(`${HOTELS_URL}hotels?select=*`, {
+          headers: {
+            'apikey': HOTELS_KEY,
+            'Authorization': `Bearer ${HOTELS_KEY}`
+          }
+        });
+        if (response.ok) {
+          const data = await response.json();
+          if (Array.isArray(data)) {
+            hotels = data.map((item: any) => ({
+              id: item.id !== undefined && item.id !== null ? String(item.id) : '',
+              name: item.name || item.hotel_name || '',
+              location: item.location || item.city_country || '',
+              code: item.code || ''
+            }));
+          }
         }
       } catch (err) {
         console.warn("Could not fetch hotels in dashboard:", err);
@@ -282,15 +292,22 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
       // Calculate task statistics
       const totalT = sortedData.length;
       let completedT = 0;
+      let totalP = 0;
+      let completedP = 0;
       sortedData.forEach((item: any) => {
+        const pts = item.points !== undefined && item.points !== null ? Number(item.points) : 5; // default to 5 if not specified
+        totalP += pts;
         if (submittedItemIds.has(String(item.id))) {
           completedT++;
+          completedP += pts;
         }
       });
 
       setTotalTasks(totalT);
       setCompletedTasks(completedT);
       setRemainingTasks(totalT - completedT);
+      setTotalPoints(totalP);
+      setCompletedPoints(completedP);
 
       // Auto-expand the first department and its categories by default on load
       if (sortedData.length > 0 && Object.keys(expandedDepts).length === 0) {
@@ -502,7 +519,6 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
   const totalDepts = groupedData.length;
   const totalCats = groupedData.reduce((acc, dept) => acc + dept.categories.length, 0);
   const totalItems = auditItems.length;
-  const totalPoints = auditItems.reduce((acc, item) => acc + (item.points || 0), 0);
 
   return (
     <div className="min-h-screen pb-20 md:pb-8 pt-16 sm:pt-20 md:pt-16 bg-slate-50/50">
@@ -633,7 +649,7 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
                     </div>
 
                     {/* Detailed Counter Boxes */}
-                    <div className="grid grid-cols-2 gap-3 pt-1">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 pt-1">
                         <div className="bg-white/80 backdrop-blur-xs border border-emerald-100/60 p-3 rounded-xl flex items-center gap-3 shadow-xs">
                             <div className="p-1.5 bg-emerald-50 text-emerald-600 rounded-lg">
                                 <CheckCircle size={14} />
@@ -650,6 +666,15 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
                             <div>
                                 <p className="text-[9px] font-black text-slate-400 uppercase tracking-wide leading-none">Remaining</p>
                                 <p className="text-sm font-extrabold text-slate-800 mt-1">{remainingTasks} <span className="text-[10px] text-slate-400 font-bold">tasks</span></p>
+                            </div>
+                        </div>
+                        <div className="bg-white/80 backdrop-blur-xs border border-emerald-100/60 p-3 rounded-xl flex items-center gap-3 shadow-xs col-span-2 sm:col-span-1">
+                            <div className="p-1.5 bg-indigo-50 text-indigo-600 rounded-lg">
+                                <Layers size={14} />
+                            </div>
+                            <div>
+                                <p className="text-[9px] font-black text-slate-400 uppercase tracking-wide leading-none">Possible Score</p>
+                                <p className="text-sm font-extrabold text-slate-800 mt-1">{completedPoints} <span className="text-[10px] text-slate-400 font-bold">/ {totalPoints} PTS</span></p>
                             </div>
                         </div>
                     </div>
