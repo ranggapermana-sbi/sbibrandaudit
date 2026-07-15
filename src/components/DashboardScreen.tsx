@@ -264,7 +264,7 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
         console.warn("Could not fetch audit_submissions in dashboard:", subErr);
       }
 
-      // 7. Filter items based on checklist group and active for hotel filled_by_hotel !== false
+      // 7. Filter items based on checklist group (including non-self audit items)
       const filtered = (itemsData || []).filter((item: any) => {
         // Must belong to category of group
         if (assignedCategoryIds && !assignedCategoryIds.includes(String(item.category_id))) {
@@ -274,8 +274,7 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
         if (assignedItemIds && !assignedItemIds.includes(String(item.id))) {
           return false;
         }
-        // Must be filled by hotel
-        return item.filled_by_hotel !== false && item.filled_by_hotel !== 'false';
+        return true;
       });
 
       const sortedData = filtered.sort((a: any, b: any) => {
@@ -289,12 +288,13 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
 
       setAuditItems(sortedData);
 
-      // Calculate task statistics
-      const totalT = sortedData.length;
+      // Calculate task statistics on self-audit items only
+      const selfAuditItems = sortedData.filter((item: any) => item.filled_by_hotel !== false && item.filled_by_hotel !== 'false');
+      const totalT = selfAuditItems.length;
       let completedT = 0;
       let totalP = 0;
       let completedP = 0;
-      sortedData.forEach((item: any) => {
+      selfAuditItems.forEach((item: any) => {
         const pts = item.points !== undefined && item.points !== null ? Number(item.points) : 5; // default to 5 if not specified
         totalP += pts;
         if (submittedItemIds.has(String(item.id))) {
@@ -845,9 +845,16 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
                                                                                 {item.name}
                                                                             </p>
                                                                         </div>
-                                                                        <span className="text-[9px] shrink-0 font-extrabold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded whitespace-nowrap self-center">
-                                                                            {item.points || 0} PTS
-                                                                        </span>
+                                                                        <div className="flex items-center gap-1.5 shrink-0 self-center">
+                                                                            {(item.filled_by_hotel === false || item.filled_by_hotel === 'false') && (
+                                                                                <span className="text-[8px] sm:text-[9px] font-extrabold text-amber-700 bg-amber-50 border border-amber-100/50 px-1.5 py-0.5 rounded whitespace-nowrap">
+                                                                                    Auditor Only
+                                                                                </span>
+                                                                            )}
+                                                                            <span className="text-[9px] shrink-0 font-extrabold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded whitespace-nowrap">
+                                                                                {item.points || 0} PTS
+                                                                            </span>
+                                                                        </div>
                                                                     </div>
                                                                 ))
                                                             )}
