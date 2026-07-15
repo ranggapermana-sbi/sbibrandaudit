@@ -534,7 +534,9 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
                 className="hover:scale-105 transition-transform duration-150 outline-none"
                 title="Edit Profile"
             >
-                <img src="https://lh3.googleusercontent.com/aida-public/AB6AXuBITBWNBBtIG0rf-g2rSnXVh9VGHDvsAjvLTDjrE23xz1hJrCplqnz6Xn1zrgcgHMUmCMQ3IdgZhZbEuTf1ImpPe7qG_G1XAXu0U8ILiKm-G1yTVcT14BEf-0i6SdQv_STVs2afp2q-qyq_bFuTRUnJiG650ZgShhYGSpaReJ7UOabaT-pWAFjHSmW0zh7U8NDb86GS9JamBquf3kiqH527l8DSi5MchVDfG3Ynr9tQMnoQnBwmDHiGBzXeeSny3uJYmL-hopwk60g" alt="Profile" className="w-7 h-7 sm:w-8 sm:h-8 rounded-full border border-slate-200" />
+                <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-600 shadow-sm hover:bg-slate-200 transition-colors">
+                    <User size={15} />
+                </div>
             </button>
             
             <button 

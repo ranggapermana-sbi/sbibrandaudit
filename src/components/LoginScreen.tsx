@@ -152,14 +152,17 @@ export default function LoginScreen({ onLogin, onAdminAccess }: { onLogin: () =>
             {/* Header section with brand identity */}
             <header className="mb-8 text-center">
               <div className="inline-flex justify-center mb-6">
-                <div className="hover:scale-105 hover:rotate-1 transition-transform duration-300">
+                <button 
+                  onClick={() => setIsPinPromptOpen(true)}
+                  className="hover:scale-105 hover:rotate-1 transition-transform duration-300 outline-none cursor-pointer"
+                >
                   <img 
                     id="brand-logo-img"
                     src="https://i.ibb.co.com/WNB70XBz/sbi-logo.png" 
                     alt="Swiss-Belhotel Logo" 
                     className="h-[84px] object-contain" 
                   />
-                </div>
+                </button>
               </div>
               
               <h2 className="text-slate-800 text-2xl font-black tracking-tight leading-none mb-2 font-sans">
@@ -193,7 +196,7 @@ export default function LoginScreen({ onLogin, onAdminAccess }: { onLogin: () =>
                       <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l3.66-2.85z" fill="#FBBC05"/>
                       <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.85c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
                     </svg>
-                    <span>Sign In with Google</span>
+                    <span>Sign In or Sign Up with Google</span>
                     <ArrowRight size={13} className="ml-1 text-slate-400 group-hover:text-white transition-colors" />
                   </>
                 ) : (
@@ -218,17 +221,6 @@ export default function LoginScreen({ onLogin, onAdminAccess }: { onLogin: () =>
           {/* Polished Footer Navigation Capsule */}
           <div className="mt-6 flex justify-center">
             <div className="inline-flex items-center justify-center bg-white/70 backdrop-blur-sm border border-slate-200/60 p-1 rounded-2xl shadow-sm">
-              <button 
-                id="admin-portal-link"
-                onClick={() => setIsPinPromptOpen(true)}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] text-slate-500 hover:text-slate-900 hover:bg-slate-100/80 font-extrabold uppercase tracking-wider transition-all duration-205 cursor-pointer"
-              >
-                <Lock size={11} className="text-slate-400" />
-                <span>Admin Portal</span>
-              </button>
-              
-              <div className="h-4 w-px bg-slate-200 mx-1" />
-
               <button 
                 id="contact-support-link"
                 onClick={handleContactSupport} 
