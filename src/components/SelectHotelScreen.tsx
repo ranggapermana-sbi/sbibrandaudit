@@ -41,14 +41,33 @@ export default function SelectHotelScreen({ userProfile, onSelectHotel, onLogout
                         const rawId = item.id !== undefined && item.id !== null ? String(item.id) : '';
                         const fallbackId = item.hotel_id !== undefined && item.hotel_id !== null ? String(item.hotel_id) : '';
                         const finalId = rawId || fallbackId || item.code || String(item.name || '').replace(/\s+/g, '-').toLowerCase();
+                        
+                        let country = item.country || '';
+                        const parts = (item.location || item.city_country || '').split(',');
+                        if (!country && parts.length > 1) {
+                            country = parts[parts.length - 1].trim();
+                        } else if (!country) {
+                            country = 'Indonesia';
+                        }
+
+                        let region = item.region || '';
+                        if (!region) {
+                            const countryLower = country.toLowerCase();
+                            if (countryLower.includes('bahrain') || countryLower.includes('uae') || countryLower.includes('kuwait') || countryLower.includes('saudi') || countryLower.includes('qatar') || countryLower.includes('oman') || countryLower.includes('middle east')) {
+                                region = 'Middle East';
+                            } else {
+                                region = 'Indonesia';
+                            }
+                        }
+
                         return {
                             id: finalId,
                             name: item.name || item.hotel_name || '',
                             location: item.location || item.city_country || 'Indonesia',
                             code: item.code || '',
-                            brandClass: item.brandClass || item.brand_class || 'Swiss-Belhotel',
-                            region: item.region || 'Asia Pacific',
-                            country: item.country || 'Indonesia',
+                            brandClass: item.brandClass || item.brand_class || item.brand || 'Swiss-Belhotel',
+                            region: region,
+                            country: country,
                             stars: item.stars ? Number(item.stars) : 4
                         };
                     });
