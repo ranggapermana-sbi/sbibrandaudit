@@ -26,8 +26,10 @@ const FALLBACK_HOTELS: Hotel[] = [
 
 const ROLES = [
     'General Manager',
+    'Hotel Manager',
     'GM Secretary',
     'Marcomm/PR',
+    'Housekeeping',
     'Room Division',
     'Front Office',
     'Sales & Marketing'
@@ -265,7 +267,7 @@ export default function SignupScreen({ onComplete, onLogout }: SignupScreenProps
                 hotel_name: selectedHotels.length > 0 ? selectedHotels.map(h => h.name).join(', ') : null,
                 hotel_code: selectedHotels.length > 0 ? selectedHotels.map(h => h.code || 'SBI').join(',') : null,
                 role: role,
-                access_level: (role === 'Admin' || isAuditLead) ? 'admin' : (role === 'Auditor' ? 'auditor' : 'auditee'),
+                access_level: (role === 'Admin') ? 'admin' : (role === 'Auditor' ? 'auditor' : 'auditee'),
                 is_brand_audit_lead: isAuditLead,
                 is_approved: userEmail === 'brandaudit@swiss-belhotel.com',
                 updated_at: new Date().toISOString()

@@ -73,6 +73,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     const [progressRegionFilter, setProgressRegionFilter] = useState<string>('');
     const [progressCountryFilter, setProgressCountryFilter] = useState<string>('');
     const [progressBrandFilter, setProgressBrandFilter] = useState<string>('');
+    const [progressBrandLeadFilter, setProgressBrandLeadFilter] = useState<'all' | 'has_lead' | 'no_lead'>('all');
     const [progressSearchQuery, setProgressSearchQuery] = useState<string>('');
     const [auditorAccess, setAuditorAccess] = useState<Record<string, boolean>>({});
     const [auditorAssignments, setAuditorAssignments] = useState<any[]>([]);
@@ -1659,39 +1660,46 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 });
             }
 
-            // Add enrollments and approvals
+            // Add enrollments and approvals (filtering out legacy/system/placeholder mock profiles)
             if (enrollmentsData && !enrollmentsError) {
                 enrollmentsData.forEach((user: any) => {
                     const firstName = user.first_name || '';
                     const lastName = user.last_name || '';
                     const fullName = (firstName + ' ' + lastName).trim() || user.display_name || user.email?.split('@')[0] || 'Unknown User';
-                    const roleName = user.role || (user.access_level ? (user.access_level.charAt(0).toUpperCase() + user.access_level.slice(1)) : 'Representative');
-                    const hotelName = user.hotel_name || 'Swiss-Belhotel International';
-                    
-                    // 1. Enrollment Event
-                    events.push({
-                        id: `enroll-${user.id}`,
-                        type: 'enrollment',
-                        hotelId: user.hotel_id?.split(',')[0] || null,
-                        hotelName,
-                        fullName,
-                        roleName,
-                        timestamp: user.created_at || user.updated_at || new Date().toISOString(),
-                    });
+                    const roleName = user.role || '';
+                    const hotelName = user.hotel_name || '';
 
-                    // 2. Approval Event (if approved)
-                    if (user.is_approved && user.approved_at) {
-                        const adminName = user.approved_by_name || 'Admin';
+                    const roleClean = roleName.trim();
+                    const isSystemRole = ['admin', 'auditor', 'auditee', 'representative'].includes(roleClean.toLowerCase()) || !roleClean;
+                    const isPlaceholderHotel = !hotelName || hotelName.toLowerCase().trim() === 'swiss-belhotel international';
+
+                    // Only show actual user enrollments and approvals
+                    if (!isSystemRole && !isPlaceholderHotel) {
+                        // 1. Enrollment Event
                         events.push({
-                            id: `approve-${user.id}`,
-                            type: 'admin_approval',
+                            id: `enroll-${user.id}`,
+                            type: 'enrollment',
                             hotelId: user.hotel_id?.split(',')[0] || null,
                             hotelName,
                             fullName,
                             roleName,
-                            adminName,
-                            timestamp: user.approved_at,
+                            timestamp: user.created_at || user.updated_at || new Date().toISOString(),
                         });
+
+                        // 2. Approval Event (if approved)
+                        if (user.is_approved && user.approved_at) {
+                            const adminName = user.approved_by_name || 'Admin';
+                            events.push({
+                                id: `approve-${user.id}`,
+                                type: 'admin_approval',
+                                hotelId: user.hotel_id?.split(',')[0] || null,
+                                hotelName,
+                                fullName,
+                                roleName,
+                                adminName,
+                                timestamp: user.approved_at,
+                            });
+                        }
                     }
                 });
             }
@@ -6164,18 +6172,39 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                 return { name: brand, ...prog };
                             });
 
+                            // Helper to find Brand Leads for a hotel
+                            const getBrandLeadsForHotel = (hotel: any) => {
+                                if (!profilesList || !Array.isArray(profilesList)) return [];
+                                return profilesList.filter(p => {
+                                    if (!p.is_brand_audit_lead) return false;
+                                    if (!p.hotel_id) return false;
+                                    const ids = String(p.hotel_id).split(',').map(id => id.trim());
+                                    const codes = p.hotel_code ? String(p.hotel_code).split(',').map(c => c.trim().toLowerCase()) : [];
+                                    const names = p.hotel_name ? String(p.hotel_name).split(',').map(n => n.trim().toLowerCase()) : [];
+                                    
+                                    return ids.includes(String(hotel.id)) || 
+                                           (hotel.code && codes.includes(String(hotel.code).toLowerCase())) || 
+                                           (hotel.name && names.includes(String(hotel.name).toLowerCase()));
+                                });
+                            };
+
                             // Filtered Hotels
                             const filteredHotels = nonCorporateHotels.filter(h => {
                                 const matchesRegion = !progressRegionFilter || h.region === progressRegionFilter;
                                 const matchesCountry = !progressCountryFilter || h.country === progressCountryFilter;
                                 const matchesBrand = !progressBrandFilter || h.brandClass === progressBrandFilter;
                                 
+                                const brandLeads = getBrandLeadsForHotel(h);
+                                const matchesBrandLead = progressBrandLeadFilter === 'all' || 
+                                    (progressBrandLeadFilter === 'has_lead' && brandLeads.length > 0) ||
+                                    (progressBrandLeadFilter === 'no_lead' && brandLeads.length === 0);
+                                
                                 const q = progressSearchQuery.toLowerCase().trim();
                                 const matchesSearch = !q || 
                                     (h.name || '').toLowerCase().includes(q) || 
                                     (h.code || '').toLowerCase().includes(q);
 
-                                return matchesRegion && matchesCountry && matchesBrand && matchesSearch;
+                                return matchesRegion && matchesCountry && matchesBrand && matchesBrandLead && matchesSearch;
                             });
 
                             return (
@@ -6373,14 +6402,28 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                     </select>
                                                 </div>
 
+                                                {/* Brand Lead Filter */}
+                                                <div className="w-full sm:w-[170px]">
+                                                    <select
+                                                        className="w-full px-3 py-2.5 text-xs border border-slate-200 rounded-xl bg-slate-50/50 focus:bg-white focus:outline-none focus:border-indigo-500 font-bold transition-all text-slate-700"
+                                                        value={progressBrandLeadFilter}
+                                                        onChange={(e) => setProgressBrandLeadFilter(e.target.value as any)}
+                                                    >
+                                                        <option value="all">All Representation</option>
+                                                        <option value="has_lead">Has Brand Lead</option>
+                                                        <option value="no_lead">No Brand Lead</option>
+                                                    </select>
+                                                </div>
+
                                                 {/* Clear filters trigger */}
-                                                {(progressRegionFilter || progressCountryFilter || progressBrandFilter || progressSearchQuery) && (
+                                                {(progressRegionFilter || progressCountryFilter || progressBrandFilter || progressSearchQuery || progressBrandLeadFilter !== 'all') && (
                                                     <button
                                                         onClick={() => {
                                                             setProgressRegionFilter('');
                                                             setProgressCountryFilter('');
                                                             setProgressBrandFilter('');
                                                             setProgressSearchQuery('');
+                                                            setProgressBrandLeadFilter('all');
                                                         }}
                                                         className="text-xs text-indigo-600 hover:text-indigo-800 font-black uppercase tracking-wider flex items-center gap-1.5 px-3 py-2.5 hover:bg-indigo-50 rounded-xl transition-all"
                                                     >
@@ -6437,6 +6480,20 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                 {h.code && (
                                                                                     <span className="text-[10px] text-slate-400 font-bold font-mono">ID: {h.code}</span>
                                                                                 )}
+                                                                                {(() => {
+                                                                                    const leads = getBrandLeadsForHotel(h);
+                                                                                    if (leads.length === 0) return null;
+                                                                                    return (
+                                                                                        <div className="mt-1.5 flex flex-wrap gap-1">
+                                                                                            {leads.map(bl => (
+                                                                                                <span key={bl.id} className="inline-flex items-center gap-1 text-[9px] bg-indigo-50 text-indigo-700 border border-indigo-100/50 px-2 py-0.5 rounded-md font-extrabold uppercase tracking-wider shadow-2xs">
+                                                                                                    <ShieldCheck size={10} className="text-indigo-600 shrink-0" />
+                                                                                                    Brand Lead: {bl.display_name || `${bl.first_name || ''} ${bl.last_name || ''}`.trim() || bl.email.split('@')[0]}
+                                                                                                </span>
+                                                                                            ))}
+                                                                                        </div>
+                                                                                    );
+                                                                                })()}
                                                                             </div>
                                                                         </div>
                                                                     </td>
@@ -8000,7 +8057,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                         value={userFormRole}
                                         onChange={(e) => setUserFormRole(e.target.value)}
                                     >
-                                        {['General Manager', 'GM Secretary', 'Marcomm/PR', 'Room Division', 'Front Office', 'Sales & Marketing', 'Auditor', 'Director of Finance', 'Executive Housekeeper', 'Admin'].map(r => (
+                                        {['General Manager', 'Hotel Manager', 'GM Secretary', 'Marcomm/PR', 'Housekeeping', 'Room Division', 'Front Office', 'Sales & Marketing', 'Auditor', 'Director of Finance', 'Executive Housekeeper', 'Admin'].map(r => (
                                             <option key={r} value={r}>{r}</option>
                                         ))}
                                     </select>
