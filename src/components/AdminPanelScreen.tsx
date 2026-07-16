@@ -3797,7 +3797,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 {subView === 'dashboard' ? (
                     <>
                         {/* Stats Row */}
-                        {userProfile?.access_level === 'admin' && (
+                        {(userProfile?.access_level === 'admin' || userProfile?.access_level === 'auditor') && (
                             <section className="grid grid-cols-1 md:grid-cols-3 gap-5">
                                 {stats.map((stat, i) => {
                                     const Icon = stat.icon;
