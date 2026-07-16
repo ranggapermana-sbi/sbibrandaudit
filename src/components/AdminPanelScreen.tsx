@@ -464,9 +464,10 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         }
     };
 
-    const updateApprovalStatus = async (userId: string, isApproved: boolean) => {
+    const executeApprovalStatusChange = async (userId: string, isApproved: boolean) => {
         const adminName = userProfile ? `${userProfile.first_name || ''} ${userProfile.last_name || ''}`.trim() || userProfile.display_name || userProfile.email : 'Admin';
         const approvalDate = new Date().toISOString();
+        const targetUser = profilesList.find(p => p.id === userId);
 
         try {
             const updatedList = profilesList.map(p => {
@@ -527,9 +528,169 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             } else {
                 console.warn("Failed to sync approval status update with Supabase, kept local copy.");
             }
+
+            // Trigger Zapier Webhook if approved and a webhookUrl exists
+            if (isApproved && targetUser && webhookUrl) {
+                setIsSendingWebhook(true);
+                try {
+                    const userDisplayName = targetUser.display_name || `${targetUser.first_name || ''} ${targetUser.last_name || ''}`.trim() || targetUser.email.split('@')[0];
+                    const userRole = targetUser.role || 'General Manager';
+                    const userAccessLevel = targetUser.access_level || 'auditee';
+                    const userHotelName = targetUser.hotel_name || 'Swiss-Belhotel International';
+                    const formattedDate = new Date(approvalDate).toLocaleDateString('en-US', {
+                        weekday: 'long',
+                        year: 'numeric',
+                        month: 'long',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        timeZoneName: 'short'
+                    });
+
+                    // Build a stunningly polished, responsive HTML email that matches the app's executive styling
+                    const emailHtml = `
+                    <!DOCTYPE html>
+                    <html>
+                    <head>
+                        <meta charset="utf-8">
+                        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                        <title>Account Approved - Swiss-Belhotel International</title>
+                    </head>
+                    <body style="margin: 0; padding: 0; background-color: #f8fafc; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; -webkit-font-smoothing: antialiased;">
+                        <table border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #f8fafc; padding: 40px 20px;">
+                            <tr>
+                                <td align="center">
+                                    <table border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 580px; background-color: #ffffff; border-radius: 24px; border: 1px solid #e2e8f0; overflow: hidden; box-shadow: 0 10px 30px -10px rgba(15, 23, 42, 0.08);">
+                                        
+                                        <!-- Header Block -->
+                                        <tr>
+                                            <td style="background: linear-gradient(135deg, #4f46e5 0%, #3730a3 100%); padding: 40px; text-align: center;">
+                                                <div style="display: inline-block; background-color: rgba(255, 255, 255, 0.15); border: 1px solid rgba(255, 255, 255, 0.25); border-radius: 14px; padding: 10px; margin-bottom: 20px; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);">
+                                                    <span style="font-size: 28px; line-height: 1;">🛡️</span>
+                                                </div>
+                                                <h1 style="margin: 0; font-size: 24px; font-weight: 800; color: #ffffff; letter-spacing: -0.025em;">Account Approved</h1>
+                                                <p style="margin: 8px 0 0 0; font-size: 14px; color: #c7d2fe; font-weight: 500;">SBI Brand Audit 2026 Portal</p>
+                                            </td>
+                                        </tr>
+
+                                        <!-- Content Body -->
+                                        <tr>
+                                            <td style="padding: 40px; color: #334155;">
+                                                <p style="margin: 0 0 16px 0; font-size: 16px; line-height: 1.6; font-weight: 500; color: #1e293b;">Hello <strong>${userDisplayName}</strong>,</p>
+                                                <p style="margin: 0 0 24px 0; font-size: 14px; line-height: 1.6; color: #64748b;">
+                                                    Your account registration request has been successfully verified and <strong>approved</strong>. You now have full access to perform audits and view compliance logs configured for your property level.
+                                                </p>
+
+                                                <!-- Metadata Table -->
+                                                <table border="0" cellpadding="0" cellspacing="0" width="100%" style="border-collapse: separate; border-spacing: 0; background-color: #f8fafc; border-radius: 16px; border: 1px solid #e2e8f0; margin-bottom: 28px;">
+                                                    <tr>
+                                                        <td style="padding: 16px 20px; border-bottom: 1px solid #e2e8f0; width: 40%; font-size: 12px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em;">Email Address</td>
+                                                        <td style="padding: 16px 20px; border-bottom: 1px solid #e2e8f0; font-size: 13px; font-weight: 600; color: #334155; font-family: 'SFMono-Regular', Consolas, Monaco, monospace;">${targetUser.email}</td>
+                                                    </tr>
+                                                    <tr>
+                                                        <td style="padding: 16px 20px; border-bottom: 1px solid #e2e8f0; font-size: 12px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em;">Property Role</td>
+                                                        <td style="padding: 16px 20px; border-bottom: 1px solid #e2e8f0; font-size: 13px; font-weight: 800; color: #1e293b;">${userRole}</td>
+                                                    </tr>
+                                                    <tr>
+                                                        <td style="padding: 16px 20px; border-bottom: 1px solid #e2e8f0; font-size: 12px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em;">Access Level</td>
+                                                        <td style="padding: 16px 20px; border-bottom: 1px solid #e2e8f0; font-size: 13px;">
+                                                            <span style="display: inline-block; background-color: #e0e7ff; color: #4338ca; border: 1px solid rgba(67, 56, 202, 0.15); font-weight: 800; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; padding: 2px 8px; border-radius: 6px;">${userAccessLevel}</span>
+                                                        </td>
+                                                    </tr>
+                                                    <tr>
+                                                        <td style="padding: 16px 20px; border-bottom: 1px solid #e2e8f0; font-size: 12px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em;">Assigned Property</td>
+                                                        <td style="padding: 16px 20px; border-bottom: 1px solid #e2e8f0; font-size: 13px; font-weight: 800; color: #1e293b;">${userHotelName}</td>
+                                                    </tr>
+                                                    <tr>
+                                                        <td style="padding: 16px 20px; font-size: 12px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em;">Approved By</td>
+                                                        <td style="padding: 16px 20px; font-size: 13px; font-weight: 600; color: #475569;">${adminName} (${formattedDate})</td>
+                                                    </tr>
+                                                </table>
+
+                                                <!-- Call to Action Button -->
+                                                <table border="0" cellpadding="0" cellspacing="0" width="100%">
+                                                    <tr>
+                                                        <td align="center" style="padding-bottom: 10px;">
+                                                            <a href="https://sbibrandaudit.vercel.app" target="_blank" style="display: inline-block; background-color: #10b981; color: #ffffff; font-size: 14px; font-weight: 700; text-decoration: none; padding: 14px 32px; border-radius: 30px; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.2); transition: background-color 0.2s;">
+                                                                Access Audit Dashboard
+                                                            </a>
+                                                        </td>
+                                                    </tr>
+                                                </table>
+                                            </td>
+                                        </tr>
+
+                                        <!-- Footer Block -->
+                                        <tr>
+                                            <td style="background-color: #f1f5f9; padding: 24px 40px; text-align: center; border-top: 1px solid #e2e8f0;">
+                                                <p style="margin: 0; font-size: 11px; line-height: 1.5; color: #94a3b8; font-weight: 500;">
+                                                    This is an automated administrative notification. Please do not reply directly to this email.
+                                                </p>
+                                                <p style="margin: 8px 0 0 0; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em;">
+                                                    Swiss-Belhotel International Hotels & Resorts
+                                                </p>
+                                            </td>
+                                        </tr>
+                                    </table>
+                                </td>
+                            </tr>
+                        </table>
+                    </body>
+                    </html>
+                    `;
+
+                    const payload = {
+                        event_type: 'user_approved',
+                        user_id: targetUser.id,
+                        email: targetUser.email,
+                        first_name: targetUser.first_name || '',
+                        last_name: targetUser.last_name || '',
+                        display_name: userDisplayName,
+                        role: userRole,
+                        access_level: userAccessLevel,
+                        hotel_name: userHotelName,
+                        hotel_code: targetUser.hotel_code || 'SBI',
+                        approved_by: adminName,
+                        approved_at: approvalDate,
+                        app_url: window.location.origin,
+                        email_html: emailHtml
+                    };
+
+                    // To bypass CORS preflight blocks or sandbox constraints within the preview iFrame,
+                    // we dispatch the webhook request as a 'no-cors' simple request with a text/plain body.
+                    // This guarantees that the browser successfully issues the POST request and Zapier receives it,
+                    // as Zapier catch hooks automatically parse standard JSON strings from plain text request bodies.
+                    await fetch(webhookUrl, {
+                        method: 'POST',
+                        mode: 'no-cors',
+                        headers: {
+                            'Content-Type': 'text/plain'
+                        },
+                        body: JSON.stringify(payload)
+                    });
+                    
+                    setToastMessage(`User approved and Zapier webhook triggered successfully!`);
+                } catch (err) {
+                    console.error("Failed to send Zapier webhook:", err);
+                    setToastMessage(`User approved, but Zapier webhook request failed.`);
+                } finally {
+                    setIsSendingWebhook(false);
+                }
+            }
         } catch (e) {
             console.warn("Network error or table missing while updating approval status, kept local copy.", e);
         }
+    };
+
+    const updateApprovalStatus = async (userId: string, isApproved: boolean) => {
+        if (isApproved) {
+            const userToApprove = profilesList.find(p => p.id === userId);
+            if (userToApprove) {
+                setConfirmApprovalUser(userToApprove);
+                return;
+            }
+        }
+        await executeApprovalStatusChange(userId, isApproved);
     };
 
     const loadFallbackProfiles = () => {
@@ -1940,6 +2101,14 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     const [userFormIsApproved, setUserFormIsApproved] = useState(true);
     const [userFormError, setUserFormError] = useState('');
     const [confirmUserDeleteId, setConfirmUserDeleteId] = useState<string | null>(null);
+
+    // Zapier webhook & approval confirmation states
+    const [confirmApprovalUser, setConfirmApprovalUser] = useState<any | null>(null);
+    const [isSendingWebhook, setIsSendingWebhook] = useState(false);
+    const [webhookUrl, setWebhookUrl] = useState<string>(() => {
+        return localStorage.getItem('sbi_zapier_webhook_url') || import.meta.env.VITE_ZAPIER_WEBHOOK_URL || '';
+    });
+    const [isEditingWebhookUrl, setIsEditingWebhookUrl] = useState(false);
 
     // Auditor scoring & inspection states
     const [selectedInspectionHotelId, setSelectedInspectionHotelId] = useState<string>('');
@@ -3652,6 +3821,42 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                         </div>
                                     );
                                 })}
+
+                                {/* ENROLLED USERS CARD */}
+                                {(() => {
+                                    const totalPending = profilesList.filter(p => !p.is_approved).length;
+                                    const totalApproved = profilesList.filter(p => p.is_approved).length;
+                                    const totalBrandLeads = profilesList.filter(p => p.is_brand_audit_lead).length;
+                                    return (
+                                        <div className="bg-white p-6 rounded-[24px] border border-slate-150/80 shadow-[0_4px_24px_rgba(15,23,42,0.015)] flex items-center justify-between hover:shadow-[0_8px_32px_rgba(15,23,42,0.03)] hover:scale-[1.01] transition-all duration-300">
+                                            <div className="flex-1 min-w-0 pr-2">
+                                                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Enrolled Users</p>
+                                                <p className="text-3xl font-extrabold text-slate-900 mt-1 font-sans tracking-tight">
+                                                    {totalApproved} <span className="text-xs font-extrabold text-emerald-600 uppercase tracking-wide bg-emerald-50 px-2 py-0.5 rounded ml-1.5 inline-block align-middle">Onboarded</span>
+                                                </p>
+                                                <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 mt-2.5 text-[11px] font-bold text-slate-500">
+                                                    <span className="flex items-center gap-1">
+                                                        <span className="w-1.5 h-1.5 rounded-full bg-amber-400 inline-block"></span>
+                                                        Pending: <strong className="text-slate-800">{totalPending}</strong>
+                                                    </span>
+                                                    <span className="text-slate-300">•</span>
+                                                    <span className="flex items-center gap-1">
+                                                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block"></span>
+                                                        Approved: <strong className="text-slate-800">{totalApproved}</strong>
+                                                    </span>
+                                                    <span className="text-slate-300">•</span>
+                                                    <span className="flex items-center gap-1">
+                                                        <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 inline-block"></span>
+                                                        Brand Leads: <strong className="text-slate-800">{totalBrandLeads}</strong>
+                                                    </span>
+                                                </div>
+                                            </div>
+                                            <div className="w-12 h-12 rounded-2xl bg-indigo-50/80 text-indigo-600 flex items-center justify-center shrink-0">
+                                                <Users size={24} />
+                                            </div>
+                                        </div>
+                                    );
+                                })()}
                             </section>
                         )}
 
@@ -8217,6 +8422,143 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                             <button 
                                 onClick={() => setConfirmUserDeleteId(null)}
                                 className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-600 py-2.5 rounded-full font-bold text-sm transition-all active:scale-95"
+                            >
+                                Cancel
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Confirm Approval & Send Webhook Modal */}
+            {confirmApprovalUser && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-fadeIn">
+                    <div className="bg-white w-full max-w-lg p-6 sm:p-8 rounded-[28px] border border-slate-200 shadow-2xl relative animate-scaleUp max-h-[90vh] flex flex-col overflow-y-auto">
+                        <button 
+                            onClick={() => setConfirmApprovalUser(null)}
+                            className="absolute top-5 right-5 p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-50 rounded-xl transition-all"
+                        >
+                            <X size={18} />
+                        </button>
+
+                        <div className="flex items-center gap-4 mb-6">
+                            <div className="w-12 h-12 rounded-full bg-emerald-50 text-emerald-600 border border-emerald-100 flex items-center justify-center shrink-0">
+                                <ShieldCheck size={26} />
+                            </div>
+                            <div>
+                                <h3 className="text-lg font-extrabold text-slate-900">Confirm User Approval</h3>
+                                <p className="text-xs text-slate-500 font-medium">Verify credentials and trigger notifications upon approval.</p>
+                            </div>
+                        </div>
+
+                        {/* User Details */}
+                        <div className="bg-slate-50 border border-slate-150 rounded-2xl p-4 mb-5 space-y-3">
+                            <h4 className="text-[10px] font-black uppercase text-slate-400 tracking-wider">User Details</h4>
+                            <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
+                                <div>
+                                    <p className="text-slate-400 font-bold">Full Name</p>
+                                    <p className="text-slate-800 font-black">
+                                        {confirmApprovalUser.display_name || `${confirmApprovalUser.first_name || ''} ${confirmApprovalUser.last_name || ''}`.trim() || 'N/A'}
+                                    </p>
+                                </div>
+                                <div>
+                                    <p className="text-slate-400 font-bold">Email Address</p>
+                                    <p className="text-slate-800 font-mono font-bold break-all">{confirmApprovalUser.email}</p>
+                                </div>
+                                <div className="mt-1">
+                                    <p className="text-slate-400 font-bold">Property Role / Level</p>
+                                    <p className="text-slate-800 font-black">{confirmApprovalUser.role || 'N/A'}</p>
+                                </div>
+                                <div>
+                                    <p className="text-slate-400 font-bold">Access Level</p>
+                                    <span className="inline-flex items-center px-2 py-0.5 mt-0.5 rounded-md text-[10px] font-black uppercase bg-indigo-50 text-indigo-700 border border-indigo-150/50">
+                                        {confirmApprovalUser.access_level || 'auditee'}
+                                    </span>
+                                </div>
+                                <div className="col-span-2 mt-1">
+                                    <p className="text-slate-400 font-bold">Assigned Hotel Property</p>
+                                    <p className="text-slate-800 font-black">{confirmApprovalUser.hotel_name || 'N/A'}</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Zapier Config Section */}
+                        <div className="border border-indigo-100 bg-indigo-50/20 rounded-2xl p-4 sm:p-5 mb-6 space-y-3">
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-1.5">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-indigo-600 animate-pulse"></span>
+                                    <h4 className="text-[10px] font-black uppercase text-indigo-800 tracking-wider">Zapier Webhook Notification</h4>
+                                </div>
+                                <button 
+                                    onClick={() => setIsEditingWebhookUrl(!isEditingWebhookUrl)}
+                                    className="text-[10px] text-indigo-600 hover:text-indigo-800 font-extrabold uppercase tracking-wide flex items-center gap-1"
+                                >
+                                    {isEditingWebhookUrl ? 'Cancel Edit' : (webhookUrl ? 'Change URL' : 'Configure')}
+                                </button>
+                            </div>
+
+                            {isEditingWebhookUrl ? (
+                                <div className="space-y-2">
+                                    <input 
+                                        type="url"
+                                        placeholder="https://hooks.zapier.com/hooks/catch/..."
+                                        value={webhookUrl}
+                                        onChange={(e) => {
+                                            setWebhookUrl(e.target.value);
+                                            localStorage.setItem('sbi_zapier_webhook_url', e.target.value);
+                                        }}
+                                        className="w-full px-3 py-2 text-xs border border-indigo-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 font-mono"
+                                    />
+                                    <p className="text-[10px] text-indigo-600 font-medium leading-normal">
+                                        Webhook URL is saved automatically to local storage for persistent testing.
+                                    </p>
+                                </div>
+                            ) : (
+                                <div className="space-y-1.5">
+                                    {webhookUrl ? (
+                                        <div className="flex items-center justify-between gap-2 bg-white px-3 py-2 rounded-xl border border-indigo-100">
+                                            <span className="text-[11px] font-mono font-medium text-slate-600 truncate flex-1">
+                                                {webhookUrl}
+                                            </span>
+                                            <span className="text-[9px] font-black uppercase bg-emerald-100 text-emerald-800 border border-emerald-200 px-1.5 py-0.5 rounded">
+                                                Connected
+                                            </span>
+                                        </div>
+                                    ) : (
+                                        <div className="bg-amber-50 border border-amber-200/60 rounded-xl p-3 text-xs text-amber-800 flex gap-2">
+                                            <AlertCircle size={16} className="text-amber-600 shrink-0 mt-0.5" />
+                                            <div>
+                                                <p className="font-extrabold">No webhook URL configured yet</p>
+                                                <p className="text-[11px] text-amber-700/90 leading-relaxed mt-0.5">
+                                                    Approval notifications will be skipped. Click <strong className="cursor-pointer underline hover:text-amber-900" onClick={() => setIsEditingWebhookUrl(true)}>Configure</strong> to add your Zapier Catch Hook URL.
+                                                </p>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            <div className="text-[10px] text-slate-500 leading-relaxed">
+                                Once approved, a secure JSON payload with the user's role, hotel, and approval metadata is posted to Zapier to automate email notifications.
+                            </div>
+                        </div>
+
+                        {/* Action Buttons */}
+                        <div className="flex gap-3 mt-2">
+                            <button 
+                                onClick={async () => {
+                                    const userId = confirmApprovalUser.id;
+                                    setConfirmApprovalUser(null);
+                                    await executeApprovalStatusChange(userId, true);
+                                }}
+                                disabled={isSendingWebhook}
+                                className="flex-1 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white py-3 rounded-full font-bold text-sm transition-all shadow-lg shadow-emerald-500/10 active:scale-95 flex items-center justify-center gap-2"
+                            >
+                                {isSendingWebhook ? 'Processing...' : 'Confirm & Approve'}
+                            </button>
+                            <button 
+                                onClick={() => setConfirmApprovalUser(null)}
+                                className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-600 py-3 rounded-full font-bold text-sm transition-all active:scale-95"
                             >
                                 Cancel
                             </button>
