@@ -95,6 +95,10 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     const [groupExpandedCats, setGroupExpandedCats] = useState<Record<string, boolean>>({});
     const [enlargedImage, setEnlargedImage] = useState<{ url: string; title?: string } | null>(null);
 
+    // Active Properties stats modal
+    const [statsModalType, setStatsModalType] = useState<'auditees' | 'brand_leads' | null>(null);
+    const [statsModalCopied, setStatsModalCopied] = useState(false);
+
     // Reset Progress PIN Modal States
     const [isResetPinModalOpen, setIsResetPinModalOpen] = useState(false);
     const [resetPinValue, setResetPinValue] = useState('');
@@ -108,6 +112,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 setEnlargedImage(null);
                 setShowSqlModal(false);
                 setIsResetPinModalOpen(false);
+                setStatsModalType(null);
                 setResetPinValue('');
                 setResetPinError('');
                 setHotelToReset(null);
@@ -3861,14 +3866,28 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                     </p>
                                                     {isProperties && (
                                                         <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 mt-2.5 text-[11px] font-bold text-slate-500">
-                                                            <span className="flex items-center gap-1" title="Hotels with no registered auditee users">
+                                                            <span 
+                                                                onClick={() => {
+                                                                    setStatsModalType('auditees');
+                                                                    setStatsModalCopied(false);
+                                                                }}
+                                                                className="flex items-center gap-1 cursor-pointer hover:text-indigo-600 active:scale-98 transition-all" 
+                                                                title="Click to view hotels with no registered auditee users"
+                                                            >
                                                                 <span className="w-1.5 h-1.5 rounded-full bg-rose-400 inline-block animate-pulse"></span>
-                                                                No Auditees: <strong className="text-slate-800">{hotelsWithoutAuditees}</strong>
+                                                                No Auditees: <strong className="text-slate-800 hover:text-indigo-700 underline decoration-dotted decoration-slate-300 hover:decoration-indigo-400 underline-offset-2">{hotelsWithoutAuditees}</strong>
                                                             </span>
                                                             <span className="text-slate-300">•</span>
-                                                            <span className="flex items-center gap-1" title="Hotels with no Brand Lead assigned">
+                                                            <span 
+                                                                onClick={() => {
+                                                                    setStatsModalType('brand_leads');
+                                                                    setStatsModalCopied(false);
+                                                                }}
+                                                                className="flex items-center gap-1 cursor-pointer hover:text-indigo-600 active:scale-98 transition-all" 
+                                                                title="Click to view hotels with no Brand Lead assigned"
+                                                            >
                                                                 <span className="w-1.5 h-1.5 rounded-full bg-amber-500 inline-block animate-pulse"></span>
-                                                                No Brand Leads: <strong className="text-slate-800">{hotelsWithoutBrandLeads}</strong>
+                                                                No Brand Leads: <strong className="text-slate-800 hover:text-indigo-700 underline decoration-dotted decoration-slate-300 hover:decoration-indigo-400 underline-offset-2">{hotelsWithoutBrandLeads}</strong>
                                                             </span>
                                                         </div>
                                                     )}
@@ -9102,6 +9121,183 @@ CREATE POLICY "Allow public insert/update hotel_audit_status" ON hotel_audit_sta
                                 className="px-6 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl transition-all active:scale-95"
                             >
                                 Done
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Active Properties stats details modal */}
+            {statsModalType && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-fadeIn">
+                    <div className="bg-white w-full max-w-lg p-6 rounded-3xl border border-slate-200 shadow-xl relative animate-scaleUp">
+                        <button 
+                            onClick={() => setStatsModalType(null)}
+                            className="absolute top-4 right-4 p-2 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100 transition-all"
+                        >
+                            <X size={18} />
+                        </button>
+
+                        <h3 className="text-lg font-bold text-slate-900 mb-1 flex items-center gap-2">
+                            <span className={`w-2.5 h-2.5 rounded-full ${statsModalType === 'auditees' ? 'bg-rose-500 animate-pulse' : 'bg-amber-500 animate-pulse'}`}></span>
+                            {statsModalType === 'auditees' ? 'Hotels without Auditees' : 'Hotels without Brand Leads'}
+                        </h3>
+                        <p className="text-xs text-slate-500 mb-6 font-medium">
+                            {statsModalType === 'auditees' 
+                                ? 'The following properties currently do not have any registered or onboarded auditee user accounts.' 
+                                : 'The following properties currently do not have a designated Brand Lead assigned.'}
+                        </p>
+
+                        <div className="space-y-4">
+                            {/* Copy button */}
+                            <div className="flex justify-end">
+                                <button
+                                    onClick={() => {
+                                        const matchingHotels = hotels.filter(hotel => {
+                                            const matches = statsModalType === 'auditees' ? !profilesList.some(p => {
+                                                const isAuditee = p.access_level !== 'admin' && p.access_level !== 'auditor';
+                                                if (!isAuditee) return false;
+
+                                                const hotelIdLower = String(hotel.id).toLowerCase();
+                                                const hotelCodeLower = hotel.code ? String(hotel.code).toLowerCase() : '';
+                                                const hotelNameLower = hotel.name ? String(hotel.name).toLowerCase() : '';
+
+                                                const pIdLower = p.hotel_id ? String(p.hotel_id).toLowerCase() : '';
+                                                const pCodeLower = p.hotel_code ? String(p.hotel_code).toLowerCase() : '';
+                                                const pNameLower = p.hotel_name ? String(p.hotel_name).toLowerCase() : '';
+
+                                                const pIds = p.hotel_id ? String(p.hotel_id).split(',').map((s: string) => s.trim().toLowerCase()) : [];
+
+                                                const matchesId = pIds.includes(hotelIdLower) || pIdLower === hotelIdLower;
+                                                const matchesCode = hotelCodeLower && pCodeLower === hotelCodeLower;
+                                                const matchesName = hotelNameLower && pNameLower === hotelNameLower;
+
+                                                return matchesId || matchesCode || matchesName;
+                                            }) : !profilesList.some(p => {
+                                                const isBrandLead = !!p.is_brand_audit_lead;
+                                                if (!isBrandLead) return false;
+
+                                                const hotelIdLower = String(hotel.id).toLowerCase();
+                                                const hotelCodeLower = hotel.code ? String(hotel.code).toLowerCase() : '';
+                                                const hotelNameLower = hotel.name ? String(hotel.name).toLowerCase() : '';
+
+                                                const pIdLower = p.hotel_id ? String(p.hotel_id).toLowerCase() : '';
+                                                const pCodeLower = p.hotel_code ? String(p.hotel_code).toLowerCase() : '';
+                                                const pNameLower = p.hotel_name ? String(p.hotel_name).toLowerCase() : '';
+
+                                                const pIds = p.hotel_id ? String(p.hotel_id).split(',').map((s: string) => s.trim().toLowerCase()) : [];
+
+                                                const matchesId = pIds.includes(hotelIdLower) || pIdLower === hotelIdLower;
+                                                const matchesCode = hotelCodeLower && pCodeLower === hotelCodeLower;
+                                                const matchesName = hotelNameLower && pNameLower === hotelNameLower;
+
+                                                return matchesId || matchesCode || matchesName;
+                                            });
+                                            return matches;
+                                        });
+
+                                        const textToCopy = matchingHotels.map(h => `- ${h.name}${h.code ? ` (#${h.code})` : ''}`).join('\n');
+                                        navigator.clipboard.writeText(textToCopy);
+                                        setStatsModalCopied(true);
+                                        setTimeout(() => setStatsModalCopied(false), 2000);
+                                    }}
+                                    className={`px-4 py-2 text-xs font-bold rounded-xl shadow-sm border transition-all flex items-center gap-1.5 active:scale-95 ${
+                                        statsModalCopied 
+                                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200' 
+                                            : 'bg-indigo-50 hover:bg-indigo-100/60 text-indigo-700 border-indigo-100'
+                                    }`}
+                                >
+                                    {statsModalCopied ? (
+                                        <>
+                                            <Check size={13} />
+                                            <span>Copied List!</span>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Copy size={13} />
+                                            <span>Copy Hotel List</span>
+                                        </>
+                                    )}
+                                </button>
+                            </div>
+
+                            {/* Hotel list container */}
+                            <div className="border border-slate-100 rounded-2xl bg-slate-50/50 max-h-[300px] overflow-y-auto divide-y divide-slate-100">
+                                {(() => {
+                                    const filteredList = hotels.filter(hotel => {
+                                        const matches = statsModalType === 'auditees' ? !profilesList.some(p => {
+                                            const isAuditee = p.access_level !== 'admin' && p.access_level !== 'auditor';
+                                            if (!isAuditee) return false;
+
+                                            const hotelIdLower = String(hotel.id).toLowerCase();
+                                            const hotelCodeLower = hotel.code ? String(hotel.code).toLowerCase() : '';
+                                            const hotelNameLower = hotel.name ? String(hotel.name).toLowerCase() : '';
+
+                                            const pIdLower = p.hotel_id ? String(p.hotel_id).toLowerCase() : '';
+                                            const pCodeLower = p.hotel_code ? String(p.hotel_code).toLowerCase() : '';
+                                            const pNameLower = p.hotel_name ? String(p.hotel_name).toLowerCase() : '';
+
+                                            const pIds = p.hotel_id ? String(p.hotel_id).split(',').map((s: string) => s.trim().toLowerCase()) : [];
+
+                                            const matchesId = pIds.includes(hotelIdLower) || pIdLower === hotelIdLower;
+                                            const matchesCode = hotelCodeLower && pCodeLower === hotelCodeLower;
+                                            const matchesName = hotelNameLower && pNameLower === hotelNameLower;
+
+                                            return matchesId || matchesCode || matchesName;
+                                        }) : !profilesList.some(p => {
+                                            const isBrandLead = !!p.is_brand_audit_lead;
+                                            if (!isBrandLead) return false;
+
+                                            const hotelIdLower = String(hotel.id).toLowerCase();
+                                            const hotelCodeLower = hotel.code ? String(hotel.code).toLowerCase() : '';
+                                            const hotelNameLower = hotel.name ? String(hotel.name).toLowerCase() : '';
+
+                                            const pIdLower = p.hotel_id ? String(p.hotel_id).toLowerCase() : '';
+                                            const pCodeLower = p.hotel_code ? String(p.hotel_code).toLowerCase() : '';
+                                            const pNameLower = p.hotel_name ? String(p.hotel_name).toLowerCase() : '';
+
+                                            const pIds = p.hotel_id ? String(p.hotel_id).split(',').map((s: string) => s.trim().toLowerCase()) : [];
+
+                                            const matchesId = pIds.includes(hotelIdLower) || pIdLower === hotelIdLower;
+                                            const matchesCode = hotelCodeLower && pCodeLower === hotelCodeLower;
+                                            const matchesName = hotelNameLower && pNameLower === hotelNameLower;
+
+                                            return matchesId || matchesCode || matchesName;
+                                        });
+                                        return matches;
+                                    });
+
+                                    if (filteredList.length === 0) {
+                                        return (
+                                            <div className="p-8 text-center text-slate-400 text-xs font-semibold">
+                                                All active properties have been successfully assigned!
+                                            </div>
+                                        );
+                                    }
+
+                                    return filteredList.map((hotel) => (
+                                        <div key={hotel.id} className="p-3.5 flex items-center justify-between hover:bg-slate-50 transition-colors">
+                                            <div className="flex-1 min-w-0">
+                                                <p className="text-xs font-bold text-slate-800 truncate">{hotel.name}</p>
+                                                <p className="text-[10px] text-slate-400 font-medium mt-0.5">{hotel.location || 'Unknown Location'}</p>
+                                            </div>
+                                            {hotel.code && (
+                                                <span className="font-mono text-[10px] font-bold text-indigo-600 bg-indigo-50/75 border border-indigo-100 px-2 py-0.5 rounded-lg shrink-0">
+                                                    #{hotel.code}
+                                                </span>
+                                            )}
+                                        </div>
+                                    ));
+                                })()}
+                            </div>
+                        </div>
+
+                        <div className="mt-6 flex justify-end">
+                            <button
+                                onClick={() => setStatsModalType(null)}
+                                className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-all active:scale-95"
+                            >
+                                Close
                             </button>
                         </div>
                     </div>
