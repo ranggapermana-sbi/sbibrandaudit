@@ -3746,9 +3746,9 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             {/* Header */}
             <header className="fixed top-0 z-40 w-full flex items-center justify-between px-6 py-4 bg-white/85 backdrop-blur-md border-b border-slate-100/80 shadow-sm">
                 <div className="flex items-center">
-                    {userProfile?.access_level !== 'auditor' && (
+                    {subView !== 'dashboard' && (
                         <button 
-                            onClick={subView !== 'dashboard' ? () => { setSubView('dashboard'); setSearchQuery(''); } : onBack} 
+                            onClick={() => { setSubView('dashboard'); setSearchQuery(''); }} 
                             className="p-2.5 hover:bg-slate-100 rounded-full text-slate-700 active:scale-95 transition-all outline-none"
                             aria-label="Back"
                         >
@@ -4416,12 +4416,23 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                 <tbody className="divide-y divide-slate-100 text-slate-700">
                                                     {filteredProfiles.map((p, index) => {
                                                         const roleStyles = getRoleStyles(p.access_level);
+                                                        const isOnboardingFinished = p.access_level === 'admin' || !!(p.first_name && p.role && (p.hotel_id || p.hotel_name));
                                                         return (
                                                             <tr key={p.id || index} className={`${roleStyles.bg} hover:opacity-95 transition-colors`}>
                                                                 <td className="px-6 py-4 text-xs font-semibold text-slate-800 flex items-center gap-2">
                                                                     <span className={roleStyles.text}>{roleStyles.icon}</span>
                                                                     <div>
-                                                                        <div className="font-bold">{p.display_name || '—'}</div>
+                                                                        <div className="font-bold flex items-center gap-1.5 flex-wrap">
+                                                                            <span>{p.display_name || '—'}</span>
+                                                                            {!isOnboardingFinished && (
+                                                                                <span 
+                                                                                    className="inline-flex items-center gap-1 text-[9px] bg-amber-50 text-amber-700 border border-amber-150/60 px-1.5 py-0.5 rounded-md font-black uppercase tracking-wider animate-pulse animate-infinite"
+                                                                                    title="User has not completed the onboarding process"
+                                                                                >
+                                                                                    <RefreshCw size={8} className="animate-spin" /> In Progress
+                                                                                </span>
+                                                                            )}
+                                                                        </div>
                                                                         {(p.first_name || p.last_name) && (
                                                                             <div className="text-[10px] text-slate-400 font-medium">({p.first_name || ''} {p.last_name || ''})</div>
                                                                         )}
@@ -4431,8 +4442,8 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                 <td className="px-6 py-4 text-xs">
                                                                     {p.hotel_name ? (
                                                                         <div>
-                                                                            <span className="font-bold text-slate-800">{p.hotel_name}</span>
-                                                                            {p.hotel_code && <span className="ml-1.5 font-mono text-xs font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded">#{p.hotel_code}</span>}
+                                                                             <span className="font-bold text-slate-800">{p.hotel_name}</span>
+                                                                             {p.hotel_code && <span className="ml-1.5 font-mono text-xs font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded">#{p.hotel_code}</span>}
                                                                         </div>
                                                                     ) : (
                                                                         <span className="text-slate-400 font-medium">—</span>
@@ -4447,8 +4458,14 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                 <td className="px-6 py-4 text-xs">
                                                                     <select 
                                                                         value={p.access_level || 'auditee'} 
+                                                                        disabled={!isOnboardingFinished}
                                                                         onChange={(e) => updateAccessLevel(p.id, e.target.value)}
-                                                                        className="text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-lg px-2 py-1 outline-none focus:border-indigo-500 cursor-pointer shadow-sm hover:border-slate-300 transition-all"
+                                                                        className={`text-xs font-bold rounded-lg px-2 py-1 outline-none shadow-sm border transition-all ${
+                                                                            !isOnboardingFinished 
+                                                                                ? 'bg-slate-50 text-slate-400 border-slate-200 cursor-not-allowed' 
+                                                                                : 'bg-white text-slate-700 border-slate-200 hover:border-slate-300 cursor-pointer'
+                                                                        }`}
+                                                                        title={!isOnboardingFinished ? "Locked: Onboarding in progress" : ""}
                                                                     >
                                                                         <option value="admin">Admin</option>
                                                                         <option value="auditor">Auditor</option>
@@ -4463,12 +4480,16 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                     ) : (
                                                                         <select 
                                                                             value={p.is_approved ? 'approved' : 'pending'} 
+                                                                            disabled={!isOnboardingFinished}
                                                                             onChange={(e) => updateApprovalStatus(p.id, e.target.value === 'approved')}
-                                                                            className={`text-xs font-bold rounded-lg px-2 py-1 outline-none cursor-pointer shadow-sm border transition-all ${
-                                                                                p.is_approved 
-                                                                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:border-emerald-300' 
-                                                                                    : 'bg-amber-50 text-amber-700 border-amber-200 hover:border-amber-300'
+                                                                            className={`text-xs font-bold rounded-lg px-2 py-1 outline-none border transition-all shadow-sm ${
+                                                                                !isOnboardingFinished 
+                                                                                    ? 'bg-slate-50 text-slate-400 border-slate-200 cursor-not-allowed' 
+                                                                                    : p.is_approved 
+                                                                                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:border-emerald-300 cursor-pointer' 
+                                                                                        : 'bg-amber-50 text-amber-700 border-amber-200 hover:border-amber-300 cursor-pointer'
                                                                             }`}
+                                                                            title={!isOnboardingFinished ? "Locked: Onboarding in progress" : ""}
                                                                         >
                                                                             <option value="approved">Approved</option>
                                                                             <option value="pending">Pending</option>
@@ -4480,21 +4501,41 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                 </td>
                                                                 <td className="px-6 py-4 text-xs text-right">
                                                                     <div className="flex items-center justify-end gap-2">
-                                                                        <button 
-                                                                            onClick={() => handleOpenEditUser(p)}
-                                                                            className="p-1.5 text-indigo-600 hover:text-white bg-indigo-50 hover:bg-indigo-600 rounded-lg border border-indigo-100/50 transition-all"
-                                                                            title="Edit Profile"
-                                                                        >
-                                                                            <Edit size={13} />
-                                                                        </button>
-                                                                        {userProfile?.email === 'brandaudit@swiss-belhotel.com' && (
+                                                                        {isOnboardingFinished ? (
                                                                             <button 
-                                                                                onClick={() => setConfirmUserDeleteId(p.id)}
-                                                                                className="p-1.5 text-red-600 hover:text-white bg-red-50 hover:bg-red-600 rounded-lg border border-red-100/50 transition-all"
-                                                                                title="Delete Profile"
+                                                                                onClick={() => handleOpenEditUser(p)}
+                                                                                className="p-1.5 text-indigo-600 hover:text-white bg-indigo-50 hover:bg-indigo-600 rounded-lg border border-indigo-100/50 transition-all"
+                                                                                title="Edit Profile"
                                                                             >
-                                                                                <Trash2 size={13} />
+                                                                                <Edit size={13} />
                                                                             </button>
+                                                                        ) : (
+                                                                            <button 
+                                                                                disabled
+                                                                                className="p-1.5 text-slate-400 bg-slate-50 rounded-lg border border-slate-200 cursor-not-allowed"
+                                                                                title="Editing locked: Onboarding in progress"
+                                                                            >
+                                                                                <Lock size={13} />
+                                                                            </button>
+                                                                        )}
+                                                                        {userProfile?.email === 'brandaudit@swiss-belhotel.com' && (
+                                                                            isOnboardingFinished ? (
+                                                                                <button 
+                                                                                    onClick={() => setConfirmUserDeleteId(p.id)}
+                                                                                    className="p-1.5 text-red-600 hover:text-white bg-red-50 hover:bg-red-600 rounded-lg border border-red-100/50 transition-all"
+                                                                                    title="Delete Profile"
+                                                                                >
+                                                                                    <Trash2 size={13} />
+                                                                                </button>
+                                                                            ) : (
+                                                                                <button 
+                                                                                    disabled
+                                                                                    className="p-1.5 text-slate-300 bg-slate-50 rounded-lg border border-slate-100 cursor-not-allowed animate-pulse"
+                                                                                    title="Deleting locked: Onboarding in progress"
+                                                                                >
+                                                                                    <Trash2 size={13} />
+                                                                                </button>
+                                                                            )
                                                                         )}
                                                                     </div>
                                                                 </td>
