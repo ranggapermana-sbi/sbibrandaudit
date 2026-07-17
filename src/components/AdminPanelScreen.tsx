@@ -3799,28 +3799,91 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                         {/* Stats Row */}
                         {(userProfile?.access_level === 'admin' || userProfile?.access_level === 'auditor') && (
                             <section className="grid grid-cols-1 md:grid-cols-3 gap-5">
-                                {stats.map((stat, i) => {
-                                    const Icon = stat.icon;
-                                    const isProperties = stat.title === 'Active Properties';
-                                    const displayValue = isProperties ? hotels.length : stat.value;
-                                    return (
-                                        <div key={i} className="bg-white p-6 rounded-[24px] border border-slate-150/80 shadow-[0_4px_24px_rgba(15,23,42,0.015)] flex items-center justify-between hover:shadow-[0_8px_32px_rgba(15,23,42,0.03)] hover:scale-[1.01] transition-all duration-300">
-                                            <div>
-                                                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">{stat.title}</p>
-                                                <p className="text-3xl font-extrabold text-slate-900 mt-1 font-sans tracking-tight">
-                                                    {displayValue}
-                                                </p>
+                                {(() => {
+                                    const hotelsWithoutAuditees = hotels.filter(hotel => {
+                                        const hasAuditee = profilesList.some(p => {
+                                            const isAuditee = p.access_level !== 'admin' && p.access_level !== 'auditor';
+                                            if (!isAuditee) return false;
+
+                                            const hotelIdLower = String(hotel.id).toLowerCase();
+                                            const hotelCodeLower = hotel.code ? String(hotel.code).toLowerCase() : '';
+                                            const hotelNameLower = hotel.name ? String(hotel.name).toLowerCase() : '';
+
+                                            const pIdLower = p.hotel_id ? String(p.hotel_id).toLowerCase() : '';
+                                            const pCodeLower = p.hotel_code ? String(p.hotel_code).toLowerCase() : '';
+                                            const pNameLower = p.hotel_name ? String(p.hotel_name).toLowerCase() : '';
+
+                                            const pIds = p.hotel_id ? String(p.hotel_id).split(',').map((s: string) => s.trim().toLowerCase()) : [];
+
+                                            const matchesId = pIds.includes(hotelIdLower) || pIdLower === hotelIdLower;
+                                            const matchesCode = hotelCodeLower && pCodeLower === hotelCodeLower;
+                                            const matchesName = hotelNameLower && pNameLower === hotelNameLower;
+
+                                            return matchesId || matchesCode || matchesName;
+                                        });
+                                        return !hasAuditee;
+                                    }).length;
+
+                                    const hotelsWithoutBrandLeads = hotels.filter(hotel => {
+                                        const hasBrandLead = profilesList.some(p => {
+                                            const isBrandLead = !!p.is_brand_audit_lead;
+                                            if (!isBrandLead) return false;
+
+                                            const hotelIdLower = String(hotel.id).toLowerCase();
+                                            const hotelCodeLower = hotel.code ? String(hotel.code).toLowerCase() : '';
+                                            const hotelNameLower = hotel.name ? String(hotel.name).toLowerCase() : '';
+
+                                            const pIdLower = p.hotel_id ? String(p.hotel_id).toLowerCase() : '';
+                                            const pCodeLower = p.hotel_code ? String(p.hotel_code).toLowerCase() : '';
+                                            const pNameLower = p.hotel_name ? String(p.hotel_name).toLowerCase() : '';
+
+                                            const pIds = p.hotel_id ? String(p.hotel_id).split(',').map((s: string) => s.trim().toLowerCase()) : [];
+
+                                            const matchesId = pIds.includes(hotelIdLower) || pIdLower === hotelIdLower;
+                                            const matchesCode = hotelCodeLower && pCodeLower === hotelCodeLower;
+                                            const matchesName = hotelNameLower && pNameLower === hotelNameLower;
+
+                                            return matchesId || matchesCode || matchesName;
+                                        });
+                                        return !hasBrandLead;
+                                    }).length;
+
+                                    return stats.map((stat, i) => {
+                                        const Icon = stat.icon;
+                                        const isProperties = stat.title === 'Active Properties';
+                                        const displayValue = isProperties ? hotels.length : (stat.title === 'Total Submissions' && allSubmissions.length > 0 ? allSubmissions.length : stat.value);
+                                        return (
+                                            <div key={i} className="bg-white p-6 rounded-[24px] border border-slate-150/80 shadow-[0_4px_24px_rgba(15,23,42,0.015)] flex items-center justify-between hover:shadow-[0_8px_32px_rgba(15,23,42,0.03)] hover:scale-[1.01] transition-all duration-300">
+                                                <div className="flex-1 min-w-0 pr-2">
+                                                    <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">{stat.title}</p>
+                                                    <p className="text-3xl font-extrabold text-slate-900 mt-1 font-sans tracking-tight">
+                                                        {displayValue}
+                                                    </p>
+                                                    {isProperties && (
+                                                        <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 mt-2.5 text-[11px] font-bold text-slate-500">
+                                                            <span className="flex items-center gap-1" title="Hotels with no registered auditee users">
+                                                                <span className="w-1.5 h-1.5 rounded-full bg-rose-400 inline-block animate-pulse"></span>
+                                                                No Auditees: <strong className="text-slate-800">{hotelsWithoutAuditees}</strong>
+                                                            </span>
+                                                            <span className="text-slate-300">•</span>
+                                                            <span className="flex items-center gap-1" title="Hotels with no Brand Lead assigned">
+                                                                <span className="w-1.5 h-1.5 rounded-full bg-amber-500 inline-block animate-pulse"></span>
+                                                                No Brand Leads: <strong className="text-slate-800">{hotelsWithoutBrandLeads}</strong>
+                                                            </span>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                                <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 ${
+                                                    stat.color.includes('indigo') ? 'bg-indigo-50/80 text-indigo-600' :
+                                                    stat.color.includes('amber') ? 'bg-amber-50/80 text-amber-600' :
+                                                    'bg-emerald-50/80 text-emerald-600'
+                                                }`}>
+                                                    <Icon size={24} />
+                                                </div>
                                             </div>
-                                            <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 ${
-                                                stat.color.includes('indigo') ? 'bg-indigo-50/80 text-indigo-600' :
-                                                stat.color.includes('amber') ? 'bg-amber-50/80 text-amber-600' :
-                                                'bg-emerald-50/80 text-emerald-600'
-                                            }`}>
-                                                <Icon size={24} />
-                                            </div>
-                                        </div>
-                                    );
-                                })}
+                                        );
+                                    });
+                                })()}
 
                                 {/* ENROLLED USERS CARD */}
                                 {(() => {
