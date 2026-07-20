@@ -118,15 +118,7 @@ export default function PendingCategoriesScreen({ onBack, onNavigate, userProfil
 
                     if (assignedGroupHotels.length > 0) {
                         const groupIds = assignedGroupHotels.map((gh: any) => gh.group_id);
-                        let matchedGroups = groupsData.filter((g: any) => groupIds.includes(g.id));
-                        
-                        const activeGroupId = localStorage.getItem('active_audit_group_id');
-                        if (activeGroupId && matchedGroups.some(g => g.id === activeGroupId)) {
-                            matchedGroups = matchedGroups.filter(g => g.id === activeGroupId);
-                        } else if (matchedGroups.length > 0) {
-                            matchedGroups = [matchedGroups[0]];
-                        }
-
+                        const matchedGroups = groupsData.filter((g: any) => groupIds.includes(g.id));
                         if (matchedGroups.length > 0) {
                             groupName = matchedGroups.map((g: any) => g.name).join(', ');
                             const allCatIds = new Set<string>();
@@ -165,18 +157,11 @@ export default function PendingCategoriesScreen({ onBack, onNavigate, userProfil
                             currentHotel?.code ? String(currentHotel.code) : null
                         ].filter(Boolean) as string[]));
 
-                        let assignedGroups = parsedGroups.filter((g: any) => 
+                        const assignedGroups = parsedGroups.filter((g: any) => 
                             g.hotelIds && g.hotelIds.some((hId: string) => 
                                 possibleHotelIds.some(phId => String(hId).toLowerCase() === String(phId).toLowerCase())
                             )
                         );
-
-                        const activeGroupId = localStorage.getItem('active_audit_group_id');
-                        if (activeGroupId && assignedGroups.some((g: any) => g.id === activeGroupId)) {
-                            assignedGroups = assignedGroups.filter((g: any) => g.id === activeGroupId);
-                        } else if (assignedGroups.length > 0) {
-                            assignedGroups = [assignedGroups[0]];
-                        }
 
                         if (assignedGroups.length > 0) {
                             groupName = assignedGroups.map((g: any) => g.name).join(', ');
@@ -196,9 +181,9 @@ export default function PendingCategoriesScreen({ onBack, onNavigate, userProfil
             }
 
             // Filter categories based on group assignment
-            const filteredCats = assignedCategoryIds
-                ? (catsData || []).filter((cat: any) => assignedCategoryIds!.includes(String(cat.id)))
-                : [];
+            const filteredCats = (catsData || []).filter((cat: any) => 
+                !assignedCategoryIds || assignedCategoryIds.includes(String(cat.id))
+            );
 
             // 3. Determine target hotel identifiers for selected property
             const currentHotel = hotels.find(h => 

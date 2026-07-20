@@ -8,12 +8,6 @@ interface BrandingPropertyProps {
   onBack: () => void;
 }
 
-// Helper to get adjusted now (corrects clock drift using server offset)
-const getAdjustedNow = (): number => {
-    const offset = Number(localStorage.getItem('sbi_server_time_offset') || '0');
-    return Date.now() + offset;
-};
-
 // Helper to resize image
 const resizeImage = (file: File, maxSizeMB: number): Promise<File> => {
     return new Promise((resolve, reject) => {
@@ -393,7 +387,7 @@ const AuditItemCard: React.FC<{
                     .maybeSingle();
                 
                 if (!lockErr && lockData) {
-                    const isExpired = getAdjustedNow() - new Date(lockData.locked_at).getTime() > 5 * 60 * 1000;
+                    const isExpired = Date.now() - new Date(lockData.locked_at).getTime() > 5 * 60 * 1000;
                     if (!isExpired && lockData.locked_by_email !== userProfile?.email) {
                         alert(`Submission aborted: This item is currently being edited and is locked by ${lockData.locked_by_name || 'another user'}.`);
                         setIsSubmitting(false);
@@ -913,30 +907,7 @@ const AuditItemCard: React.FC<{
                         </div>
                     ) : (
                         <button 
-                            onClick={async () => {
-                                if (onAcquireLock) {
-                                    try {
-                                        const { data: existingLock, error } = await supabase
-                                            .from('audit_item_locks')
-                                            .select('*')
-                                            .eq('hotel_id', hotelId)
-                                            .eq('item_id', item.id)
-                                            .maybeSingle();
-
-                                        if (!error && existingLock) {
-                                            const isExpired = getAdjustedNow() - new Date(existingLock.locked_at).getTime() > 5 * 60 * 1000;
-                                            if (!isExpired && existingLock.locked_by_email !== userProfile?.email) {
-                                                alert(`Cannot edit: This item is currently being edited by ${existingLock.locked_by_name || 'another user'}.`);
-                                                return;
-                                            }
-                                        }
-                                    } catch (err) {
-                                        console.warn("Failed to check lock on edit:", err);
-                                    }
-                                    onAcquireLock();
-                                }
-                                setIsSubmitted(false);
-                            }}
+                            onClick={() => setIsSubmitted(false)}
                             className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2.5 sm:py-3.5 rounded-lg sm:rounded-xl text-xs sm:text-sm transition-all active:scale-[0.98]"
                         >
                             Edit Submission
@@ -978,7 +949,7 @@ export default function BrandingPropertyIdentificationScreen({ selectedCategory,
                 if (!error && data) {
                     const lockMap: Record<string, any> = {};
                     data.forEach(lock => {
-                        const isExpired = getAdjustedNow() - new Date(lock.locked_at).getTime() > 5 * 60 * 1000;
+                        const isExpired = Date.now() - new Date(lock.locked_at).getTime() > 5 * 60 * 1000;
                         if (!isExpired) {
                             lockMap[lock.item_id] = lock;
                         }
@@ -1002,7 +973,7 @@ export default function BrandingPropertyIdentificationScreen({ selectedCategory,
             }, (payload) => {
                 if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
                     const lock = payload.new;
-                    const isExpired = getAdjustedNow() - new Date(lock.locked_at).getTime() > 5 * 60 * 1000;
+                    const isExpired = Date.now() - new Date(lock.locked_at).getTime() > 5 * 60 * 1000;
                     if (!isExpired) {
                         setActiveLocks(prev => ({ ...prev, [lock.item_id]: lock }));
                     }
@@ -1025,7 +996,7 @@ export default function BrandingPropertyIdentificationScreen({ selectedCategory,
                 const copy = { ...prev };
                 let changed = false;
                 Object.entries(copy).forEach(([itemId, lock]) => {
-                    const isExpired = getAdjustedNow() - new Date((lock as any).locked_at).getTime() > 5 * 60 * 1000;
+                    const isExpired = Date.now() - new Date((lock as any).locked_at).getTime() > 5 * 60 * 1000;
                     if (isExpired) {
                         delete copy[itemId];
                         changed = true;
@@ -1075,7 +1046,7 @@ export default function BrandingPropertyIdentificationScreen({ selectedCategory,
                 .maybeSingle();
 
             if (!error && existingLock) {
-                const isExpired = getAdjustedNow() - new Date(existingLock.locked_at).getTime() > 5 * 60 * 1000;
+                const isExpired = Date.now() - new Date(existingLock.locked_at).getTime() > 5 * 60 * 1000;
                 if (!isExpired && existingLock.locked_by_email !== userProfile.email) {
                     alert(`This item is already locked by ${existingLock.locked_by_name || 'another user'} who is editing it.`);
                     // Update active locks locally to block input fields immediately
@@ -1167,15 +1138,6 @@ export default function BrandingPropertyIdentificationScreen({ selectedCategory,
                     }
                 });
                 if (response.ok) {
-                    try {
-                        const serverDateHeader = response.headers.get('Date');
-                        if (serverDateHeader) {
-                            const offset = new Date(serverDateHeader).getTime() - Date.now();
-                            localStorage.setItem('sbi_server_time_offset', String(offset));
-                        }
-                    } catch (timeErr) {
-                        console.warn("Could not parse server date header:", timeErr);
-                    }
                     const data = await response.json();
                     if (Array.isArray(data)) {
                         const mapped = data.map((item: any) => {
@@ -1259,15 +1221,7 @@ export default function BrandingPropertyIdentificationScreen({ selectedCategory,
 
                         if (assignedGroupHotels.length > 0) {
                             const groupIds = assignedGroupHotels.map((gh: any) => gh.group_id);
-                            let matchedGroups = groupsData.filter((g: any) => groupIds.includes(g.id));
-                            
-                            const activeGroupId = localStorage.getItem('active_audit_group_id');
-                            if (activeGroupId && matchedGroups.some(g => g.id === activeGroupId)) {
-                                matchedGroups = matchedGroups.filter(g => g.id === activeGroupId);
-                            } else if (matchedGroups.length > 0) {
-                                matchedGroups = [matchedGroups[0]];
-                            }
-
+                            const matchedGroups = groupsData.filter((g: any) => groupIds.includes(g.id));
                             if (matchedGroups.length > 0) {
                                 const allItemIds = new Set<string>();
                                 matchedGroups.forEach((g: any) => {
@@ -1300,18 +1254,11 @@ export default function BrandingPropertyIdentificationScreen({ selectedCategory,
                                 currentHotel?.code ? String(currentHotel.code) : null
                             ].filter(Boolean) as string[]));
 
-                            let assignedGroups = parsedGroups.filter((g: any) => 
+                            const assignedGroups = parsedGroups.filter((g: any) => 
                                 g.hotelIds && g.hotelIds.some((hId: string) => 
                                     possibleHotelIds.some(phId => String(hId).toLowerCase() === String(phId).toLowerCase())
                                 )
                             );
-
-                            const activeGroupId = localStorage.getItem('active_audit_group_id');
-                            if (activeGroupId && assignedGroups.some((g: any) => g.id === activeGroupId)) {
-                                assignedGroups = assignedGroups.filter((g: any) => g.id === activeGroupId);
-                            } else if (assignedGroups.length > 0) {
-                                assignedGroups = [assignedGroups[0]];
-                            }
 
                             if (assignedGroups.length > 0) {
                                 const allItemIds = new Set<string>();
@@ -1327,7 +1274,7 @@ export default function BrandingPropertyIdentificationScreen({ selectedCategory,
                 
                 const finalItems = assignedItemIds
                     ? sorted.filter((item: any) => assignedItemIds!.includes(String(item.id)))
-                    : [];
+                    : sorted;
 
                 setItems(finalItems);
             } catch (err) {
