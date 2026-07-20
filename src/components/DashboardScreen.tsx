@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Menu, CheckCircle, Clock, Edit3, Building, ChevronRight, ChevronDown, PlusCircle, LayoutDashboard, History, User, LogOut, FileText, Folder, Layers, Maximize2, Minimize2, RefreshCw } from 'lucide-react';
+import { Menu, CheckCircle, Clock, Edit3, Building, ChevronRight, ChevronDown, PlusCircle, LayoutDashboard, History, User, LogOut, FileText, Folder, Layers, Maximize2, Minimize2, RefreshCw, AlertTriangle } from 'lucide-react';
 import { supabase, HOTELS_URL, HOTELS_KEY } from '../lib/supabase';
 
 interface DashboardProps {
@@ -25,6 +25,10 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
   const [remainingTasks, setRemainingTasks] = useState(0);
   const [totalPoints, setTotalPoints] = useState(0);
   const [completedPoints, setCompletedPoints] = useState(0);
+
+  // Checklist groups for the active hotel
+  const [assignedGroups, setAssignedGroups] = useState<any[]>([]);
+  const [activeGroupId, setActiveGroupId] = useState<string>(() => localStorage.getItem('active_audit_group_id') || '');
 
   // Profile editing state
   const [isEditProfileOpen, setIsEditProfileOpen] = useState(false);
@@ -101,7 +105,7 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
     }
   };
 
-  const fetchAuditItems = async (showSyncIndicator = false) => {
+  const fetchAuditItems = async (showSyncIndicator = false, groupIdOverride?: string) => {
     if (showSyncIndicator) {
       setIsSyncing(true);
     } else {
@@ -166,9 +170,7 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
       const targetHotelIdsLower = new Set(possibleHotelIds.map(id => String(id).toLowerCase()));
 
       // 5. Fetch checklist groups and filter items
-      let assignedCategoryIds: string[] | null = null;
-      let assignedItemIds: string[] | null = null;
-
+      let matchedGroups: any[] = [];
       try {
         const { data: groupsData } = await supabase.from('audit_checklist_groups').select('*');
         const { data: groupHotelsData } = await supabase.from('audit_group_hotels').select('*');
@@ -180,21 +182,7 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
 
           if (assignedGroupHotels.length > 0) {
             const groupIds = assignedGroupHotels.map((gh: any) => gh.group_id);
-            const matchedGroups = groupsData.filter((g: any) => groupIds.includes(g.id));
-            if (matchedGroups.length > 0) {
-              const allCatIds = new Set<string>();
-              const allItemIds = new Set<string>();
-              matchedGroups.forEach((g: any) => {
-                if (g.category_ids) {
-                  g.category_ids.forEach((id: string) => allCatIds.add(String(id)));
-                }
-                if (g.item_ids) {
-                  g.item_ids.forEach((id: string) => allItemIds.add(String(id)));
-                }
-              });
-              assignedCategoryIds = Array.from(allCatIds);
-              assignedItemIds = Array.from(allItemIds);
-            }
+            matchedGroups = groupsData.filter((g: any) => groupIds.includes(g.id));
           }
         }
       } catch (groupErr) {
@@ -202,30 +190,51 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
       }
 
       // Fallback to local storage if DB is not set or empty
-      if (!assignedCategoryIds || !assignedItemIds) {
+      if (matchedGroups.length === 0) {
         const savedGroups = localStorage.getItem('sbi_audit_groups_v2');
         if (savedGroups) {
           try {
             const parsedGroups = JSON.parse(savedGroups);
-            const assignedGroups = parsedGroups.filter((g: any) => 
+            matchedGroups = parsedGroups.filter((g: any) => 
               g.hotelIds && g.hotelIds.some((hId: string) => 
                 possibleHotelIds.some(phId => String(hId).toLowerCase() === String(phId).toLowerCase())
               )
             );
-
-            if (assignedGroups.length > 0) {
-              const allCatIds = new Set<string>();
-              const allItemIds = new Set<string>();
-              assignedGroups.forEach((g: any) => {
-                const cids = g.categoryIds || g.category_ids || [];
-                const iids = g.itemIds || g.item_ids || [];
-                cids.forEach((id: string) => allCatIds.add(String(id)));
-                iids.forEach((id: string) => allItemIds.add(String(id)));
-              });
-              assignedCategoryIds = Array.from(allCatIds);
-              assignedItemIds = Array.from(allItemIds);
-            }
           } catch (e) {}
+        }
+      }
+
+      setAssignedGroups(matchedGroups);
+
+      // Determine active checklist group
+      let currentActiveGroupId = groupIdOverride !== undefined ? groupIdOverride : (localStorage.getItem('active_audit_group_id') || '');
+      if (matchedGroups.length > 0) {
+        const exists = matchedGroups.some(g => g.id === currentActiveGroupId);
+        if (!exists) {
+          currentActiveGroupId = matchedGroups[0].id;
+        }
+      } else {
+        currentActiveGroupId = '';
+      }
+
+      setActiveGroupId(currentActiveGroupId);
+      localStorage.setItem('active_audit_group_id', currentActiveGroupId);
+
+      // Extract category/item filters for the active group ONLY
+      let assignedCategoryIds: string[] | null = null;
+      let assignedItemIds: string[] | null = null;
+
+      if (currentActiveGroupId) {
+        const activeGroup = matchedGroups.find(g => g.id === currentActiveGroupId);
+        if (activeGroup) {
+          const allCatIds = new Set<string>();
+          const allItemIds = new Set<string>();
+          const cids = activeGroup.category_ids || [];
+          const iids = activeGroup.item_ids || [];
+          cids.forEach((id: string) => allCatIds.add(String(id)));
+          iids.forEach((id: string) => allItemIds.add(String(id)));
+          assignedCategoryIds = Array.from(allCatIds);
+          assignedItemIds = Array.from(allItemIds);
         }
       }
 
@@ -265,7 +274,13 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
       }
 
       // 7. Filter items based on checklist group (including non-self audit items)
+      // Note: If the hotel is assigned to checklist groups but none is active, show nothing.
+      // If there are no checklist groups assigned at all, show nothing (instead of showing all items from all groups).
+      const hasGroup = currentActiveGroupId !== '';
       const filtered = (itemsData || []).filter((item: any) => {
+        if (!hasGroup) {
+          return false;
+        }
         // Must belong to category of group if any categories are assigned
         if (assignedCategoryIds && assignedCategoryIds.length > 0 && !assignedCategoryIds.includes(String(item.category_id))) {
           return false;
@@ -596,7 +611,51 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
             </div>
         </section>
 
-
+        {/* Active Checklist Group Selection & Notification */}
+        {assignedGroups.length > 0 ? (
+          <div className="mb-4 sm:mb-6 p-4 bg-white/90 backdrop-blur-xs rounded-2xl border border-slate-200 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4 animate-fadeIn">
+            <div className="flex items-center gap-3">
+              <div className="w-2.5 h-2.5 rounded-full bg-indigo-650 animate-pulse shrink-0" />
+              <div>
+                <p className="text-[9px] text-slate-400 font-extrabold uppercase tracking-widest leading-none">Active Checklist Audit</p>
+                <p className="text-xs sm:text-sm font-extrabold text-slate-800 mt-1">
+                  {assignedGroups.find(g => g.id === activeGroupId)?.name || 'Default Audit Group'}
+                </p>
+              </div>
+            </div>
+            {assignedGroups.length > 1 && (
+              <div className="relative min-w-[240px] w-full sm:w-auto">
+                <select
+                  value={activeGroupId}
+                  onChange={(e) => {
+                    const nextId = e.target.value;
+                    setActiveGroupId(nextId);
+                    localStorage.setItem('active_audit_group_id', nextId);
+                    fetchAuditItems(true, nextId);
+                  }}
+                  className="w-full pl-3 pr-8 py-2 bg-slate-50 hover:bg-slate-100/50 border border-slate-200 hover:border-indigo-400 rounded-xl text-xs font-bold text-slate-750 outline-none transition-all appearance-none cursor-pointer"
+                >
+                  {assignedGroups.map(g => (
+                    <option key={g.id} value={g.id}>{g.name}</option>
+                  ))}
+                </select>
+                <span className="absolute right-3 top-3 text-slate-400 pointer-events-none">
+                  <ChevronDown size={14} />
+                </span>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="mb-4 sm:mb-6 p-5 bg-amber-50 rounded-2xl border border-amber-200 flex items-start gap-3 animate-fadeIn">
+            <AlertTriangle className="text-amber-600 shrink-0 mt-0.5" size={18} />
+            <div>
+              <p className="text-xs font-black text-amber-850">No Checklist Group Assigned</p>
+              <p className="text-[11px] text-amber-700 mt-1 leading-relaxed">
+                This hotel property is not currently assigned to any active checklist audit group. No items or scores are displayed. Please contact your administrator to assign a group in the Admin Panel.
+              </p>
+            </div>
+          </div>
+        )}
 
         <section className="mb-6 sm:mb-10">
             <div 
