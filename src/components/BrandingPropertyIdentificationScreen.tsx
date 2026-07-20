@@ -97,7 +97,15 @@ interface PhotoItem {
     file: File | null;
 }
 
-const AuditItemCard: React.FC<{ item: any, hotelId: string, userProfile?: any, locked?: boolean }> = ({ item, hotelId, userProfile, locked }) => {
+const AuditItemCard: React.FC<{ 
+    item: any, 
+    hotelId: string, 
+    userProfile?: any, 
+    locked?: boolean,
+    activeLock?: { locked_by_name: string; locked_by_email: string; locked_at: string },
+    onAcquireLock?: () => void,
+    onReleaseLock?: () => void
+}> = ({ item, hotelId, userProfile, locked, activeLock, onAcquireLock, onReleaseLock }) => {
     const [value, setValue] = useState<string>('');
     const [isNa, setIsNa] = useState<boolean>(false);
     const [naReason, setNaReason] = useState<string>('');
@@ -108,7 +116,8 @@ const AuditItemCard: React.FC<{ item: any, hotelId: string, userProfile?: any, l
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
     const [photos, setPhotos] = useState<PhotoItem[]>([]);
 
-    const isFieldDisabled = isSubmitted || !!locked;
+    const isLockedByAnother = activeLock && activeLock.locked_by_email !== userProfile?.email;
+    const isFieldDisabled = isSubmitted || !!locked || !!isLockedByAnother;
 
     // Camera specific state
     const [isCameraOpen, setIsCameraOpen] = useState(false);
@@ -119,7 +128,10 @@ const AuditItemCard: React.FC<{ item: any, hotelId: string, userProfile?: any, l
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     const startCamera = async (mode: 'environment' | 'user') => {
-        if (locked) return;
+        if (isFieldDisabled) return;
+        if (onAcquireLock) {
+            onAcquireLock();
+        }
         setIsCameraOpen(true);
         try {
             if (streamRef.current) {
@@ -445,6 +457,9 @@ const AuditItemCard: React.FC<{ item: any, hotelId: string, userProfile?: any, l
             setValue(finalValue);
             setIsSubmitted(true);
             setSubmittedBy(submitterName);
+            if (onReleaseLock) {
+                onReleaseLock();
+            }
         } catch (err) {
             console.error(err);
             alert("An error occurred during submission.");
@@ -507,8 +522,8 @@ const AuditItemCard: React.FC<{ item: any, hotelId: string, userProfile?: any, l
                         {!isFieldDisabled && photos.length < 5 && (
                             <div>
                                 <button 
-                                    onClick={() => !locked && startCamera(facingMode)}
-                                    disabled={locked}
+                                    onClick={() => !isFieldDisabled && startCamera(facingMode)}
+                                    disabled={isFieldDisabled}
                                     className="flex items-center justify-center gap-2 w-full py-3.5 sm:py-5 border-2 border-dashed border-indigo-200 bg-indigo-50/50 hover:bg-indigo-50 text-indigo-600 rounded-xl font-bold text-xs sm:text-sm transition-colors active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                     <Camera size={20} className="sm:w-5 sm:h-5" />
@@ -551,12 +566,17 @@ const AuditItemCard: React.FC<{ item: any, hotelId: string, userProfile?: any, l
                                     className="hidden" 
                                     ref={fileInputRef} 
                                     onChange={handleFileChange} 
-                                    disabled={locked}
+                                    disabled={isFieldDisabled}
                                     multiple
                                 />
                                 <button 
-                                    onClick={() => !locked && fileInputRef.current?.click()}
-                                    disabled={locked}
+                                    onClick={() => {
+                                        if (!isFieldDisabled) {
+                                            if (onAcquireLock) onAcquireLock();
+                                            fileInputRef.current?.click();
+                                        }
+                                    }}
+                                    disabled={isFieldDisabled}
                                     className="flex flex-col items-center justify-center gap-1.5 w-full py-4 sm:py-6 border-2 border-dashed border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-xl font-bold text-xs sm:text-sm transition-colors active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                     <ImageIcon size={22} className="text-slate-400 sm:w-6 sm:h-6" />
@@ -595,11 +615,16 @@ const AuditItemCard: React.FC<{ item: any, hotelId: string, userProfile?: any, l
                                     className="hidden" 
                                     ref={fileInputRef} 
                                     onChange={handleFileChange} 
-                                    disabled={locked}
+                                    disabled={isFieldDisabled}
                                 />
                                 <button 
-                                    onClick={() => !locked && fileInputRef.current?.click()}
-                                    disabled={locked}
+                                    onClick={() => {
+                                        if (!isFieldDisabled) {
+                                            if (onAcquireLock) onAcquireLock();
+                                            fileInputRef.current?.click();
+                                        }
+                                    }}
+                                    disabled={isFieldDisabled}
                                     className="flex items-center justify-center gap-2 w-full py-3.5 sm:py-5 border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 shadow-sm rounded-xl font-bold text-xs sm:text-sm transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                     <UploadCloud size={18} className="text-slate-400 sm:w-5 sm:h-5" />
@@ -680,6 +705,12 @@ const AuditItemCard: React.FC<{ item: any, hotelId: string, userProfile?: any, l
     return (
         <div className={`bg-white p-3.5 sm:p-5 md:p-6 rounded-xl sm:rounded-2xl border ${isSubmitted ? 'border-emerald-200 shadow-emerald-100/50' : 'border-slate-200'} shadow-sm transition-all hover:shadow-md flex flex-col justify-between h-full`}>
             <div>
+                {isLockedByAnother && (
+                    <div className="flex items-center gap-2 bg-amber-50 border border-amber-200/50 text-amber-800 px-3.5 py-3 rounded-xl text-xs font-bold mb-4 animate-pulse">
+                        <Lock size={14} className="text-amber-500 shrink-0" />
+                        <span>{activeLock?.locked_by_name} is currently handling this item.</span>
+                    </div>
+                )}
                 <div className="flex items-start justify-between gap-2.5 sm:gap-4 mb-3 sm:mb-4">
                     <div className="space-y-1 sm:space-y-2 min-w-0 flex-1">
                         <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
@@ -805,6 +836,143 @@ export default function BrandingPropertyIdentificationScreen({ selectedCategory,
     // Get actual hotel ID from user profile or fallback
     const initialHotelId = isAuditee ? (userProfile?.hotel_id || '') : (userProfile?.hotel_id || localStorage.getItem('selected_hotel_id') || '');
     const [selectedHotelId, setSelectedHotelId] = useState<string>(initialHotelId);
+
+    // Temporary photo-taking lock state & refs
+    const [activeLocks, setActiveLocks] = useState<Record<string, { locked_by_name: string; locked_by_email: string; locked_at: string }>>({});
+    const userLockedItemsRef = useRef<Set<string>>(new Set());
+
+    // Fetch and sync locks
+    useEffect(() => {
+        if (!selectedHotelId) return;
+
+        const fetchLocks = async () => {
+            try {
+                const { data, error } = await supabase
+                    .from('audit_item_locks')
+                    .select('*')
+                    .eq('hotel_id', selectedHotelId);
+                
+                if (!error && data) {
+                    const lockMap: Record<string, any> = {};
+                    data.forEach(lock => {
+                        const isExpired = Date.now() - new Date(lock.locked_at).getTime() > 5 * 60 * 1000;
+                        if (!isExpired) {
+                            lockMap[lock.item_id] = lock;
+                        }
+                    });
+                    setActiveLocks(lockMap);
+                }
+            } catch (e) {
+                console.error("Error fetching locks:", e);
+            }
+        };
+
+        fetchLocks();
+
+        const channel = supabase
+            .channel(`locks-${selectedHotelId}`)
+            .on('postgres_changes', {
+                event: '*',
+                schema: 'public',
+                table: 'audit_item_locks',
+                filter: `hotel_id=eq.${selectedHotelId}`
+            }, (payload) => {
+                if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+                    const lock = payload.new;
+                    const isExpired = Date.now() - new Date(lock.locked_at).getTime() > 5 * 60 * 1000;
+                    if (!isExpired) {
+                        setActiveLocks(prev => ({ ...prev, [lock.item_id]: lock }));
+                    }
+                } else if (payload.eventType === 'DELETE') {
+                    const oldLock = payload.old;
+                    setActiveLocks(prev => {
+                        const copy = { ...prev };
+                        const itemId = oldLock.item_id;
+                        if (itemId) {
+                            delete copy[itemId];
+                        }
+                        return copy;
+                    });
+                }
+            })
+            .subscribe();
+
+        const interval = setInterval(() => {
+            setActiveLocks(prev => {
+                const copy = { ...prev };
+                let changed = false;
+                Object.entries(copy).forEach(([itemId, lock]) => {
+                    const isExpired = Date.now() - new Date((lock as any).locked_at).getTime() > 5 * 60 * 1000;
+                    if (isExpired) {
+                        delete copy[itemId];
+                        changed = true;
+                    }
+                });
+                return changed ? copy : prev;
+            });
+        }, 10000);
+
+        return () => {
+            supabase.removeChannel(channel);
+            clearInterval(interval);
+        };
+    }, [selectedHotelId]);
+
+    // Cleanup held locks when unmounting or changing category/hotel
+    useEffect(() => {
+        return () => {
+            const lockedItems = Array.from(userLockedItemsRef.current);
+            if (lockedItems.length > 0 && selectedHotelId) {
+                lockedItems.forEach(async (itemId) => {
+                    try {
+                        await supabase
+                            .from('audit_item_locks')
+                            .delete()
+                            .eq('hotel_id', selectedHotelId)
+                            .eq('item_id', itemId);
+                    } catch (e) {
+                        console.error("Failed to release lock on cleanup", e);
+                    }
+                });
+                userLockedItemsRef.current.clear();
+            }
+        };
+    }, [selectedHotelId, selectedCategory]);
+
+    const handleAcquireLock = async (itemId: string) => {
+        if (!selectedHotelId || !userProfile) return;
+        const name = `${userProfile.first_name || ''} ${userProfile.last_name || ''}`.trim() || userProfile.full_name || userProfile.name || userProfile.email || 'Property User';
+        const email = userProfile.email || 'unknown@swiss-belhotel.com';
+        
+        userLockedItemsRef.current.add(itemId);
+        try {
+            await supabase
+                .from('audit_item_locks')
+                .upsert({
+                    hotel_id: selectedHotelId,
+                    item_id: itemId,
+                    locked_by_name: name,
+                    locked_by_email: email,
+                    locked_at: new Date().toISOString()
+                }, { onConflict: 'hotel_id,item_id' });
+        } catch (err) {
+            console.error("Failed to acquire lock:", err);
+        }
+    };
+
+    const handleReleaseLock = async (itemId: string) => {
+        if (!selectedHotelId) return;
+        userLockedItemsRef.current.delete(itemId);
+        try {
+            await supabase
+                .from('audit_item_locks')
+                .delete()
+                .eq('hotel_id', selectedHotelId)
+                .eq('item_id', itemId);
+        } catch (err) {
+            console.error("Failed to release lock:", err);
+        }
+    };
 
     const checkFinalizedStatus = async () => {
         if (!selectedHotelId) return;
@@ -1096,7 +1264,16 @@ export default function BrandingPropertyIdentificationScreen({ selectedCategory,
                 ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
                         {items.map((item) => (
-                            <AuditItemCard key={item.id} item={item} hotelId={selectedHotelId} userProfile={userProfile} locked={isHotelFinalized} />
+                            <AuditItemCard 
+                                key={item.id} 
+                                item={item} 
+                                hotelId={selectedHotelId} 
+                                userProfile={userProfile} 
+                                locked={isHotelFinalized} 
+                                activeLock={activeLocks[item.id]}
+                                onAcquireLock={() => handleAcquireLock(item.id)}
+                                onReleaseLock={() => handleReleaseLock(item.id)}
+                            />
                         ))}
                     </div>
                 )}

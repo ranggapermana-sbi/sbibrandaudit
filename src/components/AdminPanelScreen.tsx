@@ -91,7 +91,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     const [groupAssignmentTab, setGroupAssignmentTab] = useState<'categories' | 'items'>('categories');
     const [groupSearchQuery, setGroupSearchQuery] = useState('');
     const [showSqlModal, setShowSqlModal] = useState(false);
-    const [sqlModalTab, setSqlModalTab] = useState<'auditor' | 'checklist' | 'finalize'>('checklist');
+    const [sqlModalTab, setSqlModalTab] = useState<'auditor' | 'checklist' | 'finalize' | 'photolock'>('checklist');
     const [groupExpandedCats, setGroupExpandedCats] = useState<Record<string, boolean>>({});
     const [enlargedImage, setEnlargedImage] = useState<{ url: string; title?: string } | null>(null);
 
@@ -8932,6 +8932,16 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                             >
                                 Finalise & Submit Lock SQL
                             </button>
+                            <button
+                                onClick={() => setSqlModalTab('photolock')}
+                                className={`flex-1 py-2 text-center text-xs font-black rounded-xl transition-all ${
+                                    sqlModalTab === 'photolock'
+                                        ? 'bg-slate-800 text-white shadow-2xs'
+                                        : 'text-slate-400 hover:text-white'
+                                }`}
+                            >
+                                Photo Temporary Lock SQL
+                            </button>
                         </div>
 
                         <div className="p-6 overflow-y-auto space-y-4 text-xs">
@@ -9067,7 +9077,7 @@ CREATE POLICY "Allow public delete auditor_category_assignments" ON auditor_cate
                                         </pre>
                                     </div>
                                 </>
-                            ) : (
+                            ) : sqlModalTab === 'finalize' ? (
                                 <>
                                     <p className="text-slate-300 font-medium leading-relaxed">
                                         Execute the following SQL script in your <strong className="text-emerald-400">Supabase Dashboard → SQL Editor</strong> to enable permanent <strong className="text-emerald-400">Self-Audit Locking & Submission Finalisation</strong>:
@@ -9110,6 +9120,56 @@ ALTER TABLE hotel_audit_status ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "Allow public read hotel_audit_status" ON hotel_audit_status FOR SELECT USING (true);
 CREATE POLICY "Allow public insert/update hotel_audit_status" ON hotel_audit_status FOR ALL USING (true);`}
+                                        </pre>
+                                    </div>
+                                </>
+                            ) : (
+                                <>
+                                    <p className="text-slate-300 font-medium leading-relaxed">
+                                        Execute the following SQL script in your <strong className="text-emerald-400">Supabase Dashboard → SQL Editor</strong> to enable real-time <strong className="text-emerald-400">Temporary Photo-Taking Locking</strong>:
+                                    </p>
+
+                                    <div className="relative bg-slate-950 border border-slate-800 rounded-2xl p-4 font-mono text-[11px] text-emerald-300 overflow-x-auto leading-relaxed">
+                                        <button
+                                            onClick={() => {
+                                                const sqlText = `CREATE TABLE IF NOT EXISTS audit_item_locks (\n    hotel_id VARCHAR(100) NOT NULL,\n    item_id VARCHAR(100) NOT NULL,\n    locked_by_name VARCHAR(255) NOT NULL,\n    locked_by_email VARCHAR(255) NOT NULL,\n    locked_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,\n    PRIMARY KEY (hotel_id, item_id)\n);\n\nALTER TABLE audit_item_locks ENABLE ROW LEVEL SECURITY;\n\nDROP POLICY IF EXISTS "Allow public read audit_item_locks" ON audit_item_locks;\nCREATE POLICY "Allow public read audit_item_locks" ON audit_item_locks FOR SELECT USING (true);\n\nDROP POLICY IF EXISTS "Allow public write audit_item_locks" ON audit_item_locks;\nCREATE POLICY "Allow public write audit_item_locks" ON audit_item_locks FOR ALL USING (true);`;
+                                                navigator.clipboard.writeText(sqlText);
+                                                setCopiedSql(true);
+                                                setTimeout(() => setCopiedSql(false), 2500);
+                                            }}
+                                            className="absolute top-3 right-3 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-lg font-sans text-[10px] font-bold flex items-center gap-1.5 transition-all border border-slate-700 active:scale-95"
+                                        >
+                                            {copiedSql ? (
+                                                <>
+                                                    <Check size={12} className="text-emerald-400" />
+                                                    <span>Copied!</span>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <Copy size={12} />
+                                                    <span>Copy SQL</span>
+                                                </>
+                                            )}
+                                        </button>
+                                        <pre className="pt-2">
+{`-- Create table for temporary photo-taking locks
+CREATE TABLE IF NOT EXISTS audit_item_locks (
+    hotel_id VARCHAR(100) NOT NULL,
+    item_id VARCHAR(100) NOT NULL,
+    locked_by_name VARCHAR(255) NOT NULL,
+    locked_by_email VARCHAR(255) NOT NULL,
+    locked_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    PRIMARY KEY (hotel_id, item_id)
+);
+
+-- Enable Row Level Security & set access policies
+ALTER TABLE audit_item_locks ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Allow public read audit_item_locks" ON audit_item_locks;
+CREATE POLICY "Allow public read audit_item_locks" ON audit_item_locks FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "Allow public write audit_item_locks" ON audit_item_locks;
+CREATE POLICY "Allow public write audit_item_locks" ON audit_item_locks FOR ALL USING (true);`}
                                         </pre>
                                     </div>
                                 </>
