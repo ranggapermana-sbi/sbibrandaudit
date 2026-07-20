@@ -25,6 +25,31 @@ export default function App() {
   const [isLoadingSession, setIsLoadingSession] = useState(true);
   const [selectedCategory, setSelectedCategory] = useState<any>(null);
 
+  // Sync state to sessionStorage to prevent mobile reloads from kicking users out
+  useEffect(() => {
+    if (currentScreen !== 'login' && currentScreen !== 'signup') {
+      sessionStorage.setItem('sbi_audit_current_screen', currentScreen);
+    } else {
+      sessionStorage.removeItem('sbi_audit_current_screen');
+    }
+  }, [currentScreen]);
+
+  useEffect(() => {
+    if (selectedCategory) {
+      sessionStorage.setItem('sbi_audit_selected_category', JSON.stringify(selectedCategory));
+    } else {
+      sessionStorage.removeItem('sbi_audit_selected_category');
+    }
+  }, [selectedCategory]);
+
+  useEffect(() => {
+    if (activeHotel) {
+      sessionStorage.setItem('sbi_audit_active_hotel', JSON.stringify(activeHotel));
+    } else {
+      sessionStorage.removeItem('sbi_audit_active_hotel');
+    }
+  }, [activeHotel]);
+
   const checkSuperAdmin = (session: any) => {
     if (session.user.email === 'brandaudit@swiss-belhotel.com') {
       const prof = {
@@ -87,14 +112,38 @@ export default function App() {
           if (prof && (prof.access_level === 'admin' || (prof.first_name && prof.role && (prof.hotel_id || prof.hotel_name)))) {
             setUserProfile(prof);
             if (prof.email === 'brandaudit@swiss-belhotel.com' || prof.is_approved) {
-              const hotelIds = prof.hotel_id ? String(prof.hotel_id).split(',').map((s: string) => s.trim()).filter(Boolean) : [];
-              if (hotelIds.length > 1 && !activeHotel && prof.email !== 'brandaudit@swiss-belhotel.com') {
-                setCurrentScreen('selectHotel');
-              } else {
-                if (prof.access_level === 'admin' || prof.access_level === 'auditor') {
-                  setCurrentScreen('adminPanel');
+              const savedScreen = sessionStorage.getItem('sbi_audit_current_screen') as AppScreen | null;
+              const savedCategoryStr = sessionStorage.getItem('sbi_audit_selected_category');
+              const savedHotelStr = sessionStorage.getItem('sbi_audit_active_hotel');
+
+              let restoredState = false;
+              if (savedScreen) {
+                try {
+                  if (savedHotelStr) {
+                    const parsedHotel = JSON.parse(savedHotelStr);
+                    setActiveHotel(parsedHotel);
+                  }
+                  if (savedCategoryStr) {
+                    const parsedCategory = JSON.parse(savedCategoryStr);
+                    setSelectedCategory(parsedCategory);
+                  }
+                  setCurrentScreen(savedScreen);
+                  restoredState = true;
+                } catch (e) {
+                  console.warn("Failed to restore state:", e);
+                }
+              }
+
+              if (!restoredState) {
+                const hotelIds = prof.hotel_id ? String(prof.hotel_id).split(',').map((s: string) => s.trim()).filter(Boolean) : [];
+                if (hotelIds.length > 1 && !activeHotel && prof.email !== 'brandaudit@swiss-belhotel.com') {
+                  setCurrentScreen('selectHotel');
                 } else {
-                  setCurrentScreen('dashboard');
+                  if (prof.access_level === 'admin' || prof.access_level === 'auditor') {
+                    setCurrentScreen('adminPanel');
+                  } else {
+                    setCurrentScreen('dashboard');
+                  }
                 }
               }
             } else {
@@ -203,6 +252,9 @@ export default function App() {
   const handleLogout = async () => {
     setIsLoadingSession(true);
     await supabase.auth.signOut();
+    sessionStorage.removeItem('sbi_audit_current_screen');
+    sessionStorage.removeItem('sbi_audit_selected_category');
+    sessionStorage.removeItem('sbi_audit_active_hotel');
     setUserProfile(null);
     setActiveHotel(null);
     setCurrentScreen('login');
