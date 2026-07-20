@@ -103,7 +103,7 @@ const AuditItemCard: React.FC<{
     userProfile?: any, 
     locked?: boolean,
     activeLock?: { locked_by_name: string; locked_by_email: string; locked_at: string },
-    onAcquireLock?: () => void,
+    onAcquireLock?: () => Promise<boolean>,
     onReleaseLock?: () => void
 }> = ({ item, hotelId, userProfile, locked, activeLock, onAcquireLock, onReleaseLock }) => {
     const [value, setValue] = useState<string>('');
@@ -130,7 +130,11 @@ const AuditItemCard: React.FC<{
     const startCamera = async (mode: 'environment' | 'user') => {
         if (isFieldDisabled) return;
         if (onAcquireLock) {
-            onAcquireLock();
+            const acquired = await onAcquireLock();
+            if (!acquired) {
+                alert("Cannot take photo: This item is currently locked by another user.");
+                return;
+            }
         }
         setIsCameraOpen(true);
         try {
@@ -508,7 +512,16 @@ const AuditItemCard: React.FC<{
                                         <img src={p.url} alt={`Evidence ${idx + 1}`} referrerPolicy="no-referrer" className="w-full h-full object-cover" />
                                         {!isFieldDisabled && (
                                             <button 
-                                                onClick={() => removePhoto(p.id)}
+                                                onClick={async () => {
+                                                    if (onAcquireLock) {
+                                                        const acquired = await onAcquireLock();
+                                                        if (!acquired) {
+                                                            alert("Cannot edit: This item is currently locked by another user.");
+                                                            return;
+                                                        }
+                                                    }
+                                                    removePhoto(p.id);
+                                                }}
                                                 className="absolute top-1.5 right-1.5 bg-red-500 hover:bg-red-600 text-white p-1.5 rounded-full shadow-md hover:scale-110 transition-transform"
                                                 type="button"
                                             >
@@ -547,7 +560,16 @@ const AuditItemCard: React.FC<{
                                         <img src={p.url} alt={`Evidence ${idx + 1}`} referrerPolicy="no-referrer" className="w-full h-full object-cover" />
                                         {!isFieldDisabled && (
                                             <button 
-                                                onClick={() => removePhoto(p.id)}
+                                                onClick={async () => {
+                                                    if (onAcquireLock) {
+                                                        const acquired = await onAcquireLock();
+                                                        if (!acquired) {
+                                                            alert("Cannot edit: This item is currently locked by another user.");
+                                                            return;
+                                                        }
+                                                    }
+                                                    removePhoto(p.id);
+                                                }}
                                                 className="absolute top-1.5 right-1.5 bg-red-500 hover:bg-red-600 text-white p-1.5 rounded-full shadow-md hover:scale-110 transition-transform"
                                                 type="button"
                                             >
@@ -574,9 +596,15 @@ const AuditItemCard: React.FC<{
                                     multiple
                                 />
                                 <button 
-                                    onClick={() => {
+                                    onClick={async () => {
                                         if (!isFieldDisabled) {
-                                            if (onAcquireLock) onAcquireLock();
+                                            if (onAcquireLock) {
+                                                const acquired = await onAcquireLock();
+                                                if (!acquired) {
+                                                    alert("Cannot upload: This item is currently locked by another user.");
+                                                    return;
+                                                }
+                                            }
                                             fileInputRef.current?.click();
                                         }
                                     }}
@@ -604,7 +632,17 @@ const AuditItemCard: React.FC<{
                                 </div>
                                 {!isFieldDisabled && (
                                     <button 
-                                        onClick={() => { setSelectedFile(null); setValue(''); }}
+                                        onClick={async () => {
+                                            if (onAcquireLock) {
+                                                const acquired = await onAcquireLock();
+                                                if (!acquired) {
+                                                    alert("Cannot edit: This item is currently locked by another user.");
+                                                    return;
+                                                }
+                                            }
+                                            setSelectedFile(null);
+                                            setValue('');
+                                        }}
                                         className="text-red-500 hover:bg-red-50 p-1.5 rounded-full shrink-0"
                                     >
                                         <X size={16} />
@@ -622,9 +660,15 @@ const AuditItemCard: React.FC<{
                                     disabled={isFieldDisabled}
                                 />
                                 <button 
-                                    onClick={() => {
+                                    onClick={async () => {
                                         if (!isFieldDisabled) {
-                                            if (onAcquireLock) onAcquireLock();
+                                            if (onAcquireLock) {
+                                                const acquired = await onAcquireLock();
+                                                if (!acquired) {
+                                                    alert("Cannot upload: This item is currently locked by another user.");
+                                                    return;
+                                                }
+                                            }
                                             fileInputRef.current?.click();
                                         }
                                     }}
@@ -646,8 +690,16 @@ const AuditItemCard: React.FC<{
                             className="w-full px-3.5 sm:px-4 py-2.5 sm:py-3.5 bg-slate-50 border border-slate-200 focus:border-indigo-500 focus:bg-white rounded-xl text-xs sm:text-sm font-bold text-slate-800 outline-none transition-all shadow-inner"
                             placeholder="Enter number..."
                             value={value}
+                            onFocus={async (e) => {
+                                if (onAcquireLock) {
+                                    const acquired = await onAcquireLock();
+                                    if (!acquired) {
+                                        e.target.blur();
+                                        alert("Cannot edit: This item is currently locked by another user.");
+                                    }
+                                }
+                            }}
                             onChange={(e) => {
-                                if (onAcquireLock) onAcquireLock();
                                 setValue(e.target.value);
                             }}
                             disabled={isFieldDisabled}
@@ -668,8 +720,16 @@ const AuditItemCard: React.FC<{
                             placeholder="Enter text response..."
                             rows={3}
                             value={value}
+                            onFocus={async (e) => {
+                                if (onAcquireLock) {
+                                    const acquired = await onAcquireLock();
+                                    if (!acquired) {
+                                        e.target.blur();
+                                        alert("Cannot edit: This item is currently locked by another user.");
+                                    }
+                                }
+                            }}
                             onChange={(e) => {
-                                if (onAcquireLock) onAcquireLock();
                                 setValue(e.target.value);
                             }}
                             disabled={isFieldDisabled}
@@ -680,8 +740,14 @@ const AuditItemCard: React.FC<{
                 return (
                     <div className="mt-3 flex gap-2 sm:gap-3">
                         <button
-                            onClick={() => {
-                                if (onAcquireLock) onAcquireLock();
+                            onClick={async () => {
+                                if (onAcquireLock) {
+                                    const acquired = await onAcquireLock();
+                                    if (!acquired) {
+                                        alert("Cannot edit: This item is currently locked by another user.");
+                                        return;
+                                    }
+                                }
                                 setValue('Yes');
                             }}
                             disabled={isFieldDisabled}
@@ -694,8 +760,14 @@ const AuditItemCard: React.FC<{
                             Yes
                         </button>
                         <button
-                            onClick={() => {
-                                if (onAcquireLock) onAcquireLock();
+                            onClick={async () => {
+                                if (onAcquireLock) {
+                                    const acquired = await onAcquireLock();
+                                    if (!acquired) {
+                                        alert("Cannot edit: This item is currently locked by another user.");
+                                        return;
+                                    }
+                                }
                                 setValue('No');
                             }}
                             disabled={isFieldDisabled}
@@ -777,9 +849,15 @@ const AuditItemCard: React.FC<{
                     </div>
                     <button
                         type="button"
-                        onClick={() => {
+                        onClick={async () => {
                             if (!isFieldDisabled) {
-                                if (onAcquireLock) onAcquireLock();
+                                if (onAcquireLock) {
+                                    const acquired = await onAcquireLock();
+                                    if (!acquired) {
+                                        alert("Cannot edit: This item is currently locked by another user.");
+                                        return;
+                                    }
+                                }
                                 setIsNa(!isNa);
                                 if (!isNa) setValue(''); // Clear value if toggling to NA
                             }
@@ -804,8 +882,16 @@ const AuditItemCard: React.FC<{
                         placeholder={isNa ? "Please provide a reason why this is not available..." : "Enter any comments, observations, or notes here..."}
                         rows={2}
                         value={naReason}
+                        onFocus={async (e) => {
+                            if (onAcquireLock) {
+                                const acquired = await onAcquireLock();
+                                if (!acquired) {
+                                    e.target.blur();
+                                    alert("Cannot edit: This item is currently locked by another user.");
+                                }
+                            }
+                        }}
                         onChange={(e) => {
-                            if (onAcquireLock) onAcquireLock();
                             setNaReason(e.target.value);
                         }}
                         disabled={isFieldDisabled}
