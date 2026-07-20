@@ -9132,7 +9132,7 @@ CREATE POLICY "Allow public insert/update hotel_audit_status" ON hotel_audit_sta
                                     <div className="relative bg-slate-950 border border-slate-800 rounded-2xl p-4 font-mono text-[11px] text-emerald-300 overflow-x-auto leading-relaxed">
                                         <button
                                             onClick={() => {
-                                                const sqlText = `CREATE TABLE IF NOT EXISTS audit_item_locks (\n    hotel_id VARCHAR(100) NOT NULL,\n    item_id VARCHAR(100) NOT NULL,\n    locked_by_name VARCHAR(255) NOT NULL,\n    locked_by_email VARCHAR(255) NOT NULL,\n    locked_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,\n    PRIMARY KEY (hotel_id, item_id)\n);\n\nALTER TABLE audit_item_locks ENABLE ROW LEVEL SECURITY;\n\nDROP POLICY IF EXISTS "Allow public read audit_item_locks" ON audit_item_locks;\nCREATE POLICY "Allow public read audit_item_locks" ON audit_item_locks FOR SELECT USING (true);\n\nDROP POLICY IF EXISTS "Allow public write audit_item_locks" ON audit_item_locks;\nCREATE POLICY "Allow public write audit_item_locks" ON audit_item_locks FOR ALL USING (true);`;
+                                                const sqlText = `CREATE TABLE IF NOT EXISTS audit_item_locks (\n    hotel_id VARCHAR(100) NOT NULL,\n    item_id VARCHAR(100) NOT NULL,\n    locked_by_name VARCHAR(255) NOT NULL,\n    locked_by_email VARCHAR(255) NOT NULL,\n    locked_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,\n    PRIMARY KEY (hotel_id, item_id)\n);\n\nALTER TABLE audit_item_locks ENABLE ROW LEVEL SECURITY;\n\nDROP POLICY IF EXISTS "Allow public read audit_item_locks" ON audit_item_locks;\nCREATE POLICY "Allow public read audit_item_locks" ON audit_item_locks FOR SELECT USING (true);\n\nDROP POLICY IF EXISTS "Allow public write audit_item_locks" ON audit_item_locks;\nCREATE POLICY "Allow public write audit_item_locks" ON audit_item_locks FOR ALL USING (true);\n\n-- Enable Realtime for audit_item_locks (idempotent addition)\nALTER TABLE audit_item_locks REPLICA IDENTITY FULL;\nDO $$\nBEGIN\n    IF NOT EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'supabase_realtime') THEN\n        CREATE PUBLICATION supabase_realtime;\n    END IF;\n    IF NOT EXISTS (\n        SELECT 1 FROM pg_publication_rel pr \n        JOIN pg_class c ON pr.prrelid = c.oid \n        JOIN pg_publication p ON pr.prpubid = p.oid \n        WHERE p.pubname = 'supabase_realtime' AND c.relname = 'audit_item_locks'\n    ) THEN\n        ALTER PUBLICATION supabase_realtime ADD TABLE audit_item_locks;\n    END IF;\nEND\n$$;`;
                                                 navigator.clipboard.writeText(sqlText);
                                                 setCopiedSql(true);
                                                 setTimeout(() => setCopiedSql(false), 2500);
@@ -9169,7 +9169,25 @@ DROP POLICY IF EXISTS "Allow public read audit_item_locks" ON audit_item_locks;
 CREATE POLICY "Allow public read audit_item_locks" ON audit_item_locks FOR SELECT USING (true);
 
 DROP POLICY IF EXISTS "Allow public write audit_item_locks" ON audit_item_locks;
-CREATE POLICY "Allow public write audit_item_locks" ON audit_item_locks FOR ALL USING (true);`}
+CREATE POLICY "Allow public write audit_item_locks" ON audit_item_locks FOR ALL USING (true);
+
+-- Enable Realtime for audit_item_locks (idempotent addition)
+ALTER TABLE audit_item_locks REPLICA IDENTITY FULL;
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'supabase_realtime') THEN
+        CREATE PUBLICATION supabase_realtime;
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_publication_rel pr 
+        JOIN pg_class c ON pr.prrelid = c.oid 
+        JOIN pg_publication p ON pr.prpubid = p.oid 
+        WHERE p.pubname = 'supabase_realtime' AND c.relname = 'audit_item_locks'
+    ) THEN
+        ALTER PUBLICATION supabase_realtime ADD TABLE audit_item_locks;
+    END IF;
+END
+$$;`}
                                         </pre>
                                     </div>
                                 </>
