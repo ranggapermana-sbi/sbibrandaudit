@@ -324,6 +324,80 @@ const AuditItemCard: React.FC<{
         }
         setIsSubmitting(true);
         try {
+            // Real-time safety check 1: Double-check finalized status in Supabase right before saving
+            try {
+                const { data: statusData } = await supabase
+                    .from('hotel_audit_status')
+                    .select('is_finalized')
+                    .eq('hotel_id', hotelId)
+                    .maybeSingle();
+                
+                if (statusData?.is_finalized) {
+                    alert("This property's self-audit has been finalized and locked.");
+                    setIsSubmitting(false);
+                    return;
+                }
+            } catch (statusErr) {
+                console.warn("Failed to double-check finalized status:", statusErr);
+            }
+
+            // Real-time safety check 2: Double-check existing submissions to prevent race conditions or simultaneous edits overriding each other
+            try {
+                const { data: subData, error: subErr } = await supabase
+                    .from('audit_submissions')
+                    .select('*')
+                    .eq('hotel_id', hotelId)
+                    .eq('item_id', item.id)
+                    .maybeSingle();
+                
+                if (!subErr && subData) {
+                    alert(`Submission aborted: This item has already been submitted by ${subData.submitted_by_name || subData.submitted_by || 'another user'}. Your local view will be updated.`);
+                    
+                    // Update our component's state to match the existing database record
+                    const val = subData.value || '';
+                    setValue(val);
+                    setIsNa(subData.is_na || false);
+                    setNaReason(subData.na_reason || subData.notes || subData.remark || '');
+                    setIsSubmitted(true);
+                    setSubmittedBy(subData.submitted_by_name || subData.submitted_by || '');
+                    
+                    if (val && (item.input_type === 'camera' || item.input_type === 'image')) {
+                        const urls = val.split(',').map((u: string) => u.trim()).filter(Boolean);
+                        setPhotos(urls.map((u: string, idx: number) => ({
+                            id: `loaded_${idx}_${Date.now()}`,
+                            url: u,
+                            file: null
+                        })));
+                    }
+                    
+                    setIsSubmitting(false);
+                    return;
+                }
+            } catch (subCheckErr) {
+                console.warn("Failed to double-check existing submission:", subCheckErr);
+            }
+
+            // Real-time safety check 3: Double-check active locks to make sure someone else hasn't acquired the lock since the user opened the field
+            try {
+                const { data: lockData, error: lockErr } = await supabase
+                    .from('audit_item_locks')
+                    .select('*')
+                    .eq('hotel_id', hotelId)
+                    .eq('item_id', item.id)
+                    .maybeSingle();
+                
+                if (!lockErr && lockData) {
+                    const isExpired = Date.now() - new Date(lockData.locked_at).getTime() > 5 * 60 * 1000;
+                    if (!isExpired && lockData.locked_by_email !== userProfile?.email) {
+                        alert(`Submission aborted: This item is currently being edited and is locked by ${lockData.locked_by_name || 'another user'}.`);
+                        setIsSubmitting(false);
+                        return;
+                    }
+                }
+            } catch (lockCheckErr) {
+                console.warn("Failed to double-check locks:", lockCheckErr);
+            }
+
             let finalValue = value;
 
             if (isNa) {
@@ -961,6 +1035,29 @@ export default function BrandingPropertyIdentificationScreen({ selectedCategory,
 
     const handleAcquireLock = async (itemId: string) => {
         if (!selectedHotelId || !userProfile) return;
+        
+        // Check if there is an active, unexpired lock held by someone else first
+        try {
+            const { data: existingLock, error } = await supabase
+                .from('audit_item_locks')
+                .select('*')
+                .eq('hotel_id', selectedHotelId)
+                .eq('item_id', itemId)
+                .maybeSingle();
+
+            if (!error && existingLock) {
+                const isExpired = Date.now() - new Date(existingLock.locked_at).getTime() > 5 * 60 * 1000;
+                if (!isExpired && existingLock.locked_by_email !== userProfile.email) {
+                    alert(`This item is already locked by ${existingLock.locked_by_name || 'another user'} who is editing it.`);
+                    // Update active locks locally to block input fields immediately
+                    setActiveLocks(prev => ({ ...prev, [itemId]: existingLock }));
+                    return;
+                }
+            }
+        } catch (e) {
+            console.error("Error verifying lock availability:", e);
+        }
+
         const name = `${userProfile.first_name || ''} ${userProfile.last_name || ''}`.trim() || userProfile.full_name || userProfile.name || userProfile.email || 'Property User';
         const email = userProfile.email || 'unknown@swiss-belhotel.com';
         
