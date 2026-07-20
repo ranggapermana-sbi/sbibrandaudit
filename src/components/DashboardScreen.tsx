@@ -266,12 +266,12 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
 
       // 7. Filter items based on checklist group (including non-self audit items)
       const filtered = (itemsData || []).filter((item: any) => {
-        // Must belong to category of group
-        if (assignedCategoryIds && !assignedCategoryIds.includes(String(item.category_id))) {
+        // Must belong to category of group if any categories are assigned
+        if (assignedCategoryIds && assignedCategoryIds.length > 0 && !assignedCategoryIds.includes(String(item.category_id))) {
           return false;
         }
-        // Must belong to items of group
-        if (assignedItemIds && !assignedItemIds.includes(String(item.id))) {
+        // Must belong to items of group if any items are assigned
+        if (assignedItemIds && assignedItemIds.length > 0 && !assignedItemIds.includes(String(item.id))) {
           return false;
         }
         return true;
