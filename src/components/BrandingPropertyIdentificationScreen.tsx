@@ -351,27 +351,39 @@ const AuditItemCard: React.FC<{
                     .maybeSingle();
                 
                 if (!subErr && subData) {
-                    alert(`Submission aborted: This item has already been submitted by ${subData.submitted_by_name || subData.submitted_by || 'another user'}. Your local view will be updated.`);
-                    
-                    // Update our component's state to match the existing database record
-                    const val = subData.value || '';
-                    setValue(val);
-                    setIsNa(subData.is_na || false);
-                    setNaReason(subData.na_reason || subData.notes || subData.remark || '');
-                    setIsSubmitted(true);
-                    setSubmittedBy(subData.submitted_by_name || subData.submitted_by || '');
-                    
-                    if (val && (item.input_type === 'camera' || item.input_type === 'image')) {
-                        const urls = val.split(',').map((u: string) => u.trim()).filter(Boolean);
-                        setPhotos(urls.map((u: string, idx: number) => ({
-                            id: `loaded_${idx}_${Date.now()}`,
-                            url: u,
-                            file: null
-                        })));
+                    const currentSubmitter = userProfile 
+                        ? `${userProfile.first_name || ''} ${userProfile.last_name || ''}`.trim() || userProfile.full_name || userProfile.name || userProfile.email 
+                        : (localStorage.getItem('sbi_user_name') || 'Property User');
+
+                    const isSameSubmitter = 
+                        (subData.submitted_by_name && subData.submitted_by_name === currentSubmitter) ||
+                        (subData.submitted_by && subData.submitted_by === currentSubmitter);
+
+                    const isAdminOrAuditor = userProfile?.access_level === 'admin' || userProfile?.access_level === 'auditor';
+
+                    if (!isSameSubmitter && !isAdminOrAuditor) {
+                        alert(`Submission aborted: This item has already been submitted by ${subData.submitted_by_name || subData.submitted_by || 'another user'}. Your local view will be updated.`);
+                        
+                        // Update our component's state to match the existing database record
+                        const val = subData.value || '';
+                        setValue(val);
+                        setIsNa(subData.is_na || false);
+                        setNaReason(subData.na_reason || subData.notes || subData.remark || '');
+                        setIsSubmitted(true);
+                        setSubmittedBy(subData.submitted_by_name || subData.submitted_by || '');
+                        
+                        if (val && (item.input_type === 'camera' || item.input_type === 'image')) {
+                            const urls = val.split(',').map((u: string) => u.trim()).filter(Boolean);
+                            setPhotos(urls.map((u: string, idx: number) => ({
+                                id: `loaded_${idx}_${Date.now()}`,
+                                url: u,
+                                file: null
+                            })));
+                        }
+                        
+                        setIsSubmitting(false);
+                        return;
                     }
-                    
-                    setIsSubmitting(false);
-                    return;
                 }
             } catch (subCheckErr) {
                 console.warn("Failed to double-check existing submission:", subCheckErr);
