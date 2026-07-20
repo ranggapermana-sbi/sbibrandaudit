@@ -8396,7 +8396,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                         value={userFormRole}
                                         onChange={(e) => setUserFormRole(e.target.value)}
                                     >
-                                        {['General Manager', 'Hotel Manager', 'GM Secretary', 'Marcomm/PR', 'Housekeeping', 'Room Division', 'Front Office', 'Sales & Marketing', 'Auditor', 'Director of Finance', 'Executive Housekeeper', 'Admin'].map(r => (
+                                        {['General Manager', 'Hotel Manager', 'GM Secretary', 'Marcomm/PR', 'Graphic Design', 'Housekeeping', 'Room Division', 'Front Office', 'Sales & Marketing', 'Auditor', 'Director of Finance', 'Executive Housekeeper', 'Admin'].map(r => (
                                             <option key={r} value={r}>{r}</option>
                                         ))}
                                     </select>

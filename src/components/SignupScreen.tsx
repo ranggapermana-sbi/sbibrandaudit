@@ -29,6 +29,7 @@ const ROLES = [
     'Hotel Manager',
     'GM Secretary',
     'Marcomm/PR',
+    'Graphic Design',
     'Housekeeping',
     'Room Division',
     'Front Office',
