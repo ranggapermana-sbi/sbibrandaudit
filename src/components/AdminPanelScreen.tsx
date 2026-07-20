@@ -3,7 +3,7 @@ import { ArrowLeft, CheckCircle, Clock, Building, BarChart3, ChevronRight, Plus,
 import { supabase } from '../lib/supabase';
 
 import { Department, Hotel, AuditBatch, AuditCategory, AuditItem, AuditGroup } from '../types';
-import { DEFAULT_DEPARTMENTS, DEFAULT_CATEGORIES, DEFAULT_HOTELS, DEFAULT_BATCHES, DEFAULT_GROUPS, DEFAULT_OFFLINE_ITEMS } from '../lib/constants';
+import { DEFAULT_DEPARTMENTS, DEFAULT_CATEGORIES, DEFAULT_HOTELS, DEFAULT_BATCHES, DEFAULT_GROUPS, DEFAULT_OFFLINE_ITEMS, HARDCODED_TEST_HOTELS } from '../lib/constants';
 
 const getRoleStyles = (accessLevel: string) => {
     const r = accessLevel?.toLowerCase() || 'auditee';
@@ -1452,14 +1452,19 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     // CRUD state for Hotels (loads cached hotels initially as offline fallback)
     const [hotels, setHotels] = useState<Hotel[]>(() => {
         const saved = localStorage.getItem('sbi_audit_hotels_v2');
+        let parsed: Hotel[] = [];
         if (saved) {
             try {
-                return JSON.parse(saved);
+                parsed = JSON.parse(saved);
             } catch (e) {
                 console.error("Error parsing hotels", e);
             }
         }
-        return DEFAULT_HOTELS;
+        if (!parsed || parsed.length === 0) {
+            parsed = DEFAULT_HOTELS;
+        }
+        const baseHotels = parsed.filter(h => h.id !== 'sbi-test' && h.id !== 'sbi-dummy');
+        return [...baseHotels, ...HARDCODED_TEST_HOTELS];
     });
 
     const [finalizedStatuses, setFinalizedStatuses] = useState<Record<string, { is_finalized: boolean, finalized_by?: string, finalized_at?: string }>>({});
@@ -1621,8 +1626,10 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 });
             }
 
-            setHotels(mapped);
-            localStorage.setItem('sbi_audit_hotels_v2', JSON.stringify(mapped));
+            const filteredMapped = mapped.filter(h => h.id !== 'sbi-test' && h.id !== 'sbi-dummy');
+            const finalHotels = [...filteredMapped, ...HARDCODED_TEST_HOTELS];
+            setHotels(finalHotels);
+            localStorage.setItem('sbi_audit_hotels_v2', JSON.stringify(finalHotels));
             setSupabaseConnected(true);
             setSupabaseErrorMsg(null);
         } catch (err: any) {
@@ -1631,15 +1638,18 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             setSupabaseErrorMsg(null);
             
             const saved = localStorage.getItem('sbi_audit_hotels_v2');
+            let parsed: Hotel[] = [];
             if (saved) {
                 try {
-                    setHotels(JSON.parse(saved));
+                    parsed = JSON.parse(saved);
                 } catch (e) {
-                    setHotels(DEFAULT_HOTELS);
+                    parsed = DEFAULT_HOTELS;
                 }
             } else {
-                setHotels(DEFAULT_HOTELS);
+                parsed = DEFAULT_HOTELS;
             }
+            const baseHotels = parsed.filter(h => h.id !== 'sbi-test' && h.id !== 'sbi-dummy');
+            setHotels([...baseHotels, ...HARDCODED_TEST_HOTELS]);
         } finally {
             setIsSupabaseLoading(false);
         }
@@ -3805,7 +3815,8 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                         {(userProfile?.access_level === 'admin' || userProfile?.access_level === 'auditor') && (
                             <section className="grid grid-cols-1 md:grid-cols-3 gap-5">
                                 {(() => {
-                                    const hotelsWithoutAuditees = hotels.filter(hotel => {
+                                    const activeHotels = hotels.filter(h => h.id !== 'sbi-test' && h.id !== 'sbi-dummy');
+                                    const hotelsWithoutAuditees = activeHotels.filter(hotel => {
                                         const hasAuditee = profilesList.some(p => {
                                             const isAuditee = p.access_level !== 'admin' && p.access_level !== 'auditor';
                                             if (!isAuditee) return false;
@@ -3829,7 +3840,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                         return !hasAuditee;
                                     }).length;
 
-                                    const hotelsWithoutBrandLeads = hotels.filter(hotel => {
+                                    const hotelsWithoutBrandLeads = activeHotels.filter(hotel => {
                                         const hasBrandLead = profilesList.some(p => {
                                             const isBrandLead = !!p.is_brand_audit_lead;
                                             if (!isBrandLead) return false;
@@ -3856,7 +3867,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                     return stats.map((stat, i) => {
                                         const Icon = stat.icon;
                                         const isProperties = stat.title === 'Active Properties';
-                                        const displayValue = isProperties ? hotels.length : (stat.title === 'Total Submissions' && allSubmissions.length > 0 ? allSubmissions.length : stat.value);
+                                        const displayValue = isProperties ? activeHotels.length : (stat.title === 'Total Submissions' && allSubmissions.length > 0 ? allSubmissions.length : stat.value);
                                         return (
                                             <div key={i} className="bg-white p-6 rounded-[24px] border border-slate-150/80 shadow-[0_4px_24px_rgba(15,23,42,0.015)] flex items-center justify-between hover:shadow-[0_8px_32px_rgba(15,23,42,0.03)] hover:scale-[1.01] transition-all duration-300">
                                                 <div className="flex-1 min-w-0 pr-2">
@@ -9154,6 +9165,7 @@ CREATE POLICY "Allow public insert/update hotel_audit_status" ON hotel_audit_sta
                                 <button
                                     onClick={() => {
                                         const matchingHotels = hotels.filter(hotel => {
+                                            if (hotel.id === 'sbi-test' || hotel.id === 'sbi-dummy') return false;
                                             const matches = statsModalType === 'auditees' ? !profilesList.some(p => {
                                                 const isAuditee = p.access_level !== 'admin' && p.access_level !== 'auditor';
                                                 if (!isAuditee) return false;
@@ -9225,6 +9237,7 @@ CREATE POLICY "Allow public insert/update hotel_audit_status" ON hotel_audit_sta
                             <div className="border border-slate-100 rounded-2xl bg-slate-50/50 max-h-[300px] overflow-y-auto divide-y divide-slate-100">
                                 {(() => {
                                     const filteredList = hotels.filter(hotel => {
+                                        if (hotel.id === 'sbi-test' || hotel.id === 'sbi-dummy') return false;
                                         const matches = statsModalType === 'auditees' ? !profilesList.some(p => {
                                             const isAuditee = p.access_level !== 'admin' && p.access_level !== 'auditor';
                                             if (!isAuditee) return false;

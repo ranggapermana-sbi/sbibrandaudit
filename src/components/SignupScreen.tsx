@@ -129,11 +129,13 @@ export default function SignupScreen({ onComplete, onLogout }: SignupScreenProps
                             };
                         });
 
-                        // Filter out Swiss-Belhotel International from the selection list as requested
+                        // Filter out Swiss-Belhotel International and hardcoded test/dummy hotels from the selection list as requested
                         const filtered = mapped.filter(h => 
                             h.name.toLowerCase() !== 'swiss-belhotel international' && 
                             h.id !== 'sbi-ho' && 
-                            h.code !== 'SBI'
+                            h.code !== 'SBI' &&
+                            h.id !== 'sbi-test' &&
+                            h.id !== 'sbi-dummy'
                         );
 
                         setHotels(filtered);

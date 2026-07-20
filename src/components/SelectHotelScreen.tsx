@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase, HOTELS_URL, HOTELS_KEY } from '../lib/supabase';
 import { Hotel } from '../types';
+import { HARDCODED_TEST_HOTELS } from '../lib/constants';
 import { Building, Building2, Search, LogOut, ArrowRight, Sparkles, Loader2, RefreshCw } from 'lucide-react';
 
 interface SelectHotelScreenProps {
@@ -85,8 +86,11 @@ export default function SelectHotelScreen({ userProfile, onSelectHotel, onLogout
                         });
                     }
 
+                    // Append hardcoded test/dummy hotels to the mapped list so they can be filtered if assigned
+                    const fullList = [...mapped, ...HARDCODED_TEST_HOTELS];
+
                     // Filter to only those assigned to current user
-                    const filtered = mapped.filter(h => assignedHotelIds.includes(h.id));
+                    const filtered = fullList.filter(h => assignedHotelIds.includes(h.id));
                     setHotels(filtered);
                 } else {
                     throw new Error('Property query did not return a valid list.');

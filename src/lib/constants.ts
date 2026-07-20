@@ -1,5 +1,28 @@
 import { Department, Hotel, AuditBatch, AuditCategory, AuditItem, AuditGroup } from '../types';
 
+export const HARDCODED_TEST_HOTELS: Hotel[] = [
+    {
+        id: 'sbi-test',
+        name: 'Swiss-Belinn Test',
+        location: 'Test Location',
+        code: 'SBITEST',
+        brandClass: 'Swiss-Belinn',
+        region: 'Indonesia',
+        country: 'Indonesia',
+        stars: 3
+    },
+    {
+        id: 'sbi-dummy',
+        name: 'Swiss-Belinn Dummy',
+        location: 'Dummy Location',
+        code: 'SBIDUMMY',
+        brandClass: 'Swiss-Belinn',
+        region: 'Indonesia',
+        country: 'Indonesia',
+        stars: 3
+    }
+];
+
 export const DEFAULT_DEPARTMENTS: Department[] = [
     { id: '1', name: 'Digital Marketing', head: 'Hidayat Jayawardana' },
     { id: '2', name: 'Marcomm & Branding', head: 'Nadya Frederica' },
