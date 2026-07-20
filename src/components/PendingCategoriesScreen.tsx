@@ -82,7 +82,7 @@ export default function PendingCategoriesScreen({ onBack, onNavigate, userProfil
             // 2. Fetch items
             const { data: itemsData, error: itemsError } = await supabase
                 .from('audit_items')
-                .select('id, category_id, filled_by_hotel');
+                .select('id, category_id, filled_by_hotel, points');
             if (itemsError) throw itemsError;
 
             // 2b. Fetch checklist groups and group hotel mappings to find the group of selectedHotelId
@@ -182,7 +182,7 @@ export default function PendingCategoriesScreen({ onBack, onNavigate, userProfil
 
             // Filter categories based on group assignment
             const filteredCats = (catsData || []).filter((cat: any) => 
-                !assignedCategoryIds || assignedCategoryIds.includes(String(cat.id))
+                !assignedCategoryIds || assignedCategoryIds.length === 0 || assignedCategoryIds.includes(String(cat.id))
             );
 
             // 3. Determine target hotel identifiers for selected property
@@ -244,7 +244,7 @@ export default function PendingCategoriesScreen({ onBack, onNavigate, userProfil
                 const catItems = (itemsData || []).filter((item: any) => 
                     String(item.category_id || '') === String(cat.id || '') && 
                     item.filled_by_hotel !== false && item.filled_by_hotel !== 'false' &&
-                    (!assignedItemIds || assignedItemIds.includes(String(item.id)))
+                    (!assignedItemIds || assignedItemIds.length === 0 || assignedItemIds.includes(String(item.id)))
                 );
                 
                 let completedCount = 0;
