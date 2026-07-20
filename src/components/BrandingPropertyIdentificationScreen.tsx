@@ -103,7 +103,7 @@ const AuditItemCard: React.FC<{
     userProfile?: any, 
     locked?: boolean,
     activeLock?: { locked_by_name: string; locked_by_email: string; locked_at: string },
-    onAcquireLock?: () => Promise<boolean>,
+    onAcquireLock?: () => void,
     onReleaseLock?: () => void
 }> = ({ item, hotelId, userProfile, locked, activeLock, onAcquireLock, onReleaseLock }) => {
     const [value, setValue] = useState<string>('');
@@ -130,11 +130,7 @@ const AuditItemCard: React.FC<{
     const startCamera = async (mode: 'environment' | 'user') => {
         if (isFieldDisabled) return;
         if (onAcquireLock) {
-            const success = await onAcquireLock();
-            if (!success) {
-                alert("This item is currently locked by another user.");
-                return;
-            }
+            onAcquireLock();
         }
         setIsCameraOpen(true);
         try {
@@ -328,23 +324,6 @@ const AuditItemCard: React.FC<{
         }
         setIsSubmitting(true);
         try {
-            // Real-time lock check directly on Supabase to prevent stale state conflict
-            const { data: currentLock, error: lockCheckError } = await supabase
-                .from('audit_item_locks')
-                .select('*')
-                .eq('hotel_id', hotelId)
-                .eq('item_id', item.id)
-                .maybeSingle();
-
-            if (!lockCheckError && currentLock) {
-                const isExpired = Date.now() - new Date(currentLock.locked_at).getTime() > 5 * 60 * 1000;
-                if (!isExpired && currentLock.locked_by_email !== userProfile?.email) {
-                    alert(`${currentLock.locked_by_name} is currently editing or taking a photo for this item. Submission blocked to prevent conflict.`);
-                    setIsSubmitting(false);
-                    return;
-                }
-            }
-
             let finalValue = value;
 
             if (isNa) {
@@ -595,15 +574,9 @@ const AuditItemCard: React.FC<{
                                     multiple
                                 />
                                 <button 
-                                    onClick={async () => {
+                                    onClick={() => {
                                         if (!isFieldDisabled) {
-                                            if (onAcquireLock) {
-                                                const success = await onAcquireLock();
-                                                if (!success) {
-                                                    alert("This item is currently locked by another user.");
-                                                    return;
-                                                }
-                                            }
+                                            if (onAcquireLock) onAcquireLock();
                                             fileInputRef.current?.click();
                                         }
                                     }}
@@ -649,15 +622,9 @@ const AuditItemCard: React.FC<{
                                     disabled={isFieldDisabled}
                                 />
                                 <button 
-                                    onClick={async () => {
+                                    onClick={() => {
                                         if (!isFieldDisabled) {
-                                            if (onAcquireLock) {
-                                                const success = await onAcquireLock();
-                                                if (!success) {
-                                                    alert("This item is currently locked by another user.");
-                                                    return;
-                                                }
-                                            }
+                                            if (onAcquireLock) onAcquireLock();
                                             fileInputRef.current?.click();
                                         }
                                     }}
@@ -679,15 +646,6 @@ const AuditItemCard: React.FC<{
                             className="w-full px-3.5 sm:px-4 py-2.5 sm:py-3.5 bg-slate-50 border border-slate-200 focus:border-indigo-500 focus:bg-white rounded-xl text-xs sm:text-sm font-bold text-slate-800 outline-none transition-all shadow-inner"
                             placeholder="Enter number..."
                             value={value}
-                            onFocus={async (e) => {
-                                if (onAcquireLock) {
-                                    const success = await onAcquireLock();
-                                    if (!success) {
-                                        alert("This item is currently locked by another user.");
-                                        e.target.blur();
-                                    }
-                                }
-                            }}
                             onChange={(e) => {
                                 if (onAcquireLock) onAcquireLock();
                                 setValue(e.target.value);
@@ -710,15 +668,6 @@ const AuditItemCard: React.FC<{
                             placeholder="Enter text response..."
                             rows={3}
                             value={value}
-                            onFocus={async (e) => {
-                                if (onAcquireLock) {
-                                    const success = await onAcquireLock();
-                                    if (!success) {
-                                        alert("This item is currently locked by another user.");
-                                        e.target.blur();
-                                    }
-                                }
-                            }}
                             onChange={(e) => {
                                 if (onAcquireLock) onAcquireLock();
                                 setValue(e.target.value);
@@ -731,14 +680,8 @@ const AuditItemCard: React.FC<{
                 return (
                     <div className="mt-3 flex gap-2 sm:gap-3">
                         <button
-                            onClick={async () => {
-                                if (onAcquireLock) {
-                                    const success = await onAcquireLock();
-                                    if (!success) {
-                                        alert("This item is currently locked by another user.");
-                                        return;
-                                    }
-                                }
+                            onClick={() => {
+                                if (onAcquireLock) onAcquireLock();
                                 setValue('Yes');
                             }}
                             disabled={isFieldDisabled}
@@ -751,14 +694,8 @@ const AuditItemCard: React.FC<{
                             Yes
                         </button>
                         <button
-                            onClick={async () => {
-                                if (onAcquireLock) {
-                                    const success = await onAcquireLock();
-                                    if (!success) {
-                                        alert("This item is currently locked by another user.");
-                                        return;
-                                    }
-                                }
+                            onClick={() => {
+                                if (onAcquireLock) onAcquireLock();
                                 setValue('No');
                             }}
                             disabled={isFieldDisabled}
@@ -840,15 +777,9 @@ const AuditItemCard: React.FC<{
                     </div>
                     <button
                         type="button"
-                        onClick={async () => {
+                        onClick={() => {
                             if (!isFieldDisabled) {
-                                if (onAcquireLock) {
-                                    const success = await onAcquireLock();
-                                    if (!success) {
-                                        alert("This item is currently locked by another user.");
-                                        return;
-                                    }
-                                }
+                                if (onAcquireLock) onAcquireLock();
                                 setIsNa(!isNa);
                                 if (!isNa) setValue(''); // Clear value if toggling to NA
                             }
@@ -873,15 +804,6 @@ const AuditItemCard: React.FC<{
                         placeholder={isNa ? "Please provide a reason why this is not available..." : "Enter any comments, observations, or notes here..."}
                         rows={2}
                         value={naReason}
-                        onFocus={async (e) => {
-                            if (onAcquireLock) {
-                                const success = await onAcquireLock();
-                                if (!success) {
-                                    alert("This item is currently locked by another user.");
-                                    e.target.blur();
-                                }
-                            }
-                        }}
                         onChange={(e) => {
                             if (onAcquireLock) onAcquireLock();
                             setNaReason(e.target.value);
@@ -911,16 +833,7 @@ const AuditItemCard: React.FC<{
                         </div>
                     ) : (
                         <button 
-                            onClick={async () => {
-                                if (onAcquireLock) {
-                                    const success = await onAcquireLock();
-                                    if (!success) {
-                                        alert("This item is currently locked by another user.");
-                                        return;
-                                    }
-                                }
-                                setIsSubmitted(false);
-                            }}
+                            onClick={() => setIsSubmitted(false)}
                             className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2.5 sm:py-3.5 rounded-lg sm:rounded-xl text-xs sm:text-sm transition-all active:scale-[0.98]"
                         >
                             Edit Submission
@@ -1046,31 +959,14 @@ export default function BrandingPropertyIdentificationScreen({ selectedCategory,
         };
     }, [selectedHotelId, selectedCategory]);
 
-    const handleAcquireLock = async (itemId: string): Promise<boolean> => {
-        if (!selectedHotelId || !userProfile) return false;
+    const handleAcquireLock = async (itemId: string) => {
+        if (!selectedHotelId || !userProfile) return;
         const name = `${userProfile.first_name || ''} ${userProfile.last_name || ''}`.trim() || userProfile.full_name || userProfile.name || userProfile.email || 'Property User';
         const email = userProfile.email || 'unknown@swiss-belhotel.com';
         
+        userLockedItemsRef.current.add(itemId);
         try {
-            // Check if there is an active lock by someone else
-            const { data: currentLock, error } = await supabase
-                .from('audit_item_locks')
-                .select('*')
-                .eq('hotel_id', selectedHotelId)
-                .eq('item_id', itemId)
-                .maybeSingle();
-
-            if (!error && currentLock) {
-                const isExpired = Date.now() - new Date(currentLock.locked_at).getTime() > 5 * 60 * 1000;
-                if (!isExpired && currentLock.locked_by_email !== email) {
-                    // Update activeLocks to immediately disable UI locally
-                    setActiveLocks(prev => ({ ...prev, [itemId]: currentLock }));
-                    return false;
-                }
-            }
-
-            userLockedItemsRef.current.add(itemId);
-            const { error: upsertError } = await supabase
+            await supabase
                 .from('audit_item_locks')
                 .upsert({
                     hotel_id: selectedHotelId,
@@ -1079,15 +975,8 @@ export default function BrandingPropertyIdentificationScreen({ selectedCategory,
                     locked_by_email: email,
                     locked_at: new Date().toISOString()
                 }, { onConflict: 'hotel_id,item_id' });
-
-            if (upsertError) {
-                console.error("Failed to write lock to Supabase:", upsertError);
-                return false;
-            }
-            return true;
         } catch (err) {
             console.error("Failed to acquire lock:", err);
-            return false;
         }
     };
 
