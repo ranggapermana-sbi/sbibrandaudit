@@ -318,6 +318,10 @@ const AuditItemCard: React.FC<{
     };
 
     const handleSubmit = async () => {
+        if (isFieldDisabled) {
+            alert("This item is locked by another user or already finalized.");
+            return;
+        }
         setIsSubmitting(true);
         try {
             let finalValue = value;
@@ -642,8 +646,11 @@ const AuditItemCard: React.FC<{
                             className="w-full px-3.5 sm:px-4 py-2.5 sm:py-3.5 bg-slate-50 border border-slate-200 focus:border-indigo-500 focus:bg-white rounded-xl text-xs sm:text-sm font-bold text-slate-800 outline-none transition-all shadow-inner"
                             placeholder="Enter number..."
                             value={value}
-                            onChange={(e) => setValue(e.target.value)}
-                            disabled={isSubmitted}
+                            onChange={(e) => {
+                                if (onAcquireLock) onAcquireLock();
+                                setValue(e.target.value);
+                            }}
+                            disabled={isFieldDisabled}
                         />
                         {item.min_value !== undefined && item.min_value !== null && (
                             <p className="text-[11px] sm:text-xs text-slate-500 mt-1.5 ml-1 font-medium flex items-center gap-1">
@@ -661,8 +668,11 @@ const AuditItemCard: React.FC<{
                             placeholder="Enter text response..."
                             rows={3}
                             value={value}
-                            onChange={(e) => setValue(e.target.value)}
-                            disabled={isSubmitted}
+                            onChange={(e) => {
+                                if (onAcquireLock) onAcquireLock();
+                                setValue(e.target.value);
+                            }}
+                            disabled={isFieldDisabled}
                         />
                     </div>
                 );
@@ -670,8 +680,11 @@ const AuditItemCard: React.FC<{
                 return (
                     <div className="mt-3 flex gap-2 sm:gap-3">
                         <button
-                            onClick={() => setValue('Yes')}
-                            disabled={isSubmitted}
+                            onClick={() => {
+                                if (onAcquireLock) onAcquireLock();
+                                setValue('Yes');
+                            }}
+                            disabled={isFieldDisabled}
                             className={`flex-1 py-3 sm:py-4 rounded-xl font-bold text-xs sm:text-sm border-2 transition-all shadow-sm ${
                                 value === 'Yes' 
                                     ? 'bg-emerald-50 border-emerald-500 text-emerald-700' 
@@ -681,8 +694,11 @@ const AuditItemCard: React.FC<{
                             Yes
                         </button>
                         <button
-                            onClick={() => setValue('No')}
-                            disabled={isSubmitted}
+                            onClick={() => {
+                                if (onAcquireLock) onAcquireLock();
+                                setValue('No');
+                            }}
+                            disabled={isFieldDisabled}
                             className={`flex-1 py-3 sm:py-4 rounded-xl font-bold text-xs sm:text-sm border-2 transition-all shadow-sm ${
                                 value === 'No' 
                                     ? 'bg-red-50 border-red-500 text-red-700' 
@@ -763,6 +779,7 @@ const AuditItemCard: React.FC<{
                         type="button"
                         onClick={() => {
                             if (!isFieldDisabled) {
+                                if (onAcquireLock) onAcquireLock();
                                 setIsNa(!isNa);
                                 if (!isNa) setValue(''); // Clear value if toggling to NA
                             }
@@ -787,7 +804,10 @@ const AuditItemCard: React.FC<{
                         placeholder={isNa ? "Please provide a reason why this is not available..." : "Enter any comments, observations, or notes here..."}
                         rows={2}
                         value={naReason}
-                        onChange={(e) => setNaReason(e.target.value)}
+                        onChange={(e) => {
+                            if (onAcquireLock) onAcquireLock();
+                            setNaReason(e.target.value);
+                        }}
                         disabled={isFieldDisabled}
                     />
                 </div>
@@ -796,7 +816,7 @@ const AuditItemCard: React.FC<{
                 {!isSubmitted ? (
                     <button 
                         onClick={handleSubmit}
-                        disabled={isSubmitting || locked}
+                        disabled={isSubmitting || isFieldDisabled}
                         className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 sm:py-3.5 rounded-lg sm:rounded-xl text-xs sm:text-sm transition-all active:scale-[0.98] disabled:opacity-70 flex justify-center items-center gap-2 shadow-sm hover:shadow-md"
                     >
                         {isSubmitting ? (
