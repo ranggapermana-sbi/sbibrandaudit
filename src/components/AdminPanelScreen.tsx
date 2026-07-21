@@ -1575,6 +1575,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 .from('audit_submissions')
                 .update({ 
                     is_unlocked: true, 
+                    unlocked_by: auditorName,
                     updated_at: new Date().toISOString() 
                 })
                 .eq('hotel_id', hotelId)

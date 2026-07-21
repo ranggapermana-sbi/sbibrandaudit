@@ -283,6 +283,7 @@ const AuditItemCard: React.FC<{
                 setIsNa(submission.is_na || false);
                 setNaReason(submission.na_reason || submission.notes || submission.remark || '');
                 setItemIsUnlocked(submission.is_unlocked || false);
+                setUnlockedBy(submission.unlocked_by || '');
                 setIsSubmitted(true);
                 setSubmittedBy(submission.submitted_by_name || submission.submitted_by || submission.user_name || '');
                 
@@ -1038,7 +1039,7 @@ const AuditItemCard: React.FC<{
                             {itemIsUnlocked && (
                                 <div className="text-[10px] text-emerald-600 font-bold mb-2 flex items-center gap-1">
                                     <Unlock size={12} />
-                                    <span>Item Unlocked by Auditor</span>
+                                    <span>{item.name} Unlocked by {unlockedBy || 'Auditor'}</span>
                                 </div>
                             )}
                             <button 
