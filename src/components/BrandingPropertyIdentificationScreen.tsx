@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { ChevronRight, Camera, Loader2, CheckCircle2, Image as ImageIcon, FileUp, Hash, Type, CheckSquare, UploadCloud, X, AlertCircle, RefreshCw, User, Lock, Unlock } from 'lucide-react';
 import { supabase, HOTELS_URL, HOTELS_KEY } from '../lib/supabase';
 
@@ -111,6 +111,7 @@ const AuditItemCard: React.FC<{
     const [naReason, setNaReason] = useState<string>('');
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [isSubmitted, setIsSubmitted] = useState(false);
+    const [itemIsUnlocked, setItemIsUnlocked] = useState(false);
     const [submittedBy, setSubmittedBy] = useState<string>('');
     const [previewUrl, setPreviewUrl] = useState<string | null>(null);
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -173,7 +174,7 @@ const AuditItemCard: React.FC<{
     };
 
     const isLockedByAnother = activeLock && activeLock.locked_by_email !== userProfile?.email;
-    const isFieldDisabled = isSubmitted || !!locked || !!isLockedByAnother;
+    const isFieldDisabled = (!itemIsUnlocked && isSubmitted) || (!itemIsUnlocked && !!locked) || !!isLockedByAnother;
 
     // Camera specific state
     const [isCameraOpen, setIsCameraOpen] = useState(false);
@@ -264,92 +265,101 @@ const AuditItemCard: React.FC<{
     }, []);
 
     // Initialize from Supabase with local storage fallback
+    const fetchExistingSubmission = useCallback(async (active = true) => {
+        if (!hotelId || !item.id) return;
+        try {
+            const { data, error } = await supabase
+                .from('audit_submissions')
+                .select('*')
+                .eq('hotel_id', hotelId)
+                .eq('item_id', item.id);
+            
+            if (!error && data && data.length > 0 && active) {
+                const submission = data[0];
+                console.log("Fetched submission:", submission);
+                const val = submission.value || '';
+                setValue(val);
+                setIsNa(submission.is_na || false);
+                setNaReason(submission.na_reason || submission.notes || submission.remark || '');
+                setItemIsUnlocked(submission.is_unlocked || false);
+                setIsSubmitted(true);
+                setSubmittedBy(submission.submitted_by_name || submission.submitted_by || submission.user_name || '');
+                
+                if (val && (item.input_type === 'camera' || item.input_type === 'image')) {
+                    const urls = val.split(',').map((u: string) => u.trim()).filter(Boolean);
+                    setPhotos(urls.map((u: string, idx: number) => ({
+                        id: `loaded_${idx}_${Date.now()}`,
+                        url: u,
+                        file: null
+                    })));
+                } else if (item.input_type === 'camera' || item.input_type === 'image') {
+                    setPhotos([]);
+                }
+
+                if (val && item.input_type === 'document') {
+                    setPreviewUrl(val);
+                }
+                
+                // Sync to local storage
+                localStorage.setItem(`sbi_audit_${hotelId}_${item.id}`, JSON.stringify({
+                    ...submission,
+                    isSubmitted: true
+                }));
+            } else if (active) {
+                // Fall back to local storage if no cloud record
+                const stored = localStorage.getItem(`sbi_audit_${hotelId}_${item.id}`);
+                if (stored) {
+                    try {
+                        const localData = JSON.parse(stored);
+                        const val = localData.value || '';
+                        setValue(val);
+                        setIsNa(localData.is_na || false);
+                        setNaReason(localData.na_reason || localData.notes || localData.remark || '');
+                        setIsSubmitted(localData.isSubmitted || false);
+                        setSubmittedBy(localData.submitted_by_name || localData.submitted_by || localData.submitted_by_user || '');
+                        
+                        if (val && (item.input_type === 'camera' || item.input_type === 'image')) {
+                            const urls = val.split(',').map((u: string) => u.trim()).filter(Boolean);
+                            setPhotos(urls.map((u: string, idx: number) => ({
+                                id: `loaded_${idx}_${Date.now()}`,
+                                url: u,
+                                file: null
+                            })));
+                        } else if (item.input_type === 'camera' || item.input_type === 'image') {
+                            setPhotos([]);
+                        }
+
+                        if (val && item.input_type === 'document') {
+                            setPreviewUrl(val);
+                        }
+                    } catch (e) {}
+                } else {
+                    // Reset to default empty state if neither exists
+                    setValue('');
+                    setIsNa(false);
+                    setNaReason('');
+                    setIsSubmitted(false);
+                    setPreviewUrl(null);
+                    setSubmittedBy('');
+                    setPhotos([]);
+                }
+            }
+        } catch (err) {
+            console.error("Error fetching submission from Supabase:", err);
+        }
+    }, [hotelId, item.id, item.input_type, supabase]);
+
     useEffect(() => {
         let active = true;
-        const fetchExistingSubmission = async () => {
-            if (!hotelId || !item.id) return;
-            try {
-                const { data, error } = await supabase
-                    .from('audit_submissions')
-                    .select('*')
-                    .eq('hotel_id', hotelId)
-                    .eq('item_id', item.id);
-                
-                if (!error && data && data.length > 0 && active) {
-                    const submission = data[0];
-                    const val = submission.value || '';
-                    setValue(val);
-                    setIsNa(submission.is_na || false);
-                    setNaReason(submission.na_reason || submission.notes || submission.remark || '');
-                    setIsSubmitted(true);
-                    setSubmittedBy(submission.submitted_by_name || submission.submitted_by || submission.user_name || '');
-                    
-                    if (val && (item.input_type === 'camera' || item.input_type === 'image')) {
-                        const urls = val.split(',').map((u: string) => u.trim()).filter(Boolean);
-                        setPhotos(urls.map((u: string, idx: number) => ({
-                            id: `loaded_${idx}_${Date.now()}`,
-                            url: u,
-                            file: null
-                        })));
-                    } else if (item.input_type === 'camera' || item.input_type === 'image') {
-                        setPhotos([]);
-                    }
-
-                    if (val && item.input_type === 'document') {
-                        setPreviewUrl(val);
-                    }
-                    
-                    // Sync to local storage
-                    localStorage.setItem(`sbi_audit_${hotelId}_${item.id}`, JSON.stringify({
-                        ...submission,
-                        isSubmitted: true
-                    }));
-                } else {
-                    // Fall back to local storage if no cloud record
-                    const stored = localStorage.getItem(`sbi_audit_${hotelId}_${item.id}`);
-                    if (stored && active) {
-                        try {
-                            const localData = JSON.parse(stored);
-                            const val = localData.value || '';
-                            setValue(val);
-                            setIsNa(localData.is_na || false);
-                            setNaReason(localData.na_reason || localData.notes || localData.remark || '');
-                            setIsSubmitted(localData.isSubmitted || false);
-                            setSubmittedBy(localData.submitted_by_name || localData.submitted_by || localData.submitted_by_user || '');
-                            
-                            if (val && (item.input_type === 'camera' || item.input_type === 'image')) {
-                                const urls = val.split(',').map((u: string) => u.trim()).filter(Boolean);
-                                setPhotos(urls.map((u: string, idx: number) => ({
-                                    id: `loaded_${idx}_${Date.now()}`,
-                                    url: u,
-                                    file: null
-                                })));
-                            } else if (item.input_type === 'camera' || item.input_type === 'image') {
-                                setPhotos([]);
-                            }
-
-                            if (val && item.input_type === 'document') {
-                                setPreviewUrl(val);
-                            }
-                        } catch (e) {}
-                    } else if (active) {
-                        // Reset to default empty state if neither exists
-                        setValue('');
-                        setIsNa(false);
-                        setNaReason('');
-                        setIsSubmitted(false);
-                        setPreviewUrl(null);
-                        setSubmittedBy('');
-                        setPhotos([]);
-                    }
-                }
-            } catch (err) {
-                console.error("Error fetching submission from Supabase:", err);
-            }
-        };
-        fetchExistingSubmission();
+        fetchExistingSubmission(active);
         return () => { active = false; };
-    }, [hotelId, item.id, item.input_type]);
+    }, [fetchExistingSubmission]);
+
+    useEffect(() => {
+        const handleFocus = () => fetchExistingSubmission();
+        window.addEventListener('focus', handleFocus);
+        return () => window.removeEventListener('focus', handleFocus);
+    }, [fetchExistingSubmission]);
 
     const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files) {
@@ -425,6 +435,7 @@ const AuditItemCard: React.FC<{
                         setValue(val);
                         setIsNa(subData.is_na || false);
                         setNaReason(subData.na_reason || subData.notes || subData.remark || '');
+                        setItemIsUnlocked(subData.is_unlocked || false);
                         setIsSubmitted(true);
                         setSubmittedBy(subData.submitted_by_name || subData.submitted_by || '');
                         
@@ -561,6 +572,7 @@ const AuditItemCard: React.FC<{
                 notes: naReason,
                 submitted_by: submitterName,
                 submitted_by_name: submitterName,
+                is_unlocked: false,
                 created_at: new Date().toISOString(),
                 updated_at: new Date().toISOString()
             };
@@ -578,6 +590,7 @@ const AuditItemCard: React.FC<{
                         value: finalValue,
                         is_na: isNa,
                         na_reason: naReason,
+                        is_unlocked: false,
                         created_at: new Date().toISOString(),
                         updated_at: new Date().toISOString()
                     };
@@ -617,6 +630,7 @@ const AuditItemCard: React.FC<{
 
             setValue(finalValue);
             setIsSubmitted(true);
+            setItemIsUnlocked(false);
             setSubmittedBy(submitterName);
             if (onReleaseLock) {
                 onReleaseLock();
@@ -1012,7 +1026,7 @@ const AuditItemCard: React.FC<{
                         )}
                     </button>
                 ) : (
-                    locked ? (
+                    (locked && !itemIsUnlocked) ? (
                         <div className="w-full bg-slate-50 border border-slate-200 text-slate-500 font-bold py-2.5 sm:py-3.5 rounded-lg sm:rounded-xl text-xs sm:text-sm flex justify-center items-center gap-1.5 select-none">
                             <Lock size={14} className="text-slate-400" />
                             <span>Audit Finalised - Locked</span>
@@ -1469,7 +1483,7 @@ export default function BrandingPropertyIdentificationScreen({ selectedCategory,
                     </div>
                 )}
 
-                {isHotelFinalized && (
+                {isHotelFinalized && Object.keys(activeLocks).length === 0 && (
                     <div className="bg-amber-50 border border-amber-200/80 rounded-xl sm:rounded-2xl p-3 sm:p-4 shadow-xs flex items-start gap-3 animate-fadeIn mb-2 sm:mb-3">
                         <Lock className="text-amber-600 shrink-0 mt-0.5" size={18} />
                         <div>
