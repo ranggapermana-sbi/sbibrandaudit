@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase';
 
 import { Department, Hotel, AuditBatch, AuditCategory, AuditItem, AuditGroup } from '../types';
 import { DEFAULT_DEPARTMENTS, DEFAULT_CATEGORIES, DEFAULT_HOTELS, DEFAULT_BATCHES, DEFAULT_GROUPS, DEFAULT_OFFLINE_ITEMS, HARDCODED_TEST_HOTELS } from '../lib/constants';
+import AuditorEvidenceForm from './AuditorEvidenceForm';
 
 const getRoleStyles = (accessLevel: string) => {
     const r = accessLevel?.toLowerCase() || 'auditee';
@@ -94,6 +95,62 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     const [sqlModalTab, setSqlModalTab] = useState<'auditor' | 'checklist' | 'finalize' | 'photolock'>('checklist');
     const [groupExpandedCats, setGroupExpandedCats] = useState<Record<string, boolean>>({});
     const [enlargedImage, setEnlargedImage] = useState<{ url: string; title?: string } | null>(null);
+
+    const [copiedDocId, setCopiedDocId] = useState<string | null>(null);
+
+    const handleCopyDocLink = (text: string, id: string) => {
+        if (!text) return;
+        navigator.clipboard.writeText(text).then(() => {
+            setCopiedDocId(id);
+            setTimeout(() => setCopiedDocId(null), 2000);
+        }).catch(err => {
+            console.error("Failed to copy:", err);
+            alert("Could not copy automatically. Link: " + text.substring(0, 100) + "...");
+        });
+    };
+
+    const handleDocumentDownload = (val: string, itemName: string) => {
+        if (!val) return;
+        try {
+            if (val.startsWith('data:')) {
+                const mimeMatch = val.match(/^data:([^;]+);/);
+                let ext = '.bin';
+                if (mimeMatch) {
+                    const mime = mimeMatch[1];
+                    if (mime.includes('pdf')) ext = '.pdf';
+                    else if (mime.includes('wordprocessingml.document') || mime.includes('docx')) ext = '.docx';
+                    else if (mime.includes('msword') || mime.includes('doc')) ext = '.doc';
+                    else if (mime.includes('spreadsheetml.sheet') || mime.includes('xlsx')) ext = '.xlsx';
+                    else if (mime.includes('ms-excel') || mime.includes('xls')) ext = '.xls';
+                    else if (mime.includes('png')) ext = '.png';
+                    else if (mime.includes('jpeg') || mime.includes('jpg')) ext = '.jpg';
+                    else if (mime.includes('zip')) ext = '.zip';
+                }
+                
+                const link = document.createElement('a');
+                link.href = val;
+                const cleanedName = (itemName || 'document').replace(/[^a-zA-Z0-9_-]/g, '_');
+                link.download = `Evidence_${cleanedName}${ext}`;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            } else {
+                const link = document.createElement('a');
+                link.href = val;
+                link.target = '_blank';
+                link.rel = 'noreferrer';
+                if (val.startsWith('blob:')) {
+                    link.download = `Evidence_${(itemName || 'document').replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+                }
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            }
+        } catch (e) {
+            console.error("Error opening/downloading document:", e);
+            window.open(val, '_blank');
+        }
+    };
 
     // Active Properties stats modal
     const [statsModalType, setStatsModalType] = useState<'auditees' | 'brand_leads' | null>(null);
@@ -2211,9 +2268,51 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         return 'Property User';
     };
 
+    const fetchHotelSubmissionsForAuditor = async () => {
+        if (!selectedInspectionHotelId) {
+            setHotelSubmissions({});
+            return;
+        }
+        try {
+            const hotel = hotels.find(h => h.id === selectedInspectionHotelId);
+            const associatedIds = new Set<string>();
+            if (hotel) {
+                associatedIds.add(hotel.id);
+                if (hotel.code) associatedIds.add(hotel.code);
+                associatedIds.add(hotel.name);
+                
+                profilesList.forEach(p => {
+                    const matchesCode = p.hotel_code && hotel.code && String(p.hotel_code).toLowerCase() === String(hotel.code).toLowerCase();
+                    const matchesName = p.hotel_name && hotel.name && String(p.hotel_name).toLowerCase() === String(hotel.name).toLowerCase();
+                    const matchesId = p.hotel_id && hotel.id && String(p.hotel_id).toLowerCase() === String(hotel.id).toLowerCase();
+                    if (matchesCode || matchesName || matchesId) {
+                        if (p.hotel_id) associatedIds.add(String(p.hotel_id));
+                    }
+                });
+            } else {
+                associatedIds.add(selectedInspectionHotelId);
+            }
+
+            const { data, error } = await supabase
+                .from('audit_submissions')
+                .select('*')
+                .in('hotel_id', Array.from(associatedIds));
+            
+            if (error) throw error;
+            
+            const submissionsMap: Record<string, any> = {};
+            data?.forEach(sub => {
+                submissionsMap[sub.item_id] = sub;
+            });
+            setHotelSubmissions(submissionsMap);
+        } catch (err) {
+            console.error("Error fetching hotel submissions:", err);
+        }
+    };
+
     useEffect(() => {
         let active = true;
-        const fetchSubmissions = async () => {
+        const fetchSubmissionsLocal = async () => {
             if (!selectedInspectionHotelId) {
                 if (active) setHotelSubmissions({});
                 return;
@@ -2254,7 +2353,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 console.error("Error fetching hotel submissions:", err);
             }
         };
-        fetchSubmissions();
+        fetchSubmissionsLocal();
 
         if (!selectedInspectionHotelId) return;
 
@@ -2267,13 +2366,13 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 table: 'audit_submissions'
             }, (payload) => {
                 console.log('Real-time database submission event:', payload);
-                fetchSubmissions();
+                fetchSubmissionsLocal();
             })
             .subscribe();
 
         // 3-second background polling interval to guarantee instant updates if WebSocket/real-time replication is disabled
         const interval = setInterval(() => {
-            fetchSubmissions();
+            fetchSubmissionsLocal();
         }, 3000);
 
         return () => {
@@ -5919,7 +6018,32 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                         return isMatchSearch;
                                                     })
                                                     .map(hotel => {
-                                                        const allHotelItems = items;
+                                                        const possibleIds = [
+                                                            String(hotel.id).toLowerCase(),
+                                                            hotel.code ? String(hotel.code).toLowerCase() : null,
+                                                            hotel.name ? String(hotel.name).toLowerCase() : null
+                                                        ].filter(Boolean) as string[];
+
+                                                        const hotelGroups = groups.filter(g => 
+                                                            g.hotelIds && g.hotelIds.some(hId => 
+                                                                possibleIds.some(phId => String(hId).toLowerCase() === phId)
+                                                            )
+                                                        );
+
+                                                        let assignedItemIds: string[] | null = null;
+                                                        if (hotelGroups.length > 0) {
+                                                            const allItemIds = new Set<string>();
+                                                            hotelGroups.forEach(g => {
+                                                                if (g.itemIds) {
+                                                                    g.itemIds.forEach(id => allItemIds.add(String(id)));
+                                                                }
+                                                            });
+                                                            assignedItemIds = Array.from(allItemIds);
+                                                        }
+
+                                                        const allHotelItems = items.filter(item => 
+                                                            (!assignedItemIds || assignedItemIds.length === 0 || assignedItemIds.includes(String(item.id)))
+                                                        );
                                                         const totalItems = allHotelItems.length;
                                                         const scoredItems = allHotelItems.filter(i => inspectionScores[`${hotel.id}_${i.id}`] !== undefined).length;
                                                         const completionPercent = totalItems > 0 ? Math.round((scoredItems / totalItems) * 100) : 0;
@@ -5936,7 +6060,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                 </td>
                                                                 <td className="px-6 py-4 text-slate-600 font-medium">{hotel.brandClass}</td>
                                                                 <td className="px-6 py-4 text-slate-600 font-medium">{hotel.region || 'N/A'}</td>
-                                                                <td className="px-6 py-4 text-slate-600 font-medium">{groups.filter(g => (g.hotelIds || []).includes(hotel.id)).map(g => g.name).join(', ') || 'Unassigned'}</td>
+                                                                <td className="px-6 py-4 text-slate-600 font-medium">{hotelGroups.map(g => g.name).join(', ') || 'Unassigned'}</td>
                                                                 <td className="px-6 py-4">
                                                                     <div className="flex items-center gap-2 font-bold text-[11px]">
                                                                         <div className="w-16 h-1.5 bg-slate-100 rounded-full overflow-hidden">
@@ -5977,15 +6101,52 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                     </div>
                                 );
 
-                                const allHotelItems = items;
+                                // Filter items and categories based on the audit groups assigned to this hotel
+                                const possibleIds = [
+                                    String(hotel.id).toLowerCase(),
+                                    hotel.code ? String(hotel.code).toLowerCase() : null,
+                                    hotel.name ? String(hotel.name).toLowerCase() : null
+                                ].filter(Boolean) as string[];
+
+                                const hotelGroups = groups.filter(g => 
+                                    g.hotelIds && g.hotelIds.some(hId => 
+                                        possibleIds.some(phId => String(hId).toLowerCase() === phId)
+                                    )
+                                );
+
+                                let assignedItemIds: string[] | null = null;
+                                let assignedCategoryIds: string[] | null = null;
+
+                                if (hotelGroups.length > 0) {
+                                    const allCatIds = new Set<string>();
+                                    const allItemIds = new Set<string>();
+                                    hotelGroups.forEach(g => {
+                                        if (g.categoryIds) {
+                                            g.categoryIds.forEach(id => allCatIds.add(String(id)));
+                                        }
+                                        if (g.itemIds) {
+                                            g.itemIds.forEach(id => allItemIds.add(String(id)));
+                                        }
+                                    });
+                                    assignedCategoryIds = Array.from(allCatIds);
+                                    assignedItemIds = Array.from(allItemIds);
+                                }
+
+                                const allHotelItems = items.filter(item => 
+                                    (!assignedItemIds || assignedItemIds.length === 0 || assignedItemIds.includes(String(item.id)))
+                                );
+
                                 const scoredItems = allHotelItems.filter(i => inspectionScores[`${hotel.id}_${i.id}`] !== undefined);
                                 const totalPointsScored = scoredItems.reduce((sum, i) => sum + Number(inspectionScores[`${hotel.id}_${i.id}`] || 0), 0);
                                 const totalPointsMax = allHotelItems.reduce((sum, i) => sum + (i.points ?? 5), 0);
                                 
-                                const hotelSubs = Object.values(hotelSubmissions);
+                                const hotelSubs = Object.values(hotelSubmissions).filter((sub: any) => 
+                                    allHotelItems.some(item => String(item.id) === String(sub.item_id))
+                                );
                                 const subCount = hotelSubs.length;
 
                                 const categoriesWithItems = catList.filter(cat => 
+                                    (!assignedCategoryIds || assignedCategoryIds.length === 0 || assignedCategoryIds.includes(String(cat.id))) &&
                                     allHotelItems.some(item => item.categoryId === cat.id)
                                 );
 
@@ -6137,6 +6298,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                 const hasSubmission = !!submission;
                                                                 const isPass = currentScore !== undefined && currentScore === (item.points ?? 5);
                                                                 const isFail = currentScore !== undefined && currentScore === 0;
+                                                                const isSelfAudit = item.filled_by_hotel !== false && item.filled_by_hotel !== 'false';
 
                                                                 return (
                                                                     <div 
@@ -6155,9 +6317,13 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                         <span className="px-2 py-0.5 bg-slate-900 text-white text-[9px] font-black rounded-md uppercase tracking-wider">
                                                                                             {item.points ?? 5} Points Max
                                                                                         </span>
-                                                                                        {item.filled_by_hotel && (
+                                                                                        {isSelfAudit ? (
                                                                                             <span className={`px-2 py-0.5 text-[9px] font-black rounded-md uppercase tracking-wider border ${hasSubmission ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
                                                                                                 {hasSubmission ? 'Submission Received' : 'Awaiting for Property Submission.'}
+                                                                                            </span>
+                                                                                        ) : (
+                                                                                            <span className={`px-2 py-0.5 text-[9px] font-black rounded-md uppercase tracking-wider border ${hasSubmission ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-indigo-50 text-indigo-700 border-indigo-200'}`}>
+                                                                                                {hasSubmission ? 'Auditor Evidence Filled' : 'Required Auditor-Filled Item'}
                                                                                             </span>
                                                                                         )}
                                                                                     </div>
@@ -6171,112 +6337,122 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                     )}
                                                                                 </div>
 
-                                                                                {/* SUBMISSION BENTO BOX */}
-                                                                                <div className={`rounded-xl border overflow-hidden transition-all ${
-                                                                                    hasSubmission 
-                                                                                        ? 'bg-slate-50/80 border-slate-200/80' 
-                                                                                        : 'bg-amber-50/30 border-amber-100/60 border-dashed py-3'
-                                                                                }`}>
-                                                                                    {hasSubmission ? (
-                                                                                        <div className="p-3 sm:p-4 space-y-3">
-                                                                                            <div className="flex flex-wrap items-center justify-between gap-1 text-[10px] font-bold">
-                                                                                                <div className="flex items-center gap-1.5">
-                                                                                                    <div className={`w-2 h-2 rounded-full ${submission._is_demo ? 'bg-amber-500' : 'bg-blue-500 animate-pulse'}`} />
-                                                                                                    <span className="font-black text-slate-600 uppercase tracking-wider text-[9px]">
-                                                                                                        {submission._is_demo ? 'Demo Pool Evidence' : 'Property Evidence'}
-                                                                                                    </span>
-                                                                                                </div>
-                                                                                                <span className="text-slate-400 text-[10px]">Submitted by <strong className="text-slate-700 font-bold">{getSubmitterName(submission, hotel)}</strong> • {safeFormatDateTime(submission.created_at)}</span>
-                                                                                            </div>
-
-                                                                                            {submission.is_na ? (
-                                                                                                <div className="bg-amber-100/50 p-3 rounded-xl border border-amber-200 flex items-start gap-2.5">
-                                                                                                    <AlertCircle size={16} className="text-amber-600 shrink-0 mt-0.5" />
-                                                                                                    <div>
-                                                                                                        <p className="text-[10px] font-black text-amber-800 uppercase tracking-tight">Marked as N/A by Property</p>
-                                                                                                        <p className="text-xs text-amber-700 mt-0.5 font-medium">{submission.na_reason || submission.notes || "No reason provided."}</p>
+                                                                                {/* SUBMISSION BENTO BOX OR AUDITOR EVIDENCE FORM */}
+                                                                                {!isSelfAudit ? (
+                                                                                    <AuditorEvidenceForm
+                                                                                        item={item}
+                                                                                        hotel={hotel}
+                                                                                        submission={submission}
+                                                                                        onSaved={fetchHotelSubmissionsForAuditor}
+                                                                                        userProfile={userProfile}
+                                                                                    />
+                                                                                ) : (
+                                                                                    <div className={`rounded-xl border overflow-hidden transition-all ${
+                                                                                        hasSubmission 
+                                                                                            ? 'bg-slate-50/80 border-slate-200/80' 
+                                                                                            : 'bg-amber-50/30 border-amber-100/60 border-dashed py-3'
+                                                                                    }`}>
+                                                                                        {hasSubmission ? (
+                                                                                            <div className="p-3 sm:p-4 space-y-3">
+                                                                                                <div className="flex flex-wrap items-center justify-between gap-1 text-[10px] font-bold">
+                                                                                                    <div className="flex items-center gap-1.5">
+                                                                                                        <div className={`w-2 h-2 rounded-full ${submission._is_demo ? 'bg-amber-500' : 'bg-blue-500 animate-pulse'}`} />
+                                                                                                        <span className="font-black text-slate-600 uppercase tracking-wider text-[9px]">
+                                                                                                            {submission._is_demo ? 'Demo Pool Evidence' : 'Property Evidence'}
+                                                                                                        </span>
                                                                                                     </div>
+                                                                                                    <span className="text-slate-400 text-[10px]">Submitted by <strong className="text-slate-700 font-bold">{getSubmitterName(submission, hotel)}</strong> • {safeFormatDateTime(submission.created_at)}</span>
                                                                                                 </div>
-                                                                                            ) : (
-                                                                                                <div className="space-y-3">
-                                                                                                    {/* Visual Evidence with In-App Lightbox */}
-                                                                                                    {(item.inputType === 'camera' || item.inputType === 'image') && submission.value && (
-                                                                                                         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                                                                                                             {String(submission.value).split(',').map(u => u.trim()).filter(Boolean).map((url, urlIdx) => (
-                                                                                                                 <div 
-                                                                                                                     key={urlIdx}
-                                                                                                                     className="group/img relative rounded-xl border border-slate-200 overflow-hidden bg-slate-900/5 flex items-center justify-center aspect-square cursor-zoom-in transition-all hover:border-indigo-300 hover:shadow-sm"
-                                                                                                                     onClick={() => setEnlargedImage({ url: url, title: `${item.name} — Photo ${urlIdx + 1} — ${hotel.name}` })}
-                                                                                                                 >
-                                                                                                                     <img 
-                                                                                                                         src={url} 
-                                                                                                                         alt={`Submission Photo ${urlIdx + 1}`} 
-                                                                                                                         referrerPolicy="no-referrer" 
-                                                                                                                         className="w-full h-full object-cover" 
-                                                                                                                     />
-                                                                                                                     <div className="absolute inset-0 bg-slate-950/40 opacity-0 group-hover/img:opacity-100 transition-opacity flex flex-col items-center justify-center text-white font-black text-[10px] uppercase tracking-wider text-center p-2 gap-1">
-                                                                                                                         <Maximize2 size={14} />
-                                                                                                                         <span>Enlarge</span>
-                                                                                                                     </div>
-                                                                                                                     <div className="absolute bottom-1.5 right-1.5 bg-slate-900/80 backdrop-blur-md text-white text-[8px] font-extrabold px-1.5 py-0.5 rounded opacity-90 group-hover/img:opacity-0 transition-opacity flex items-center gap-1">
-                                                                                                                         <Eye size={10} /> Photo ${urlIdx + 1}
-                                                                                                                     </div>
-                                                                                                                 </div>
-                                                                                                             ))}
-                                                                                                         </div>
-                                                                                                     )}
 
-                                                                                                     {/* Document Evidence */}
-                                                                                                    {item.inputType === 'document' && submission.value && (
-                                                                                                        <a href={submission.value} target="_blank" rel="noreferrer" className="flex items-center gap-3 p-3 bg-white border border-slate-200 rounded-xl hover:border-indigo-300 hover:shadow-xs transition-all group/doc">
-                                                                                                            <div className="w-10 h-10 bg-indigo-50 rounded-lg flex items-center justify-center text-indigo-600 group-hover/doc:bg-indigo-600 group-hover/doc:text-white transition-colors shrink-0">
-                                                                                                                <FileText size={20} />
-                                                                                                            </div>
-                                                                                                            <div className="flex-1 min-w-0">
-                                                                                                                <p className="text-xs font-black text-slate-800 truncate">Inspection Document</p>
-                                                                                                                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">Click to Open PDF / File</p>
-                                                                                                            </div>
-                                                                                                            <ChevronRight size={16} className="text-slate-300" />
-                                                                                                        </a>
-                                                                                                    )}
+                                                                                                {submission.is_na ? (
+                                                                                                    <div className="bg-amber-100/50 p-3 rounded-xl border border-amber-200 flex items-start gap-2.5">
+                                                                                                        <AlertCircle size={16} className="text-amber-600 shrink-0 mt-0.5" />
+                                                                                                        <div>
+                                                                                                            <p className="text-[10px] font-black text-amber-800 uppercase tracking-tight">Marked as N/A by Property</p>
+                                                                                                            <p className="text-xs text-amber-700 mt-0.5 font-medium">{submission.na_reason || submission.notes || "No reason provided."}</p>
+                                                                                                        </div>
+                                                                                                    </div>
+                                                                                                ) : (
+                                                                                                    <div className="space-y-3">
+                                                                                                        {/* Visual Evidence with In-App Lightbox */}
+                                                                                                        {(item.inputType === 'camera' || item.inputType === 'image') && submission.value && (
+                                                                                                             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                                                                                                                 {String(submission.value).split(',').map(u => u.trim()).filter(Boolean).map((url, urlIdx) => (
+                                                                                                                     <div 
+                                                                                                                         key={urlIdx}
+                                                                                                                         className="group/img relative rounded-xl border border-slate-200 overflow-hidden bg-slate-900/5 flex items-center justify-center aspect-square cursor-zoom-in transition-all hover:border-indigo-300 hover:shadow-sm"
+                                                                                                                         onClick={() => setEnlargedImage({ url: url, title: `${item.name} — Photo ${urlIdx + 1} — ${hotel.name}` })}
+                                                                                                                     >
+                                                                                                                         <img 
+                                                                                                                             src={url} 
+                                                                                                                             alt={`Submission Photo ${urlIdx + 1}`} 
+                                                                                                                             referrerPolicy="no-referrer" 
+                                                                                                                             className="w-full h-full object-cover" 
+                                                                                                                         />
+                                                                                                                         <div className="absolute inset-0 bg-slate-950/40 opacity-0 group-hover/img:opacity-100 transition-opacity flex flex-col items-center justify-center text-white font-black text-[10px] uppercase tracking-wider text-center p-2 gap-1">
+                                                                                                                             <Maximize2 size={14} />
+                                                                                                                             <span>Enlarge</span>
+                                                                                                                         </div>
+                                                                                                                         <div className="absolute bottom-1.5 right-1.5 bg-slate-900/80 backdrop-blur-md text-white text-[8px] font-extrabold px-1.5 py-0.5 rounded opacity-90 group-hover/img:opacity-0 transition-opacity flex items-center gap-1">
+                                                                                                                             <Eye size={10} /> Photo {urlIdx + 1}
+                                                                                                                         </div>
+                                                                                                                     </div>
+                                                                                                                 ))}
+                                                                                                             </div>
+                                                                                                         )}
 
-                                                                                                    {/* Text/Numeric/Check Evidence */}
-                                                                                                    {['text', 'numeric', 'checkbox'].includes(item.inputType) && (
-                                                                                                        <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs flex items-center justify-between">
-                                                                                                            <div>
-                                                                                                                <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider block mb-0.5">Submitted Value</span>
-                                                                                                                <p className="text-base font-black text-slate-900 leading-none">
-                                                                                                                    {item.inputType === 'checkbox' 
-                                                                                                                        ? (String(submission.value).toLowerCase() === 'true' ? 'YES / COMPLIANT' : 'NO / NON-COMPLIANT')
-                                                                                                                        : (submission.value || 'N/A')}
-                                                                                                                </p>
-                                                                                                            </div>
-                                                                                                            {item.inputType === 'numeric' && item.min_value !== undefined && (
-                                                                                                                <div className="text-right">
-                                                                                                                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider block mb-0.5">Min. Required</span>
-                                                                                                                    <p className="text-sm font-black text-indigo-600 leading-none">{item.min_value}</p>
+                                                                                                         {/* Document Evidence */}
+                                                                                                        {item.inputType === 'document' && submission.value && (
+                                                                                                            <div onClick={() => handleDocumentDownload(submission.value, item.name)} className="flex items-center gap-3 p-3 bg-white border border-slate-200 rounded-xl hover:border-indigo-300 hover:shadow-xs transition-all group/doc cursor-pointer">
+                                                                                                                <div className="w-10 h-10 bg-indigo-50 rounded-lg flex items-center justify-center text-indigo-600 group-hover/doc:bg-indigo-600 group-hover/doc:text-white transition-colors shrink-0">
+                                                                                                                    <FileText size={20} />
                                                                                                                 </div>
-                                                                                                            )}
-                                                                                                        </div>
-                                                                                                    )}
+                                                                                                                <div className="flex-1 min-w-0">
+                                                                                                                    <p className="text-xs font-black text-slate-800 truncate">Inspection Document</p>
+                                                                                                                    <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">Click Card to Download / Open Document</p>
+                                                                                                                </div>
+                                                                                                                <button type="button" onClick={(e) => { e.stopPropagation(); handleCopyDocLink(submission.value, submission.id || item.id); }} className="text-[10px] bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded-lg font-bold transition-all shrink-0 z-10 cursor-pointer">{copiedDocId === (submission.id || item.id) ? 'Copied!' : 'Copy Link'}</button>
+                                                                                                            </div>
+                                                                                                        )}
 
-                                                                                                    {/* Hotel Remarks / Notes */}
-                                                                                                    {(submission.notes || submission.na_reason || submission.remark || submission.comments) && (
-                                                                                                        <div className="bg-indigo-50/70 p-3 rounded-xl border border-indigo-100/80 border-l-4 border-l-indigo-500">
-                                                                                                            <span className="text-[9px] font-black text-indigo-500 uppercase tracking-wider block mb-0.5">Hotel Remarks & Notes</span>
-                                                                                                            <p className="text-xs text-slate-700 font-medium leading-relaxed italic">"{submission.notes || submission.na_reason || submission.remark || submission.comments}"</p>
-                                                                                                        </div>
-                                                                                                    )}
-                                                                                                </div>
-                                                                                            )}
-                                                                                        </div>
-                                                                                    ) : (
-                                                                                        <div className="flex items-center justify-center text-center px-4 py-2 gap-2">
-                                                                                            <Clock size={14} className="text-amber-500 shrink-0" />
-                                                                                            <span className="text-xs font-black text-amber-800 tracking-tight">Awaiting for Property Submission.</span>
-                                                                                        </div>
-                                                                                    )}
-                                                                                </div>
+                                                                                                        {/* Text/Numeric/Check Evidence */}
+                                                                                                        {['text', 'numeric', 'checkbox'].includes(item.inputType) && (
+                                                                                                            <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs flex items-center justify-between">
+                                                                                                                <div>
+                                                                                                                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider block mb-0.5">Submitted Value</span>
+                                                                                                                    <p className="text-base font-black text-slate-900 leading-none">
+                                                                                                                        {item.inputType === 'checkbox' 
+                                                                                                                            ? (String(submission.value).toLowerCase() === 'true' ? 'YES / COMPLIANT' : 'NO / NON-COMPLIANT')
+                                                                                                                            : (submission.value || 'N/A')}
+                                                                                                                    </p>
+                                                                                                                </div>
+                                                                                                                {item.inputType === 'numeric' && item.min_value !== undefined && (
+                                                                                                                    <div className="text-right">
+                                                                                                                        <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider block mb-0.5">Min. Required</span>
+                                                                                                                        <p className="text-sm font-black text-indigo-600 leading-none">{item.min_value}</p>
+                                                                                                                    </div>
+                                                                                                                )}
+                                                                                                            </div>
+                                                                                                        )}
+
+                                                                                                        {/* Hotel Remarks / Notes */}
+                                                                                                        {(submission.notes || submission.na_reason || submission.remark || submission.comments) && (
+                                                                                                            <div className="bg-indigo-50/70 p-3 rounded-xl border border-indigo-100/80 border-l-4 border-l-indigo-500">
+                                                                                                                <span className="text-[9px] font-black text-indigo-500 uppercase tracking-wider block mb-0.5">Hotel Remarks & Notes</span>
+                                                                                                                <p className="text-xs text-slate-700 font-medium leading-relaxed italic">"{submission.notes || submission.na_reason || submission.remark || submission.comments}"</p>
+                                                                                                            </div>
+                                                                                                        )}
+                                                                                                    </div>
+                                                                                                )}
+                                                                                            </div>
+                                                                                        ) : (
+                                                                                            <div className="flex items-center justify-center text-center px-4 py-2 gap-2">
+                                                                                                <Clock size={14} className="text-amber-500 shrink-0" />
+                                                                                                <span className="text-xs font-black text-amber-800 tracking-tight">Awaiting for Property Submission.</span>
+                                                                                            </div>
+                                                                                        )}
+                                                                                    </div>
+                                                                                )}
                                                                             </div>
                                                                                                                                    {/* RIGHT SIDE: AUDITOR CONTROLS */}
                                                                             <div className="lg:w-72 lg:shrink-0 bg-slate-50/70 border-t lg:border-t-0 lg:border-l border-slate-200/80 p-4 flex flex-col justify-between gap-3">
@@ -6424,9 +6600,21 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                             // 1. Helper to calculate progress for a single hotel
                             const getHotelProgress = (hotelId: string) => {
                                 const hIdLower = String(hotelId).toLowerCase();
+                                const currentHotel = hotels.find(h => 
+                                    String(h.id).toLowerCase() === hIdLower || 
+                                    (h.code && String(h.code).toLowerCase() === hIdLower)
+                                );
+                                
+                                const possibleIds = [
+                                    hIdLower,
+                                    currentHotel?.id ? String(currentHotel.id).toLowerCase() : null,
+                                    currentHotel?.code ? String(currentHotel.code).toLowerCase() : null,
+                                    currentHotel?.name ? String(currentHotel.name).toLowerCase() : null
+                                ].filter(Boolean) as string[];
+
                                 const assignedGroups = groups.filter(g => {
                                     const hotelIds = g.hotelIds || g.hotel_id || [];
-                                    return hotelIds.some(hId => String(hId).toLowerCase() === hIdLower);
+                                    return hotelIds.some(hId => possibleIds.includes(String(hId).toLowerCase()));
                                 });
 
                                 let assignedCategoryIds: string[] | null = null;

@@ -116,6 +116,62 @@ const AuditItemCard: React.FC<{
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
     const [photos, setPhotos] = useState<PhotoItem[]>([]);
 
+    const [copied, setCopied] = useState(false);
+
+    const handleCopyLink = (text: string) => {
+        if (!text) return;
+        navigator.clipboard.writeText(text).then(() => {
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+        }).catch(err => {
+            console.error("Failed to copy:", err);
+            alert("Could not copy automatically. Link: " + text.substring(0, 100) + "...");
+        });
+    };
+
+    const handleDocumentDownload = (val: string) => {
+        if (!val) return;
+        try {
+            if (val.startsWith('data:')) {
+                const mimeMatch = val.match(/^data:([^;]+);/);
+                let ext = '.bin';
+                if (mimeMatch) {
+                    const mime = mimeMatch[1];
+                    if (mime.includes('pdf')) ext = '.pdf';
+                    else if (mime.includes('wordprocessingml.document') || mime.includes('docx')) ext = '.docx';
+                    else if (mime.includes('msword') || mime.includes('doc')) ext = '.doc';
+                    else if (mime.includes('spreadsheetml.sheet') || mime.includes('xlsx')) ext = '.xlsx';
+                    else if (mime.includes('ms-excel') || mime.includes('xls')) ext = '.xls';
+                    else if (mime.includes('png')) ext = '.png';
+                    else if (mime.includes('jpeg') || mime.includes('jpg')) ext = '.jpg';
+                    else if (mime.includes('zip')) ext = '.zip';
+                }
+                
+                const link = document.createElement('a');
+                link.href = val;
+                const cleanedName = (item.name || 'document').replace(/[^a-zA-Z0-9_-]/g, '_');
+                link.download = `Evidence_${cleanedName}${ext}`;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            } else {
+                const link = document.createElement('a');
+                link.href = val;
+                link.target = '_blank';
+                link.rel = 'noreferrer';
+                if (val.startsWith('blob:')) {
+                    link.download = `Evidence_${(item.name || 'document').replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+                }
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            }
+        } catch (e) {
+            console.error("Error opening/downloading document:", e);
+            window.open(val, '_blank');
+        }
+    };
+
     const isLockedByAnother = activeLock && activeLock.locked_by_email !== userProfile?.email;
     const isFieldDisabled = isSubmitted || !!locked || !!isLockedByAnother;
 
@@ -455,8 +511,8 @@ const AuditItemCard: React.FC<{
                             const { data: urlData } = supabase.storage.from('documents').getPublicUrl(fileName);
                             finalValue = urlData.publicUrl;
                         } catch (err) {
-                            console.warn("Supabase storage upload failed, using local blob.", err);
-                            finalValue = URL.createObjectURL(selectedFile);
+                            console.warn("Supabase storage upload failed, using Base64 fallback.", err);
+                            finalValue = await fileToBase64(selectedFile);
                         }
                     } else if (!finalValue) {
                         alert("Please select a document.");
@@ -681,21 +737,50 @@ const AuditItemCard: React.FC<{
                 return (
                     <div className="mt-3">
                         {selectedFile || value ? (
-                            <div className="flex items-center gap-2.5 sm:gap-3 bg-slate-50 border border-slate-200 p-3 sm:p-4 rounded-xl shadow-sm">
-                                <FileUp size={20} className="text-indigo-500 shrink-0 sm:w-6 sm:h-6" />
-                                <div className="flex-1 min-w-0">
-                                    <p className="text-xs sm:text-sm font-bold text-slate-800 truncate">
-                                        {selectedFile?.name || "Uploaded Document"}
-                                    </p>
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50 border border-slate-200 p-3 sm:p-4 rounded-xl shadow-sm">
+                                <div className="flex items-center gap-2.5 sm:gap-3 flex-1 min-w-0">
+                                    <FileUp size={20} className="text-indigo-500 shrink-0 sm:w-6 sm:h-6" />
+                                    <div className="flex-1 min-w-0">
+                                        <p className="text-xs sm:text-sm font-bold text-slate-800 truncate">
+                                            {selectedFile?.name || "Uploaded Document"}
+                                        </p>
+                                        {!selectedFile && value && (
+                                            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">
+                                                {value.startsWith('data:') ? 'Base64 Encoded Document' : 'Cloud Stored File'}
+                                            </p>
+                                        )}
+                                    </div>
                                 </div>
-                                {!isFieldDisabled && (
-                                    <button 
-                                        onClick={() => { setSelectedFile(null); setValue(''); }}
-                                        className="text-red-500 hover:bg-red-50 p-1.5 rounded-full shrink-0"
-                                    >
-                                        <X size={16} />
-                                    </button>
-                                )}
+                                
+                                <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
+                                    {!selectedFile && value && (
+                                        <>
+                                            <button 
+                                                type="button"
+                                                onClick={() => handleDocumentDownload(value)} 
+                                                className="text-[10px] bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-extrabold px-2.5 py-1.5 rounded-lg transition-colors cursor-pointer"
+                                            >
+                                                Download / Open
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => handleCopyLink(value)}
+                                                className="text-[10px] bg-slate-100 hover:bg-slate-200 text-slate-700 font-extrabold px-2.5 py-1.5 rounded-lg transition-colors cursor-pointer"
+                                            >
+                                                {copied ? 'Copied!' : 'Copy Link'}
+                                            </button>
+                                        </>
+                                    )}
+                                    {!isFieldDisabled && (
+                                        <button 
+                                            type="button"
+                                            onClick={() => { setSelectedFile(null); setValue(''); }}
+                                            className="text-red-500 hover:bg-red-50 p-1.5 rounded-full shrink-0"
+                                        >
+                                            <X size={16} />
+                                        </button>
+                                    )}
+                                </div>
                             </div>
                         ) : (
                             <div>
