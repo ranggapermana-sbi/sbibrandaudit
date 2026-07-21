@@ -276,7 +276,7 @@ const AuditItemCard: React.FC<{
                 table: 'audit_submissions'
             }, (payload) => {
                 console.log("DEBUG: Subscription payload (no filter):", payload);
-                if (payload.new && payload.new.item_id === item.id && String(payload.new.hotel_id) === String(hotelId)) {
+                if (payload.new && String(payload.new.item_id) === String(item.id) && String(payload.new.hotel_id) === String(hotelId)) {
                     const submission = payload.new;
                     console.log("DEBUG: Subscription unlock status (no filter):", {
                         is_unlocked: submission.is_unlocked,
@@ -288,8 +288,28 @@ const AuditItemCard: React.FC<{
             })
             .subscribe();
 
+        const unlockChannel = supabase
+            .channel(`unlock-${hotelId}-${item.id}`)
+            .on('postgres_changes', {
+                event: '*',
+                schema: 'public',
+                table: 'audit_item_unlocks'
+            }, (payload) => {
+                console.log("DEBUG: Real-time event on audit_item_unlocks:", payload);
+                if (payload.eventType === 'DELETE') {
+                    // Check if it's currently unlocked. We can refetch or set false.
+                    setItemIsUnlocked(false);
+                    setUnlockedBy('');
+                } else if (payload.new && String(payload.new.item_id) === String(item.id) && String(payload.new.hotel_id) === String(hotelId)) {
+                    setItemIsUnlocked(true);
+                    setUnlockedBy(payload.new.unlocked_by || 'Auditor');
+                }
+            })
+            .subscribe();
+
         return () => {
             supabase.removeChannel(submissionChannel);
+            supabase.removeChannel(unlockChannel);
         };
     }, [hotelId, item.id]);
 
@@ -310,13 +330,32 @@ const AuditItemCard: React.FC<{
                 setValue(val);
                 setIsNa(submission.is_na || false);
                 setNaReason(submission.na_reason || submission.notes || submission.remark || '');
-                setItemIsUnlocked(submission.is_unlocked || false);
-                setUnlockedBy(submission.unlocked_by || '');
+                
+                let isUnlockedFlag = submission.is_unlocked || false;
+                let unlockedByFlag = submission.unlocked_by || '';
+
+                try {
+                    const { data: unlockData, error: unlockError } = await supabase
+                        .from('audit_item_unlocks')
+                        .select('*')
+                        .eq('hotel_id', hotelId)
+                        .eq('item_id', item.id)
+                        .maybeSingle();
+                    if (!unlockError && unlockData) {
+                        isUnlockedFlag = true;
+                        unlockedByFlag = unlockData.unlocked_by || 'Auditor';
+                    }
+                } catch (e) {
+                    console.warn("Could not fetch audit_item_unlocks override:", e);
+                }
+
+                setItemIsUnlocked(isUnlockedFlag);
+                setUnlockedBy(unlockedByFlag);
+                
                 console.log("DEBUG: Fetched submission unlock status:", {
-                    is_unlocked: submission.is_unlocked,
-                    unlocked_by: submission.unlocked_by,
-                    item_id: submission.item_id,
-                    item_id_match: submission.item_id === item.id
+                    is_unlocked: isUnlockedFlag,
+                    unlocked_by: unlockedByFlag,
+                    item_id: item.id
                 });
                 setIsSubmitted(true);
                 setSubmittedBy(submission.submitted_by_name || submission.submitted_by || submission.user_name || '');
@@ -339,9 +378,29 @@ const AuditItemCard: React.FC<{
                 // Sync to local storage
                 localStorage.setItem(`sbi_audit_${hotelId}_${item.id}`, JSON.stringify({
                     ...submission,
+                    is_unlocked: isUnlockedFlag,
+                    unlocked_by: unlockedByFlag,
                     isSubmitted: true
                 }));
             } else if (active) {
+                // Check if there is an override item unlock record from the separate table
+                let overrideUnlocked = false;
+                let overrideUnlockedBy = '';
+                try {
+                    const { data: unlockData, error: unlockError } = await supabase
+                        .from('audit_item_unlocks')
+                        .select('*')
+                        .eq('hotel_id', hotelId)
+                        .eq('item_id', item.id)
+                        .maybeSingle();
+                    if (!unlockError && unlockData) {
+                        overrideUnlocked = true;
+                        overrideUnlockedBy = unlockData.unlocked_by || 'Auditor';
+                    }
+                } catch (e) {
+                    console.warn("Could not check unlock override for empty submission:", e);
+                }
+
                 // Fall back to local storage if no cloud record
                 const stored = localStorage.getItem(`sbi_audit_${hotelId}_${item.id}`);
                 if (stored) {
@@ -352,7 +411,8 @@ const AuditItemCard: React.FC<{
                         setIsNa(localData.is_na || false);
                         setNaReason(localData.na_reason || localData.notes || localData.remark || '');
                         setIsSubmitted(localData.isSubmitted || false);
-                        setItemIsUnlocked(localData.is_unlocked || false);
+                        setItemIsUnlocked(overrideUnlocked || localData.is_unlocked || false);
+                        setUnlockedBy(overrideUnlockedBy || localData.unlocked_by || '');
                         setSubmittedBy(localData.submitted_by_name || localData.submitted_by || localData.submitted_by_user || '');
                         
                         if (val && (item.input_type === 'camera' || item.input_type === 'image')) {
@@ -376,6 +436,8 @@ const AuditItemCard: React.FC<{
                     setIsNa(false);
                     setNaReason('');
                     setIsSubmitted(false);
+                    setItemIsUnlocked(overrideUnlocked);
+                    setUnlockedBy(overrideUnlockedBy);
                     setPreviewUrl(null);
                     setSubmittedBy('');
                     setPhotos([]);
@@ -663,6 +725,17 @@ const AuditItemCard: React.FC<{
                         console.error("Even small localStorage save failed:", lsErr2);
                     }
                 }
+            }
+
+            // Clean up override locks so it is correctly locked after re-submission
+            try {
+                await supabase
+                    .from('audit_item_unlocks')
+                    .delete()
+                    .eq('hotel_id', hotelId)
+                    .eq('item_id', item.id);
+            } catch (delUnlockErr) {
+                console.warn("Could not delete from audit_item_unlocks table on re-submission:", delUnlockErr);
             }
 
             setValue(finalValue);

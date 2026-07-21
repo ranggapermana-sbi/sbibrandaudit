@@ -1585,6 +1585,20 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 console.warn("Could not unlock item in database:", error);
             }
 
+            // Robust multi-user tracking: upsert into audit_item_unlocks
+            try {
+                await supabase
+                    .from('audit_item_unlocks')
+                    .upsert({
+                        hotel_id: hotelId,
+                        item_id: itemId,
+                        unlocked_by: auditorName,
+                        unlocked_at: new Date().toISOString()
+                    }, { onConflict: 'hotel_id,item_id' });
+            } catch (unlockErr) {
+                console.warn("Failed to insert into audit_item_unlocks:", unlockErr);
+            }
+
             // Update local state to reflect the unlock
             setHotelSubmissions(prev => {
                 const sub = prev[itemId];
@@ -1844,14 +1858,14 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             // Fetch recent item submissions
             const { data: subsData, error: subsError } = await supabase
                 .from('audit_submissions')
-                .select('*, hotels(name, code)')
+                .select('*')
                 .order('created_at', { ascending: false })
                 .limit(200);
             
             // Fetch hotel audit statuses
             const { data: statusData, error: statusError } = await supabase
                 .from('hotel_audit_status')
-                .select('*, hotels(name, code)')
+                .select('*')
                 .order('finalized_at', { ascending: false });
 
             // Fetch user enrollments and approvals
@@ -9282,17 +9296,17 @@ CREATE POLICY "Allow public delete auditor_category_assignments" ON auditor_cate
                             ) : sqlModalTab === 'finalize' ? (
                                 <>
                                     <p className="text-slate-300 font-medium leading-relaxed">
-                                        Execute the following SQL script in your <strong className="text-emerald-400">Supabase Dashboard → SQL Editor</strong> to enable permanent <strong className="text-emerald-400">Self-Audit Locking & Submission Finalisation</strong>:
+                                        Execute the following SQL script in your <strong className="text-emerald-400">Supabase Dashboard → SQL Editor</strong> to enable permanent <strong className="text-emerald-400">Self-Audit Locking & Submission Finalisation & granular item unlocking</strong>:
                                     </p>
 
                                     <div className="relative bg-slate-950 border border-slate-800 rounded-2xl p-4 font-mono text-[11px] text-emerald-300 overflow-x-auto leading-relaxed">
                                         <button
                                             onClick={() => {
-                                                const sqlText = `CREATE TABLE IF NOT EXISTS hotel_audit_status (\n    hotel_id VARCHAR(100) PRIMARY KEY,\n    is_finalized BOOLEAN DEFAULT false,\n    finalized_by VARCHAR(255),\n    finalized_at TIMESTAMP WITH TIME ZONE,\n    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL\n);\n\nALTER TABLE hotel_audit_status ENABLE ROW LEVEL SECURITY;\n\nCREATE POLICY "Allow public read hotel_audit_status" ON hotel_audit_status FOR SELECT USING (true);\nCREATE POLICY "Allow public insert/update hotel_audit_status" ON hotel_audit_status FOR ALL USING (true);`;
+                                                const sqlText = `CREATE TABLE IF NOT EXISTS hotel_audit_status (\n    hotel_id VARCHAR(100) PRIMARY KEY,\n    is_finalized BOOLEAN DEFAULT false,\n    finalized_by VARCHAR(255),\n    finalized_at TIMESTAMP WITH TIME ZONE,\n    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL\n);\n\nALTER TABLE hotel_audit_status ENABLE ROW LEVEL SECURITY;\n\nCREATE POLICY "Allow public read hotel_audit_status" ON hotel_audit_status FOR SELECT USING (true);\nCREATE POLICY "Allow public insert/update hotel_audit_status" ON hotel_audit_status FOR ALL USING (true);\n\nCREATE TABLE IF NOT EXISTS audit_item_unlocks (\n    hotel_id VARCHAR(100) NOT NULL,\n    item_id VARCHAR(100) NOT NULL,\n    unlocked_by VARCHAR(255) NOT NULL,\n    unlocked_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,\n    PRIMARY KEY (hotel_id, item_id)\n);\n\nALTER TABLE audit_item_unlocks ENABLE ROW LEVEL SECURITY;\n\nDROP POLICY IF EXISTS "Allow public read audit_item_unlocks" ON audit_item_unlocks;\nCREATE POLICY "Allow public read audit_item_unlocks" ON audit_item_unlocks FOR SELECT USING (true);\n\nDROP POLICY IF EXISTS "Allow public write audit_item_unlocks" ON audit_item_unlocks;\nCREATE POLICY "Allow public write audit_item_unlocks" ON audit_item_unlocks FOR ALL USING (true);`;
                                                 navigator.clipboard.writeText(sqlText);
                                                 setCopiedSql(true);
                                                 setTimeout(() => setCopiedSql(false), 2500);
-                                            }}
+                                             }}
                                             className="absolute top-3 right-3 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-lg font-sans text-[10px] font-bold flex items-center gap-1.5 transition-all border border-slate-700 active:scale-95"
                                         >
                                             {copiedSql ? (
@@ -9321,7 +9335,25 @@ CREATE TABLE IF NOT EXISTS hotel_audit_status (
 ALTER TABLE hotel_audit_status ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "Allow public read hotel_audit_status" ON hotel_audit_status FOR SELECT USING (true);
-CREATE POLICY "Allow public insert/update hotel_audit_status" ON hotel_audit_status FOR ALL USING (true);`}
+CREATE POLICY "Allow public insert/update hotel_audit_status" ON hotel_audit_status FOR ALL USING (true);
+
+-- Create table for granular item unlock/lock override (for multi-user environments)
+CREATE TABLE IF NOT EXISTS audit_item_unlocks (
+    hotel_id VARCHAR(100) NOT NULL,
+    item_id VARCHAR(100) NOT NULL,
+    unlocked_by VARCHAR(255) NOT NULL,
+    unlocked_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    PRIMARY KEY (hotel_id, item_id)
+);
+
+-- Enable Row Level Security & set access policies
+ALTER TABLE audit_item_unlocks ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Allow public read audit_item_unlocks" ON audit_item_unlocks;
+CREATE POLICY "Allow public read audit_item_unlocks" ON audit_item_unlocks FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "Allow public write audit_item_unlocks" ON audit_item_unlocks;
+CREATE POLICY "Allow public write audit_item_unlocks" ON audit_item_unlocks FOR ALL USING (true);`}
                                         </pre>
                                     </div>
                                 </>
