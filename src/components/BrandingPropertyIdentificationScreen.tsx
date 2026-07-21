@@ -112,6 +112,7 @@ const AuditItemCard: React.FC<{
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [isSubmitted, setIsSubmitted] = useState(false);
     const [itemIsUnlocked, setItemIsUnlocked] = useState(false);
+    const [unlockedBy, setUnlockedBy] = useState('');
     const [submittedBy, setSubmittedBy] = useState<string>('');
     const [previewUrl, setPreviewUrl] = useState<string | null>(null);
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -1033,12 +1034,20 @@ const AuditItemCard: React.FC<{
                             <span>Audit Finalised - Locked</span>
                         </div>
                     ) : (
-                        <button 
-                            onClick={() => setIsSubmitted(false)}
-                            className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2.5 sm:py-3.5 rounded-lg sm:rounded-xl text-xs sm:text-sm transition-all active:scale-[0.98]"
-                        >
-                            Edit Submission
-                        </button>
+                        <>
+                            {itemIsUnlocked && (
+                                <div className="text-[10px] text-emerald-600 font-bold mb-2 flex items-center gap-1">
+                                    <Unlock size={12} />
+                                    <span>Item Unlocked by Auditor</span>
+                                </div>
+                            )}
+                            <button 
+                                onClick={() => setIsSubmitted(false)}
+                                className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2.5 sm:py-3.5 rounded-lg sm:rounded-xl text-xs sm:text-sm transition-all active:scale-[0.98]"
+                            >
+                                Edit Submission
+                            </button>
+                        </>
                     )
                 )}
             </div>
