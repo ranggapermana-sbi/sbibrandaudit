@@ -258,13 +258,40 @@ const AuditItemCard: React.FC<{
     };
 
     useEffect(() => {
-        console.log("AuditItemCard DEBUG:", { itemIsUnlocked, locked, item: item.name });
+        console.log("DEBUG: AuditItemCard state changed:", { itemIsUnlocked, unlockedBy, itemName: item.name });
         return () => {
             if (streamRef.current) {
                 streamRef.current.getTracks().forEach(t => t.stop());
             }
         };
-    }, [itemIsUnlocked, locked]);
+    }, [itemIsUnlocked, unlockedBy]);
+
+    // Real-time subscription for unlock status
+    useEffect(() => {
+        const submissionChannel = supabase
+            .channel(`submission-${hotelId}-${item.id}`)
+            .on('postgres_changes', {
+                event: 'UPDATE',
+                schema: 'public',
+                table: 'audit_submissions'
+            }, (payload) => {
+                console.log("DEBUG: Subscription payload (no filter):", payload);
+                if (payload.new && payload.new.item_id === item.id && String(payload.new.hotel_id) === String(hotelId)) {
+                    const submission = payload.new;
+                    console.log("DEBUG: Subscription unlock status (no filter):", {
+                        is_unlocked: submission.is_unlocked,
+                        unlocked_by: submission.unlocked_by
+                    });
+                    setItemIsUnlocked(submission.is_unlocked || false);
+                    setUnlockedBy(submission.unlocked_by || '');
+                }
+            })
+            .subscribe();
+
+        return () => {
+            supabase.removeChannel(submissionChannel);
+        };
+    }, [hotelId, item.id]);
 
     // Initialize from Supabase with local storage fallback
     const fetchExistingSubmission = useCallback(async (active = true) => {
@@ -285,6 +312,12 @@ const AuditItemCard: React.FC<{
                 setNaReason(submission.na_reason || submission.notes || submission.remark || '');
                 setItemIsUnlocked(submission.is_unlocked || false);
                 setUnlockedBy(submission.unlocked_by || '');
+                console.log("DEBUG: Fetched submission unlock status:", {
+                    is_unlocked: submission.is_unlocked,
+                    unlocked_by: submission.unlocked_by,
+                    item_id: submission.item_id,
+                    item_id_match: submission.item_id === item.id
+                });
                 setIsSubmitted(true);
                 setSubmittedBy(submission.submitted_by_name || submission.submitted_by || submission.user_name || '');
                 
@@ -1037,7 +1070,8 @@ const AuditItemCard: React.FC<{
                         </div>
                     ) : (
                         <>
-                            {itemIsUnlocked && (
+                            {console.log("DEBUG: Rendering unlock indicator for", item.name, ":", itemIsUnlocked, unlockedBy)}
+                            {(itemIsUnlocked || unlockedBy) && (
                                 <div className="text-[10px] text-emerald-600 font-bold mb-2 flex items-center gap-1">
                                     <Unlock size={12} />
                                     <span>{item.name} Unlocked by {unlockedBy || 'Auditor'}</span>
@@ -1144,26 +1178,8 @@ export default function BrandingPropertyIdentificationScreen({ selectedCategory,
             });
         }, 10000);
 
-        const submissionChannel = supabase
-            .channel(`submission-${selectedHotelId}-${item.id}`)
-            .on('postgres_changes', {
-                event: 'UPDATE',
-                schema: 'public',
-                table: 'audit_submissions',
-                filter: `hotel_id=eq.${selectedHotelId}&item_id=eq.${item.id}`
-            }, (payload) => {
-                console.log("Subscription payload:", payload);
-                if (payload.new.item_id === item.id) {
-                    const submission = payload.new;
-                    setItemIsUnlocked(submission.is_unlocked || false);
-                    setUnlockedBy(submission.unlocked_by || '');
-                }
-            })
-            .subscribe();
-
         return () => {
             supabase.removeChannel(channel);
-            supabase.removeChannel(submissionChannel);
             clearInterval(interval);
         };
     }, [selectedHotelId]);
