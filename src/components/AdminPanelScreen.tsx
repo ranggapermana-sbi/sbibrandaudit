@@ -1566,56 +1566,39 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         }
     };
 
-
-
-    const handleUnlockItem = async (hotelId: string, itemId: string) => {
-        const auditorName = userProfile ? `${userProfile.first_name || ''} ${userProfile.last_name || ''}`.trim() || userProfile.display_name || 'Admin' : 'Admin';
+    const handleUnlockHotel = async (hotelId: string) => {
         try {
             const { error } = await supabase
-                .from('audit_submissions')
-                .update({ 
-                    is_unlocked: true, 
-                    unlocked_by: auditorName,
-                    updated_at: new Date().toISOString() 
-                })
-                .eq('hotel_id', hotelId)
-                .eq('item_id', itemId);
+                .from('hotel_audit_status')
+                .upsert({
+                    hotel_id: hotelId,
+                    is_finalized: false,
+                    updated_at: new Date().toISOString()
+                }, { onConflict: 'hotel_id' });
 
             if (error) {
-                console.warn("Could not unlock item in database:", error);
+                console.warn("Could not save unlock to database:", error);
             }
 
-            // Robust multi-user tracking: upsert into audit_item_unlocks
-            try {
-                await supabase
-                    .from('audit_item_unlocks')
-                    .upsert({
-                        hotel_id: hotelId,
-                        item_id: itemId,
-                        unlocked_by: auditorName,
-                        unlocked_at: new Date().toISOString()
-                    }, { onConflict: 'hotel_id,item_id' });
-            } catch (unlockErr) {
-                console.warn("Failed to insert into audit_item_unlocks:", unlockErr);
-            }
+            localStorage.setItem(`sbi_audit_finalized_${hotelId}`, 'false');
+            localStorage.removeItem(`sbi_audit_finalized_by_${hotelId}`);
+            localStorage.removeItem(`sbi_audit_finalized_at_${hotelId}`);
 
-            // Update local state to reflect the unlock
-            setHotelSubmissions(prev => {
-                const sub = prev[itemId];
-                if (sub) {
-                    return { ...prev, [itemId]: { ...sub, is_unlocked: true } };
-                }
-                return prev;
-            });
-
-            setToastMessage("Audit item successfully unlocked for re-submission.");
+            setFinalizedStatuses(prev => ({
+                ...prev,
+                [hotelId]: { is_finalized: false }
+            }));
+            
+            setToastMessage("Hotel's self-audit successfully unlocked!");
             setTimeout(() => setToastMessage(null), 3000);
         } catch (err) {
-            console.error("Error unlocking item:", err);
-            setToastMessage("An error occurred while unlocking the item.");
+            console.error("Error unlocking hotel:", err);
+            setToastMessage("An error occurred while unlocking.");
             setTimeout(() => setToastMessage(null), 3000);
         }
     };
+
+    // Fetch hotels function
     const fetchHotelsFromSupabase = async () => {
         setIsSupabaseLoading(true);
         setSupabaseErrorMsg(null);
@@ -1858,14 +1841,14 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             // Fetch recent item submissions
             const { data: subsData, error: subsError } = await supabase
                 .from('audit_submissions')
-                .select('*')
+                .select('*, hotels(name, code)')
                 .order('created_at', { ascending: false })
                 .limit(200);
             
             // Fetch hotel audit statuses
             const { data: statusData, error: statusError } = await supabase
                 .from('hotel_audit_status')
-                .select('*')
+                .select('*, hotels(name, code)')
                 .order('finalized_at', { ascending: false });
 
             // Fetch user enrollments and approvals
@@ -6206,7 +6189,16 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                 </div>
 
                                                 <div className="flex flex-wrap gap-3">
-
+                                                    {finalizedStatuses[hotel.id]?.is_finalized && (
+                                                        <button 
+                                                            onClick={() => handleUnlockHotel(hotel.id)}
+                                                            className="h-11 px-5 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 rounded-2xl flex items-center gap-2 text-xs font-black uppercase tracking-widest text-emerald-400 transition-all active:scale-95"
+                                                            title={`Finalised by ${finalizedStatuses[hotel.id]?.finalized_by || 'Representative'} on ${finalizedStatuses[hotel.id]?.finalized_at ? new Date(finalizedStatuses[hotel.id]?.finalized_at).toLocaleDateString() : ''}. Click to unlock.`}
+                                                        >
+                                                            <Unlock size={14} className="text-emerald-400" />
+                                                            Unlock Audit
+                                                        </button>
+                                                    )}
                                                     <button 
                                                         onClick={async () => {
                                                             const { data: directData, error: e1 } = await supabase
@@ -6308,7 +6300,16 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                 <span className={`px-2.5 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider border ${isCatComplete ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-indigo-50 text-indigo-700 border-indigo-200'}`}>
                                                                     {scoredInCat} / {catItems.length} REVIEWED
                                                                 </span>
-
+                                                                {finalizedStatuses[hotel.id]?.is_finalized && (
+                                                                    <button 
+                                                                        onClick={() => handleUnlockHotel(hotel.id)}
+                                                                        className="ml-2 inline-flex items-center gap-1 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all active:scale-95"
+                                                                        title="Unlock Audit for Re-submission"
+                                                                    >
+                                                                        <Unlock size={12} className="text-emerald-600" />
+                                                                        Unlock Audit
+                                                                    </button>
+                                                                )}
                                                             </div>
                                                         </div>
 
@@ -6349,16 +6350,6 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                             <span className={`px-2 py-0.5 text-[9px] font-black rounded-md uppercase tracking-wider border ${hasSubmission ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-indigo-50 text-indigo-700 border-indigo-200'}`}>
                                                                                                 {hasSubmission ? 'Auditor Evidence Filled' : 'Required Auditor-Filled Item'}
                                                                                             </span>
-                                                                                        )}
-                                                                                        {finalizedStatuses[hotel.id]?.is_finalized && isSelfAudit && (
-                                                                                            <button
-                                                                                                onClick={(e) => { e.stopPropagation(); handleUnlockItem(hotel.id, item.id); }}
-                                                                                                className="ml-auto inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-md text-[9px] font-black uppercase tracking-wider transition-all active:scale-95"
-                                                                                                title="Unlock this specific item for re-submission by the property"
-                                                                                            >
-                                                                                                <Unlock size={10} className="text-emerald-600" />
-                                                                                                Unlock Item
-                                                                                            </button>
                                                                                         )}
                                                                                     </div>
                                                                                     <h4 className="text-base font-black text-slate-800 leading-tight tracking-tight group-hover:text-indigo-600 transition-colors">
@@ -7095,7 +7086,16 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                     </td>
                                                                     <td className="px-6 py-4 text-right">
                                                                         <div className="flex items-center justify-end gap-2">
-
+                                                                            {finalInfo.is_finalized && (
+                                                                                <button
+                                                                                    onClick={() => handleUnlockHotel(h.id)}
+                                                                                    className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-emerald-700 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100/80 px-3 py-2 rounded-xl border border-emerald-200/60 active:scale-95 transition-all shadow-2xs"
+                                                                                    title={`Finalised by ${finalInfo.finalized_by || 'Representative'} on ${finalInfo.finalized_at ? new Date(finalInfo.finalized_at).toLocaleDateString() : ''}. Click to unlock.`}
+                                                                                >
+                                                                                    <Unlock size={11} />
+                                                                                    <span>Unlock Audit</span>
+                                                                                </button>
+                                                                            )}
                                                                             <button
                                                                                 onClick={() => {
                                                                                     setHotelToReset(h);
@@ -7352,6 +7352,13 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                     <Lock size={10} />
                                                                     Finalised
                                                                 </span>
+                                                                <button
+                                                                    onClick={() => handleUnlockHotel(hotel.id)}
+                                                                    title={`Finalised by ${finalizedStatuses[hotel.id]?.finalized_by || 'Representative'} on ${finalizedStatuses[hotel.id]?.finalized_at ? new Date(finalizedStatuses[hotel.id]?.finalized_at).toLocaleDateString() : ''}. Click to unlock.`}
+                                                                    className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-slate-100 rounded-md transition-all active:scale-95 flex items-center justify-center"
+                                                                >
+                                                                    <Unlock size={13} />
+                                                                </button>
                                                             </div>
                                                         ) : (
                                                             <span className="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-bold text-slate-500 bg-slate-50 border border-slate-200 rounded-md">
@@ -9296,17 +9303,17 @@ CREATE POLICY "Allow public delete auditor_category_assignments" ON auditor_cate
                             ) : sqlModalTab === 'finalize' ? (
                                 <>
                                     <p className="text-slate-300 font-medium leading-relaxed">
-                                        Execute the following SQL script in your <strong className="text-emerald-400">Supabase Dashboard → SQL Editor</strong> to enable permanent <strong className="text-emerald-400">Self-Audit Locking & Submission Finalisation & granular item unlocking</strong>:
+                                        Execute the following SQL script in your <strong className="text-emerald-400">Supabase Dashboard → SQL Editor</strong> to enable permanent <strong className="text-emerald-400">Self-Audit Locking & Submission Finalisation</strong>:
                                     </p>
 
                                     <div className="relative bg-slate-950 border border-slate-800 rounded-2xl p-4 font-mono text-[11px] text-emerald-300 overflow-x-auto leading-relaxed">
                                         <button
                                             onClick={() => {
-                                                const sqlText = `CREATE TABLE IF NOT EXISTS hotel_audit_status (\n    hotel_id VARCHAR(100) PRIMARY KEY,\n    is_finalized BOOLEAN DEFAULT false,\n    finalized_by VARCHAR(255),\n    finalized_at TIMESTAMP WITH TIME ZONE,\n    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL\n);\n\nALTER TABLE hotel_audit_status ENABLE ROW LEVEL SECURITY;\n\nCREATE POLICY "Allow public read hotel_audit_status" ON hotel_audit_status FOR SELECT USING (true);\nCREATE POLICY "Allow public insert/update hotel_audit_status" ON hotel_audit_status FOR ALL USING (true);\n\nCREATE TABLE IF NOT EXISTS audit_item_unlocks (\n    hotel_id VARCHAR(100) NOT NULL,\n    item_id VARCHAR(100) NOT NULL,\n    unlocked_by VARCHAR(255) NOT NULL,\n    unlocked_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,\n    PRIMARY KEY (hotel_id, item_id)\n);\n\nALTER TABLE audit_item_unlocks ENABLE ROW LEVEL SECURITY;\n\nDROP POLICY IF EXISTS "Allow public read audit_item_unlocks" ON audit_item_unlocks;\nCREATE POLICY "Allow public read audit_item_unlocks" ON audit_item_unlocks FOR SELECT USING (true);\n\nDROP POLICY IF EXISTS "Allow public write audit_item_unlocks" ON audit_item_unlocks;\nCREATE POLICY "Allow public write audit_item_unlocks" ON audit_item_unlocks FOR ALL USING (true);`;
+                                                const sqlText = `CREATE TABLE IF NOT EXISTS hotel_audit_status (\n    hotel_id VARCHAR(100) PRIMARY KEY,\n    is_finalized BOOLEAN DEFAULT false,\n    finalized_by VARCHAR(255),\n    finalized_at TIMESTAMP WITH TIME ZONE,\n    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL\n);\n\nALTER TABLE hotel_audit_status ENABLE ROW LEVEL SECURITY;\n\nCREATE POLICY "Allow public read hotel_audit_status" ON hotel_audit_status FOR SELECT USING (true);\nCREATE POLICY "Allow public insert/update hotel_audit_status" ON hotel_audit_status FOR ALL USING (true);`;
                                                 navigator.clipboard.writeText(sqlText);
                                                 setCopiedSql(true);
                                                 setTimeout(() => setCopiedSql(false), 2500);
-                                             }}
+                                            }}
                                             className="absolute top-3 right-3 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-lg font-sans text-[10px] font-bold flex items-center gap-1.5 transition-all border border-slate-700 active:scale-95"
                                         >
                                             {copiedSql ? (
@@ -9335,25 +9342,7 @@ CREATE TABLE IF NOT EXISTS hotel_audit_status (
 ALTER TABLE hotel_audit_status ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "Allow public read hotel_audit_status" ON hotel_audit_status FOR SELECT USING (true);
-CREATE POLICY "Allow public insert/update hotel_audit_status" ON hotel_audit_status FOR ALL USING (true);
-
--- Create table for granular item unlock/lock override (for multi-user environments)
-CREATE TABLE IF NOT EXISTS audit_item_unlocks (
-    hotel_id VARCHAR(100) NOT NULL,
-    item_id VARCHAR(100) NOT NULL,
-    unlocked_by VARCHAR(255) NOT NULL,
-    unlocked_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
-    PRIMARY KEY (hotel_id, item_id)
-);
-
--- Enable Row Level Security & set access policies
-ALTER TABLE audit_item_unlocks ENABLE ROW LEVEL SECURITY;
-
-DROP POLICY IF EXISTS "Allow public read audit_item_unlocks" ON audit_item_unlocks;
-CREATE POLICY "Allow public read audit_item_unlocks" ON audit_item_unlocks FOR SELECT USING (true);
-
-DROP POLICY IF EXISTS "Allow public write audit_item_unlocks" ON audit_item_unlocks;
-CREATE POLICY "Allow public write audit_item_unlocks" ON audit_item_unlocks FOR ALL USING (true);`}
+CREATE POLICY "Allow public insert/update hotel_audit_status" ON hotel_audit_status FOR ALL USING (true);`}
                                         </pre>
                                     </div>
                                 </>

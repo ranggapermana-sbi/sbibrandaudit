@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { ChevronRight, Camera, Loader2, CheckCircle2, Image as ImageIcon, FileUp, Hash, Type, CheckSquare, UploadCloud, X, AlertCircle, RefreshCw, User, Lock, Unlock } from 'lucide-react';
 import { supabase, HOTELS_URL, HOTELS_KEY } from '../lib/supabase';
 
@@ -111,8 +111,6 @@ const AuditItemCard: React.FC<{
     const [naReason, setNaReason] = useState<string>('');
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [isSubmitted, setIsSubmitted] = useState(false);
-    const [itemIsUnlocked, setItemIsUnlocked] = useState(false);
-    const [unlockedBy, setUnlockedBy] = useState('');
     const [submittedBy, setSubmittedBy] = useState<string>('');
     const [previewUrl, setPreviewUrl] = useState<string | null>(null);
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -175,7 +173,7 @@ const AuditItemCard: React.FC<{
     };
 
     const isLockedByAnother = activeLock && activeLock.locked_by_email !== userProfile?.email;
-    const isFieldDisabled = (!itemIsUnlocked && isSubmitted) || (!itemIsUnlocked && !!locked) || !!isLockedByAnother;
+    const isFieldDisabled = isSubmitted || !!locked || !!isLockedByAnother;
 
     // Camera specific state
     const [isCameraOpen, setIsCameraOpen] = useState(false);
@@ -258,207 +256,100 @@ const AuditItemCard: React.FC<{
     };
 
     useEffect(() => {
-        console.log("DEBUG: AuditItemCard state changed:", { itemIsUnlocked, unlockedBy, itemName: item.name });
         return () => {
             if (streamRef.current) {
                 streamRef.current.getTracks().forEach(t => t.stop());
             }
         };
-    }, [itemIsUnlocked, unlockedBy]);
-
-    // Real-time subscription for unlock status
-    useEffect(() => {
-        const submissionChannel = supabase
-            .channel(`submission-${hotelId}-${item.id}`)
-            .on('postgres_changes', {
-                event: 'UPDATE',
-                schema: 'public',
-                table: 'audit_submissions'
-            }, (payload) => {
-                console.log("DEBUG: Subscription payload (no filter):", payload);
-                if (payload.new && String(payload.new.item_id) === String(item.id) && String(payload.new.hotel_id) === String(hotelId)) {
-                    const submission = payload.new;
-                    console.log("DEBUG: Subscription unlock status (no filter):", {
-                        is_unlocked: submission.is_unlocked,
-                        unlocked_by: submission.unlocked_by
-                    });
-                    setItemIsUnlocked(submission.is_unlocked || false);
-                    setUnlockedBy(submission.unlocked_by || '');
-                }
-            })
-            .subscribe();
-
-        const unlockChannel = supabase
-            .channel(`unlock-${hotelId}-${item.id}`)
-            .on('postgres_changes', {
-                event: '*',
-                schema: 'public',
-                table: 'audit_item_unlocks'
-            }, (payload) => {
-                console.log("DEBUG: Real-time event on audit_item_unlocks:", payload);
-                if (payload.eventType === 'DELETE') {
-                    // Check if it's currently unlocked. We can refetch or set false.
-                    setItemIsUnlocked(false);
-                    setUnlockedBy('');
-                } else if (payload.new && String(payload.new.item_id) === String(item.id) && String(payload.new.hotel_id) === String(hotelId)) {
-                    setItemIsUnlocked(true);
-                    setUnlockedBy(payload.new.unlocked_by || 'Auditor');
-                }
-            })
-            .subscribe();
-
-        return () => {
-            supabase.removeChannel(submissionChannel);
-            supabase.removeChannel(unlockChannel);
-        };
-    }, [hotelId, item.id]);
+    }, []);
 
     // Initialize from Supabase with local storage fallback
-    const fetchExistingSubmission = useCallback(async (active = true) => {
-        if (!hotelId || !item.id) return;
-        try {
-            const { data, error } = await supabase
-                .from('audit_submissions')
-                .select('*')
-                .eq('hotel_id', hotelId)
-                .eq('item_id', item.id);
-            
-            if (!error && data && data.length > 0 && active) {
-                const submission = data[0];
-                console.log("Fetched submission:", submission);
-                const val = submission.value || '';
-                setValue(val);
-                setIsNa(submission.is_na || false);
-                setNaReason(submission.na_reason || submission.notes || submission.remark || '');
-                
-                let isUnlockedFlag = submission.is_unlocked || false;
-                let unlockedByFlag = submission.unlocked_by || '';
-
-                try {
-                    const { data: unlockData, error: unlockError } = await supabase
-                        .from('audit_item_unlocks')
-                        .select('*')
-                        .eq('hotel_id', hotelId)
-                        .eq('item_id', item.id)
-                        .maybeSingle();
-                    if (!unlockError && unlockData) {
-                        isUnlockedFlag = true;
-                        unlockedByFlag = unlockData.unlocked_by || 'Auditor';
-                    }
-                } catch (e) {
-                    console.warn("Could not fetch audit_item_unlocks override:", e);
-                }
-
-                setItemIsUnlocked(isUnlockedFlag);
-                setUnlockedBy(unlockedByFlag);
-                
-                console.log("DEBUG: Fetched submission unlock status:", {
-                    is_unlocked: isUnlockedFlag,
-                    unlocked_by: unlockedByFlag,
-                    item_id: item.id
-                });
-                setIsSubmitted(true);
-                setSubmittedBy(submission.submitted_by_name || submission.submitted_by || submission.user_name || '');
-                
-                if (val && (item.input_type === 'camera' || item.input_type === 'image')) {
-                    const urls = val.split(',').map((u: string) => u.trim()).filter(Boolean);
-                    setPhotos(urls.map((u: string, idx: number) => ({
-                        id: `loaded_${idx}_${Date.now()}`,
-                        url: u,
-                        file: null
-                    })));
-                } else if (item.input_type === 'camera' || item.input_type === 'image') {
-                    setPhotos([]);
-                }
-
-                if (val && item.input_type === 'document') {
-                    setPreviewUrl(val);
-                }
-                
-                // Sync to local storage
-                localStorage.setItem(`sbi_audit_${hotelId}_${item.id}`, JSON.stringify({
-                    ...submission,
-                    is_unlocked: isUnlockedFlag,
-                    unlocked_by: unlockedByFlag,
-                    isSubmitted: true
-                }));
-            } else if (active) {
-                // Check if there is an override item unlock record from the separate table
-                let overrideUnlocked = false;
-                let overrideUnlockedBy = '';
-                try {
-                    const { data: unlockData, error: unlockError } = await supabase
-                        .from('audit_item_unlocks')
-                        .select('*')
-                        .eq('hotel_id', hotelId)
-                        .eq('item_id', item.id)
-                        .maybeSingle();
-                    if (!unlockError && unlockData) {
-                        overrideUnlocked = true;
-                        overrideUnlockedBy = unlockData.unlocked_by || 'Auditor';
-                    }
-                } catch (e) {
-                    console.warn("Could not check unlock override for empty submission:", e);
-                }
-
-                // Fall back to local storage if no cloud record
-                const stored = localStorage.getItem(`sbi_audit_${hotelId}_${item.id}`);
-                if (stored) {
-                    try {
-                        const localData = JSON.parse(stored);
-                        const val = localData.value || '';
-                        setValue(val);
-                        setIsNa(localData.is_na || false);
-                        setNaReason(localData.na_reason || localData.notes || localData.remark || '');
-                        setIsSubmitted(localData.isSubmitted || false);
-                        setItemIsUnlocked(overrideUnlocked || localData.is_unlocked || false);
-                        setUnlockedBy(overrideUnlockedBy || localData.unlocked_by || '');
-                        setSubmittedBy(localData.submitted_by_name || localData.submitted_by || localData.submitted_by_user || '');
-                        
-                        if (val && (item.input_type === 'camera' || item.input_type === 'image')) {
-                            const urls = val.split(',').map((u: string) => u.trim()).filter(Boolean);
-                            setPhotos(urls.map((u: string, idx: number) => ({
-                                id: `loaded_${idx}_${Date.now()}`,
-                                url: u,
-                                file: null
-                            })));
-                        } else if (item.input_type === 'camera' || item.input_type === 'image') {
-                            setPhotos([]);
-                        }
-
-                        if (val && item.input_type === 'document') {
-                            setPreviewUrl(val);
-                        }
-                    } catch (e) {}
-                } else {
-                    // Reset to default empty state if neither exists
-                    setValue('');
-                    setIsNa(false);
-                    setNaReason('');
-                    setIsSubmitted(false);
-                    setItemIsUnlocked(overrideUnlocked);
-                    setUnlockedBy(overrideUnlockedBy);
-                    setPreviewUrl(null);
-                    setSubmittedBy('');
-                    setPhotos([]);
-                }
-            }
-        } catch (err) {
-            console.error("Error fetching submission from Supabase:", err);
-        }
-    }, [hotelId, item.id, item.input_type, supabase]);
-
     useEffect(() => {
         let active = true;
-        fetchExistingSubmission(active);
-        return () => { active = false; };
-    }, [fetchExistingSubmission]);
+        const fetchExistingSubmission = async () => {
+            if (!hotelId || !item.id) return;
+            try {
+                const { data, error } = await supabase
+                    .from('audit_submissions')
+                    .select('*')
+                    .eq('hotel_id', hotelId)
+                    .eq('item_id', item.id);
+                
+                if (!error && data && data.length > 0 && active) {
+                    const submission = data[0];
+                    const val = submission.value || '';
+                    setValue(val);
+                    setIsNa(submission.is_na || false);
+                    setNaReason(submission.na_reason || submission.notes || submission.remark || '');
+                    setIsSubmitted(true);
+                    setSubmittedBy(submission.submitted_by_name || submission.submitted_by || submission.user_name || '');
+                    
+                    if (val && (item.input_type === 'camera' || item.input_type === 'image')) {
+                        const urls = val.split(',').map((u: string) => u.trim()).filter(Boolean);
+                        setPhotos(urls.map((u: string, idx: number) => ({
+                            id: `loaded_${idx}_${Date.now()}`,
+                            url: u,
+                            file: null
+                        })));
+                    } else if (item.input_type === 'camera' || item.input_type === 'image') {
+                        setPhotos([]);
+                    }
 
-    useEffect(() => {
-        const handleFocus = () => fetchExistingSubmission();
-        window.addEventListener('focus', handleFocus);
-        return () => window.removeEventListener('focus', handleFocus);
-    }, [fetchExistingSubmission]);
+                    if (val && item.input_type === 'document') {
+                        setPreviewUrl(val);
+                    }
+                    
+                    // Sync to local storage
+                    localStorage.setItem(`sbi_audit_${hotelId}_${item.id}`, JSON.stringify({
+                        ...submission,
+                        isSubmitted: true
+                    }));
+                } else {
+                    // Fall back to local storage if no cloud record
+                    const stored = localStorage.getItem(`sbi_audit_${hotelId}_${item.id}`);
+                    if (stored && active) {
+                        try {
+                            const localData = JSON.parse(stored);
+                            const val = localData.value || '';
+                            setValue(val);
+                            setIsNa(localData.is_na || false);
+                            setNaReason(localData.na_reason || localData.notes || localData.remark || '');
+                            setIsSubmitted(localData.isSubmitted || false);
+                            setSubmittedBy(localData.submitted_by_name || localData.submitted_by || localData.submitted_by_user || '');
+                            
+                            if (val && (item.input_type === 'camera' || item.input_type === 'image')) {
+                                const urls = val.split(',').map((u: string) => u.trim()).filter(Boolean);
+                                setPhotos(urls.map((u: string, idx: number) => ({
+                                    id: `loaded_${idx}_${Date.now()}`,
+                                    url: u,
+                                    file: null
+                                })));
+                            } else if (item.input_type === 'camera' || item.input_type === 'image') {
+                                setPhotos([]);
+                            }
+
+                            if (val && item.input_type === 'document') {
+                                setPreviewUrl(val);
+                            }
+                        } catch (e) {}
+                    } else if (active) {
+                        // Reset to default empty state if neither exists
+                        setValue('');
+                        setIsNa(false);
+                        setNaReason('');
+                        setIsSubmitted(false);
+                        setPreviewUrl(null);
+                        setSubmittedBy('');
+                        setPhotos([]);
+                    }
+                }
+            } catch (err) {
+                console.error("Error fetching submission from Supabase:", err);
+            }
+        };
+        fetchExistingSubmission();
+        return () => { active = false; };
+    }, [hotelId, item.id, item.input_type]);
 
     const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files) {
@@ -534,7 +425,6 @@ const AuditItemCard: React.FC<{
                         setValue(val);
                         setIsNa(subData.is_na || false);
                         setNaReason(subData.na_reason || subData.notes || subData.remark || '');
-                        setItemIsUnlocked(subData.is_unlocked || false);
                         setIsSubmitted(true);
                         setSubmittedBy(subData.submitted_by_name || subData.submitted_by || '');
                         
@@ -671,7 +561,6 @@ const AuditItemCard: React.FC<{
                 notes: naReason,
                 submitted_by: submitterName,
                 submitted_by_name: submitterName,
-                is_unlocked: false,
                 created_at: new Date().toISOString(),
                 updated_at: new Date().toISOString()
             };
@@ -689,7 +578,6 @@ const AuditItemCard: React.FC<{
                         value: finalValue,
                         is_na: isNa,
                         na_reason: naReason,
-                        is_unlocked: false,
                         created_at: new Date().toISOString(),
                         updated_at: new Date().toISOString()
                     };
@@ -727,20 +615,8 @@ const AuditItemCard: React.FC<{
                 }
             }
 
-            // Clean up override locks so it is correctly locked after re-submission
-            try {
-                await supabase
-                    .from('audit_item_unlocks')
-                    .delete()
-                    .eq('hotel_id', hotelId)
-                    .eq('item_id', item.id);
-            } catch (delUnlockErr) {
-                console.warn("Could not delete from audit_item_unlocks table on re-submission:", delUnlockErr);
-            }
-
             setValue(finalValue);
             setIsSubmitted(true);
-            setItemIsUnlocked(false);
             setSubmittedBy(submitterName);
             if (onReleaseLock) {
                 onReleaseLock();
@@ -1136,27 +1012,18 @@ const AuditItemCard: React.FC<{
                         )}
                     </button>
                 ) : (
-                    (locked && !itemIsUnlocked) ? (
+                    locked ? (
                         <div className="w-full bg-slate-50 border border-slate-200 text-slate-500 font-bold py-2.5 sm:py-3.5 rounded-lg sm:rounded-xl text-xs sm:text-sm flex justify-center items-center gap-1.5 select-none">
                             <Lock size={14} className="text-slate-400" />
                             <span>Audit Finalised - Locked</span>
                         </div>
                     ) : (
-                        <>
-                            {console.log("DEBUG: Rendering unlock indicator for", item.name, ":", itemIsUnlocked, unlockedBy)}
-                            {(itemIsUnlocked || unlockedBy) && (
-                                <div className="text-[10px] text-emerald-600 font-bold mb-2 flex items-center gap-1">
-                                    <Unlock size={12} />
-                                    <span>{item.name} Unlocked by {unlockedBy || 'Auditor'}</span>
-                                </div>
-                            )}
-                            <button 
-                                onClick={() => setIsSubmitted(false)}
-                                className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2.5 sm:py-3.5 rounded-lg sm:rounded-xl text-xs sm:text-sm transition-all active:scale-[0.98]"
-                            >
-                                Edit Submission
-                            </button>
-                        </>
+                        <button 
+                            onClick={() => setIsSubmitted(false)}
+                            className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2.5 sm:py-3.5 rounded-lg sm:rounded-xl text-xs sm:text-sm transition-all active:scale-[0.98]"
+                        >
+                            Edit Submission
+                        </button>
                     )
                 )}
             </div>
@@ -1602,7 +1469,7 @@ export default function BrandingPropertyIdentificationScreen({ selectedCategory,
                     </div>
                 )}
 
-                {isHotelFinalized && Object.keys(activeLocks).length === 0 && (
+                {isHotelFinalized && (
                     <div className="bg-amber-50 border border-amber-200/80 rounded-xl sm:rounded-2xl p-3 sm:p-4 shadow-xs flex items-start gap-3 animate-fadeIn mb-2 sm:mb-3">
                         <Lock className="text-amber-600 shrink-0 mt-0.5" size={18} />
                         <div>
