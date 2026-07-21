@@ -595,10 +595,25 @@ const AuditItemCard: React.FC<{
                 console.warn("Failed to save to Supabase.", err);
             }
 
-            localStorage.setItem(`sbi_audit_${hotelId}_${item.id}`, JSON.stringify({
-                ...fullSubmissionData,
-                isSubmitted: true
-            }));
+            try {
+                localStorage.setItem(`sbi_audit_${hotelId}_${item.id}`, JSON.stringify({
+                    ...fullSubmissionData,
+                    isSubmitted: true
+                }));
+            } catch (lsErr) {
+                console.warn("LocalStorage save failed, string might be too large:", lsErr);
+                if (finalValue && finalValue.length > 500000) {
+                    try {
+                        localStorage.setItem(`sbi_audit_${hotelId}_${item.id}`, JSON.stringify({
+                            ...fullSubmissionData,
+                            value: 'base64_too_large_for_local_storage',
+                            isSubmitted: true
+                        }));
+                    } catch (lsErr2) {
+                        console.error("Even small localStorage save failed:", lsErr2);
+                    }
+                }
+            }
 
             setValue(finalValue);
             setIsSubmitted(true);
@@ -786,7 +801,7 @@ const AuditItemCard: React.FC<{
                             <div>
                                 <input 
                                     type="file" 
-                                    accept=".pdf,.doc,.docx,.xls,.xlsx"
+                                    accept=".pdf,.doc,.docx,.xls,.xlsx,image/*"
                                     className="hidden" 
                                     ref={fileInputRef} 
                                     onChange={handleFileChange} 

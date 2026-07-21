@@ -374,10 +374,25 @@ export default function AuditorEvidenceForm({ item, hotel, submission, onSaved, 
             }
 
             // Sync with local storage
-            localStorage.setItem(`sbi_audit_${hotel.id}_${item.id}`, JSON.stringify({
-                ...fullSubmissionData,
-                isSubmitted: true
-            }));
+            try {
+                localStorage.setItem(`sbi_audit_${hotel.id}_${item.id}`, JSON.stringify({
+                    ...fullSubmissionData,
+                    isSubmitted: true
+                }));
+            } catch (lsErr) {
+                console.warn("LocalStorage save failed, string might be too large:", lsErr);
+                if (finalValue && finalValue.length > 500000) {
+                    try {
+                        localStorage.setItem(`sbi_audit_${hotel.id}_${item.id}`, JSON.stringify({
+                            ...fullSubmissionData,
+                            value: 'base64_too_large_for_local_storage',
+                            isSubmitted: true
+                        }));
+                    } catch (lsErr2) {
+                        console.error("Even small localStorage save failed:", lsErr2);
+                    }
+                }
+            }
 
             setSaveSuccess(true);
             setTimeout(() => setSaveSuccess(false), 3000);
@@ -508,12 +523,12 @@ export default function AuditorEvidenceForm({ item, hotel, submission, onSaved, 
                             >
                                 <FileUp size={24} className="text-slate-400" />
                                 <span className="text-xs font-bold text-slate-600">Drag & drop a document or <span className="text-indigo-600">Browse</span></span>
-                                <span className="text-[9px] text-slate-400">Supports PDF, Word, Excel, ZIP</span>
+                                <span className="text-[9px] text-slate-400">Supports PDF, Word, Excel, ZIP, Images</span>
                                 <input
                                     type="file"
                                     ref={fileInputRef}
                                     onChange={handleFileChange}
-                                    accept=".pdf,.doc,.docx,.xls,.xlsx,.zip,.rar"
+                                    accept=".pdf,.doc,.docx,.xls,.xlsx,.zip,.rar,image/*"
                                     className="hidden"
                                 />
                             </div>

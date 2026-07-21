@@ -1567,7 +1567,6 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     };
 
     const handleUnlockHotel = async (hotelId: string) => {
-        if (!window.confirm("Are you sure you want to unlock this hotel's self-audit? This will allow the hotel auditee to submit and edit responses again.")) return;
         try {
             const { error } = await supabase
                 .from('hotel_audit_status')
@@ -1590,10 +1589,12 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 [hotelId]: { is_finalized: false }
             }));
             
-            alert("Hotel's self-audit successfully unlocked!");
+            setToastMessage("Hotel's self-audit successfully unlocked!");
+            setTimeout(() => setToastMessage(null), 3000);
         } catch (err) {
             console.error("Error unlocking hotel:", err);
-            alert("An error occurred while unlocking.");
+            setToastMessage("An error occurred while unlocking.");
+            setTimeout(() => setToastMessage(null), 3000);
         }
     };
 
@@ -1794,6 +1795,8 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 fetchDepartmentsFromSupabase(),
                 fetchCategoriesFromSupabase(),
                 fetchItemsFromSupabase(),
+                fetchGroupsFromSupabase(),
+                fetchFinalizedStatuses(),
                 fetchProfilesFromSupabase()
             ]);
             if (!silent) {
@@ -2000,9 +2003,11 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     }, []);
 
     useEffect(() => {
+        if (subView === 'hotels' || subView === 'progress_report' || subView === 'inspection') {
+            fetchFinalizedStatuses();
+        }
         if (subView === 'hotels') {
             fetchHotelsFromSupabase();
-            fetchFinalizedStatuses();
         } else if (subView === 'batches') {
             fetchHotelsFromSupabase();
             fetchBatchesFromSupabase();
@@ -6184,6 +6189,16 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                 </div>
 
                                                 <div className="flex flex-wrap gap-3">
+                                                    {finalizedStatuses[hotel.id]?.is_finalized && (
+                                                        <button 
+                                                            onClick={() => handleUnlockHotel(hotel.id)}
+                                                            className="h-11 px-5 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 rounded-2xl flex items-center gap-2 text-xs font-black uppercase tracking-widest text-emerald-400 transition-all active:scale-95"
+                                                            title={`Finalised by ${finalizedStatuses[hotel.id]?.finalized_by || 'Representative'} on ${finalizedStatuses[hotel.id]?.finalized_at ? new Date(finalizedStatuses[hotel.id]?.finalized_at).toLocaleDateString() : ''}. Click to unlock.`}
+                                                        >
+                                                            <Unlock size={14} className="text-emerald-400" />
+                                                            Unlock Audit
+                                                        </button>
+                                                    )}
                                                     <button 
                                                         onClick={async () => {
                                                             const { data: directData, error: e1 } = await supabase
@@ -6285,6 +6300,16 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                 <span className={`px-2.5 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider border ${isCatComplete ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-indigo-50 text-indigo-700 border-indigo-200'}`}>
                                                                     {scoredInCat} / {catItems.length} REVIEWED
                                                                 </span>
+                                                                {finalizedStatuses[hotel.id]?.is_finalized && (
+                                                                    <button 
+                                                                        onClick={() => handleUnlockHotel(hotel.id)}
+                                                                        className="ml-2 inline-flex items-center gap-1 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all active:scale-95"
+                                                                        title="Unlock Audit for Re-submission"
+                                                                    >
+                                                                        <Unlock size={12} className="text-emerald-600" />
+                                                                        Unlock Audit
+                                                                    </button>
+                                                                )}
                                                             </div>
                                                         </div>
 
@@ -7061,6 +7086,16 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                     </td>
                                                                     <td className="px-6 py-4 text-right">
                                                                         <div className="flex items-center justify-end gap-2">
+                                                                            {finalInfo.is_finalized && (
+                                                                                <button
+                                                                                    onClick={() => handleUnlockHotel(h.id)}
+                                                                                    className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-emerald-700 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100/80 px-3 py-2 rounded-xl border border-emerald-200/60 active:scale-95 transition-all shadow-2xs"
+                                                                                    title={`Finalised by ${finalInfo.finalized_by || 'Representative'} on ${finalInfo.finalized_at ? new Date(finalInfo.finalized_at).toLocaleDateString() : ''}. Click to unlock.`}
+                                                                                >
+                                                                                    <Unlock size={11} />
+                                                                                    <span>Unlock Audit</span>
+                                                                                </button>
+                                                                            )}
                                                                             <button
                                                                                 onClick={() => {
                                                                                     setHotelToReset(h);
@@ -9371,6 +9406,28 @@ CREATE POLICY "Allow public write audit_item_locks" ON audit_item_locks FOR ALL 
                                 <p className="text-[11px] text-slate-400 leading-relaxed">
                                     Even before running this SQL script in Supabase, groups and assignments work immediately in local browser storage fallback! Once you execute the SQL script in your Supabase dashboard, all groups and associations will seamlessly synchronize dynamically across your live environment.
                                 </p>
+                            </div>
+
+                            <div className="space-y-3 mt-6 border-t border-slate-800 pt-6">
+                                <h4 className="font-bold text-slate-200 text-sm flex items-center gap-2">
+                                    <span className="bg-emerald-900/50 text-emerald-400 w-5 h-5 rounded-full flex items-center justify-center text-[10px]">3</span>
+                                    Document Storage Bucket
+                                </h4>
+                                <p className="text-xs text-slate-400 leading-relaxed">
+                                    Execute this script to create the <strong className="text-emerald-400">documents</strong> storage bucket, enabling file uploads during the audit.
+                                </p>
+                                <pre className="bg-slate-900/80 p-4 rounded-xl text-[11px] font-mono text-emerald-300/90 whitespace-pre-wrap border border-slate-800/80 overflow-x-auto shadow-inner leading-relaxed">
+{`-- Create 'documents' bucket if it doesn't exist
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('documents', 'documents', true)
+ON CONFLICT (id) DO NOTHING;
+
+-- Allow public access
+CREATE POLICY "Public Access" ON storage.objects FOR SELECT USING ( bucket_id = 'documents' );
+CREATE POLICY "Public Uploads" ON storage.objects FOR INSERT WITH CHECK ( bucket_id = 'documents' );
+CREATE POLICY "Public Update" ON storage.objects FOR UPDATE USING ( bucket_id = 'documents' );
+CREATE POLICY "Public Delete" ON storage.objects FOR DELETE USING ( bucket_id = 'documents' );`}
+                                </pre>
                             </div>
                         </div>
 

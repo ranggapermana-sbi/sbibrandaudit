@@ -471,8 +471,6 @@ export default function PendingCategoriesScreen({ onBack, onNavigate, userProfil
 
     const handleFinalize = async () => {
         if (!selectedHotelId) return;
-        const confirmMsg = `Are you sure you want to finalise and submit your self-audit?\n\nTasks Completed: ${totalCompleted} / ${totalTasks}\n\nOnce finalised, you cannot submit or edit any evidence or responses again unless updated/unlocked by an admin.`;
-        if (!window.confirm(confirmMsg)) return;
 
         setIsSubmittingFinalize(true);
         const submitterName = userProfile?.full_name || userProfile?.email || 'Hotel Representative';
@@ -491,11 +489,6 @@ export default function PendingCategoriesScreen({ onBack, onNavigate, userProfil
 
             if (error) {
                 console.warn("Database save failed, using local storage fallback for finalized status:", error);
-                if (error.code === '42P01') {
-                    alert("Self-audit finalised in offline fallback. To enable live sync, please ask your admin to run the SQL migration in Supabase.");
-                } else {
-                    alert("Failed to submit to database: " + error.message + ". Finalised offline.");
-                }
             }
 
             // Always save to localStorage as fallback
@@ -508,7 +501,6 @@ export default function PendingCategoriesScreen({ onBack, onNavigate, userProfil
             setFinalizedAt(finalizedDate);
         } catch (err) {
             console.error(err);
-            alert("An error occurred during finalisation.");
         } finally {
             setIsSubmittingFinalize(false);
         }
@@ -516,7 +508,6 @@ export default function PendingCategoriesScreen({ onBack, onNavigate, userProfil
 
     const handleUnlockByAdmin = async () => {
         if (!selectedHotelId) return;
-        if (!window.confirm("Admin/Auditor: Are you sure you want to unlock this self-audit? This will allow the hotel to edit and submit evidence again.")) return;
 
         setIsSubmittingFinalize(true);
         try {
@@ -541,7 +532,6 @@ export default function PendingCategoriesScreen({ onBack, onNavigate, userProfil
             setFinalizedAt(null);
         } catch (err) {
             console.error(err);
-            alert("An error occurred.");
         } finally {
             setIsSubmittingFinalize(false);
         }
