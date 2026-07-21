@@ -258,12 +258,13 @@ const AuditItemCard: React.FC<{
     };
 
     useEffect(() => {
+        console.log("AuditItemCard DEBUG:", { itemIsUnlocked, locked, item: item.name });
         return () => {
             if (streamRef.current) {
                 streamRef.current.getTracks().forEach(t => t.stop());
             }
         };
-    }, []);
+    }, [itemIsUnlocked, locked]);
 
     // Initialize from Supabase with local storage fallback
     const fetchExistingSubmission = useCallback(async (active = true) => {
@@ -1143,8 +1144,26 @@ export default function BrandingPropertyIdentificationScreen({ selectedCategory,
             });
         }, 10000);
 
+        const submissionChannel = supabase
+            .channel(`submission-${selectedHotelId}-${item.id}`)
+            .on('postgres_changes', {
+                event: 'UPDATE',
+                schema: 'public',
+                table: 'audit_submissions',
+                filter: `hotel_id=eq.${selectedHotelId}&item_id=eq.${item.id}`
+            }, (payload) => {
+                console.log("Subscription payload:", payload);
+                if (payload.new.item_id === item.id) {
+                    const submission = payload.new;
+                    setItemIsUnlocked(submission.is_unlocked || false);
+                    setUnlockedBy(submission.unlocked_by || '');
+                }
+            })
+            .subscribe();
+
         return () => {
             supabase.removeChannel(channel);
+            supabase.removeChannel(submissionChannel);
             clearInterval(interval);
         };
     }, [selectedHotelId]);
