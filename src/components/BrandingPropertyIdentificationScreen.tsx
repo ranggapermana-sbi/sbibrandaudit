@@ -116,6 +116,7 @@ const AuditItemCard: React.FC<{
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
     const [photos, setPhotos] = useState<PhotoItem[]>([]);
 
+    const hasLoadedExistingRef = useRef<boolean>(false);
     const [copied, setCopied] = useState(false);
 
     const handleCopyLink = (text: string) => {
@@ -266,6 +267,7 @@ const AuditItemCard: React.FC<{
     // Initialize from Supabase with local storage fallback
     useEffect(() => {
         let active = true;
+        hasLoadedExistingRef.current = false;
         const fetchExistingSubmission = async () => {
             if (!hotelId || !item.id) return;
             try {
@@ -283,6 +285,7 @@ const AuditItemCard: React.FC<{
                     setNaReason(submission.na_reason || submission.notes || submission.remark || '');
                     setIsSubmitted(true);
                     setSubmittedBy(submission.submitted_by_name || submission.submitted_by || submission.user_name || '');
+                    hasLoadedExistingRef.current = true;
                     
                     if (val && (item.input_type === 'camera' || item.input_type === 'image')) {
                         const urls = val.split(',').map((u: string) => u.trim()).filter(Boolean);
@@ -315,6 +318,9 @@ const AuditItemCard: React.FC<{
                             setIsNa(localData.is_na || false);
                             setNaReason(localData.na_reason || localData.notes || localData.remark || '');
                             setIsSubmitted(localData.isSubmitted || false);
+                            if (localData.isSubmitted) {
+                                hasLoadedExistingRef.current = true;
+                            }
                             setSubmittedBy(localData.submitted_by_name || localData.submitted_by || localData.submitted_by_user || '');
                             
                             if (val && (item.input_type === 'camera' || item.input_type === 'image')) {
@@ -341,6 +347,7 @@ const AuditItemCard: React.FC<{
                         setPreviewUrl(null);
                         setSubmittedBy('');
                         setPhotos([]);
+                        hasLoadedExistingRef.current = false;
                     }
                 }
             } catch (err) {
@@ -417,7 +424,7 @@ const AuditItemCard: React.FC<{
 
                     const isAdminOrAuditor = userProfile?.access_level === 'admin' || userProfile?.access_level === 'auditor';
 
-                    if (!isSameSubmitter && !isAdminOrAuditor) {
+                    if (!isSameSubmitter && !isAdminOrAuditor && !hasLoadedExistingRef.current) {
                         alert(`Submission aborted: This item has already been submitted by ${subData.submitted_by_name || subData.submitted_by || 'another user'}. Your local view will be updated.`);
                         
                         // Update our component's state to match the existing database record
