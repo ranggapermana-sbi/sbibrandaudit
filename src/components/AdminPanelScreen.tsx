@@ -1841,14 +1841,14 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             // Fetch recent item submissions
             const { data: subsData, error: subsError } = await supabase
                 .from('audit_submissions')
-                .select('*, hotels(name, code)')
+                .select('*')
                 .order('created_at', { ascending: false })
                 .limit(200);
             
             // Fetch hotel audit statuses
             const { data: statusData, error: statusError } = await supabase
                 .from('hotel_audit_status')
-                .select('*, hotels(name, code)')
+                .select('*')
                 .order('finalized_at', { ascending: false });
 
             // Fetch user enrollments and approvals
