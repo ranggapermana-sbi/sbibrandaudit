@@ -316,6 +316,7 @@ const AuditItemCard: React.FC<{
                         setIsNa(localData.is_na || false);
                         setNaReason(localData.na_reason || localData.notes || localData.remark || '');
                         setIsSubmitted(localData.isSubmitted || false);
+                        setItemIsUnlocked(localData.is_unlocked || false);
                         setSubmittedBy(localData.submitted_by_name || localData.submitted_by || localData.submitted_by_user || '');
                         
                         if (val && (item.input_type === 'camera' || item.input_type === 'image')) {
