@@ -103,6 +103,26 @@ const uploadToIMGBB = async (file: File): Promise<string> => {
     }
 };
 
+const splitEvidenceUrls = (value: string): string[] => {
+    if (!value) return [];
+    const urls: string[] = [];
+    const parts = value.split(',');
+    for (let i = 0; i < parts.length; i++) {
+        const part = parts[i].trim();
+        if (part.startsWith('data:image/') && part.includes(';base64')) {
+            let fullBase64 = parts[i];
+            if (i + 1 < parts.length) {
+                fullBase64 += ',' + parts[i + 1];
+                i++;
+            }
+            urls.push(fullBase64.trim());
+        } else if (part) {
+            urls.push(part);
+        }
+    }
+    return urls;
+};
+
 export default function AuditorEvidenceForm({ item, hotel, submission, onSaved, userProfile }: AuditorEvidenceFormProps) {
     const [value, setValue] = useState('');
     const [isNa, setIsNa] = useState(false);
@@ -184,7 +204,7 @@ export default function AuditorEvidenceForm({ item, hotel, submission, onSaved, 
             setNaReason(submission.na_reason || submission.notes || submission.remark || '');
             
             if (val && (item.inputType === 'camera' || item.inputType === 'image')) {
-                const urls = val.split(',').map((u: string) => u.trim()).filter(Boolean);
+                const urls = splitEvidenceUrls(val);
                 setPhotos(urls.map((u: string, idx: number) => ({
                     id: `loaded_${idx}_${Date.now()}`,
                     url: u,

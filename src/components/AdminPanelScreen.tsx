@@ -6,6 +6,26 @@ import { Department, Hotel, AuditBatch, AuditCategory, AuditItem, AuditGroup } f
 import { DEFAULT_DEPARTMENTS, DEFAULT_CATEGORIES, DEFAULT_HOTELS, DEFAULT_BATCHES, DEFAULT_GROUPS, DEFAULT_OFFLINE_ITEMS, HARDCODED_TEST_HOTELS } from '../lib/constants';
 import AuditorEvidenceForm from './AuditorEvidenceForm';
 
+const splitEvidenceUrls = (value: string): string[] => {
+    if (!value) return [];
+    const urls: string[] = [];
+    const parts = value.split(',');
+    for (let i = 0; i < parts.length; i++) {
+        const part = parts[i].trim();
+        if (part.startsWith('data:image/') && part.includes(';base64')) {
+            let fullBase64 = parts[i];
+            if (i + 1 < parts.length) {
+                fullBase64 += ',' + parts[i + 1];
+                i++;
+            }
+            urls.push(fullBase64.trim());
+        } else if (part) {
+            urls.push(part);
+        }
+    }
+    return urls;
+};
+
 const getRoleStyles = (accessLevel: string) => {
     const r = accessLevel?.toLowerCase() || 'auditee';
     if (r === 'admin') return { bg: 'bg-indigo-50/40', text: 'text-indigo-700', icon: <ShieldCheck size={14}/> };
@@ -6402,7 +6422,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                                         {/* Visual Evidence with In-App Lightbox */}
                                                                                                         {(item.inputType === 'camera' || item.inputType === 'image') && submission.value && (
                                                                                                              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                                                                                                                 {String(submission.value).split(',').map(u => u.trim()).filter(Boolean).map((url, urlIdx) => (
+                                                                                                                 {splitEvidenceUrls(String(submission.value)).map((url, urlIdx) => (
                                                                                                                      <div 
                                                                                                                          key={urlIdx}
                                                                                                                          className="group/img relative rounded-xl border border-slate-200 overflow-hidden bg-slate-900/5 flex items-center justify-center aspect-square cursor-zoom-in transition-all hover:border-indigo-300 hover:shadow-sm"

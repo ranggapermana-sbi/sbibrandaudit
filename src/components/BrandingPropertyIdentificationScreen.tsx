@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ChevronRight, Camera, Loader2, CheckCircle2, Image as ImageIcon, FileUp, Hash, Type, CheckSquare, UploadCloud, X, AlertCircle, RefreshCw, User, Lock, Unlock } from 'lucide-react';
+import { ChevronRight, Camera, Loader2, CheckCircle2, Image as ImageIcon, FileUp, Hash, Type, CheckSquare, UploadCloud, X, AlertCircle, RefreshCw, User, Lock, Unlock, Eye, Check } from 'lucide-react';
 import { supabase, HOTELS_URL, HOTELS_KEY } from '../lib/supabase';
 
 interface BrandingPropertyProps {
@@ -90,6 +90,26 @@ const uploadToIMGBB = async (file: File): Promise<string> => {
         return await fileToBase64(file); 
     }
 }
+
+const splitEvidenceUrls = (value: string): string[] => {
+    if (!value) return [];
+    const urls: string[] = [];
+    const parts = value.split(',');
+    for (let i = 0; i < parts.length; i++) {
+        const part = parts[i].trim();
+        if (part.startsWith('data:image/') && part.includes(';base64')) {
+            let fullBase64 = parts[i];
+            if (i + 1 < parts.length) {
+                fullBase64 += ',' + parts[i + 1];
+                i++;
+            }
+            urls.push(fullBase64.trim());
+        } else if (part) {
+            urls.push(part);
+        }
+    }
+    return urls;
+};
 
 interface PhotoItem {
     id: string;
@@ -182,6 +202,11 @@ const AuditItemCard: React.FC<{
     const videoRef = useRef<HTMLVideoElement>(null);
     const streamRef = useRef<MediaStream | null>(null);
 
+    // Photo preview and large modal states
+    const [capturedPhotoUrl, setCapturedPhotoUrl] = useState<string | null>(null);
+    const [capturedPhotoFile, setCapturedPhotoFile] = useState<File | null>(null);
+    const [activePreviewImage, setActivePreviewImage] = useState<string | null>(null);
+
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     const startCamera = async (mode: 'environment' | 'user') => {
@@ -214,6 +239,11 @@ const AuditItemCard: React.FC<{
             streamRef.current = null;
         }
         setIsCameraOpen(false);
+        if (capturedPhotoUrl) {
+            URL.revokeObjectURL(capturedPhotoUrl);
+        }
+        setCapturedPhotoUrl(null);
+        setCapturedPhotoFile(null);
     };
 
     const switchCamera = () => {
@@ -233,16 +263,34 @@ const AuditItemCard: React.FC<{
                 canvas.toBlob((blob) => {
                     if (blob) {
                         const file = new File([blob], `capture_${Date.now()}.jpg`, { type: 'image/jpeg' });
-                        const newPhoto: PhotoItem = {
-                            id: `local_cap_${Date.now()}`,
-                            url: URL.createObjectURL(file),
-                            file: file
-                        };
-                        setPhotos(prev => [...prev, newPhoto]);
-                        stopCamera();
+                        const url = URL.createObjectURL(file);
+                        setCapturedPhotoUrl(url);
+                        setCapturedPhotoFile(file);
                     }
                 }, 'image/jpeg', 0.8);
             }
+        }
+    };
+
+    const handleRetake = () => {
+        if (capturedPhotoUrl) {
+            URL.revokeObjectURL(capturedPhotoUrl);
+        }
+        setCapturedPhotoUrl(null);
+        setCapturedPhotoFile(null);
+    };
+
+    const handleConfirmPhoto = () => {
+        if (capturedPhotoUrl && capturedPhotoFile) {
+            const newPhoto: PhotoItem = {
+                id: `local_cap_${Date.now()}`,
+                url: capturedPhotoUrl,
+                file: capturedPhotoFile
+            };
+            setPhotos(prev => [...prev, newPhoto]);
+            setCapturedPhotoUrl(null);
+            setCapturedPhotoFile(null);
+            stopCamera();
         }
     };
 
@@ -288,7 +336,7 @@ const AuditItemCard: React.FC<{
                     hasLoadedExistingRef.current = true;
                     
                     if (val && (item.input_type === 'camera' || item.input_type === 'image')) {
-                        const urls = val.split(',').map((u: string) => u.trim()).filter(Boolean);
+                        const urls = splitEvidenceUrls(val);
                         setPhotos(urls.map((u: string, idx: number) => ({
                             id: `loaded_${idx}_${Date.now()}`,
                             url: u,
@@ -324,7 +372,7 @@ const AuditItemCard: React.FC<{
                             setSubmittedBy(localData.submitted_by_name || localData.submitted_by || localData.submitted_by_user || '');
                             
                             if (val && (item.input_type === 'camera' || item.input_type === 'image')) {
-                                const urls = val.split(',').map((u: string) => u.trim()).filter(Boolean);
+                                const urls = splitEvidenceUrls(val);
                                 setPhotos(urls.map((u: string, idx: number) => ({
                                     id: `loaded_${idx}_${Date.now()}`,
                                     url: u,
@@ -436,7 +484,7 @@ const AuditItemCard: React.FC<{
                         setSubmittedBy(subData.submitted_by_name || subData.submitted_by || '');
                         
                         if (val && (item.input_type === 'camera' || item.input_type === 'image')) {
-                            const urls = val.split(',').map((u: string) => u.trim()).filter(Boolean);
+                            const urls = splitEvidenceUrls(val);
                             setPhotos(urls.map((u: string, idx: number) => ({
                                 id: `loaded_${idx}_${Date.now()}`,
                                 url: u,
@@ -646,34 +694,75 @@ const AuditItemCard: React.FC<{
                         {isCameraOpen && (
                             <div className="fixed inset-0 z-[100] bg-black flex flex-col animate-fadeIn">
                                 <div className="absolute top-4 right-4 z-[110] flex gap-4">
-                                    <button onClick={switchCamera} className="bg-white/20 p-3 rounded-full backdrop-blur-md text-white hover:bg-white/30 transition-all active:scale-95">
-                                        <RefreshCw size={24} />
-                                    </button>
+                                    {!capturedPhotoUrl && (
+                                        <button onClick={switchCamera} className="bg-white/20 p-3 rounded-full backdrop-blur-md text-white hover:bg-white/30 transition-all active:scale-95">
+                                            <RefreshCw size={24} />
+                                        </button>
+                                    )}
                                     <button onClick={stopCamera} className="bg-white/20 p-3 rounded-full backdrop-blur-md text-white hover:bg-white/30 transition-all active:scale-95">
                                         <X size={24} />
                                     </button>
                                 </div>
-                                <div className="flex-1 relative flex items-center justify-center bg-black overflow-hidden">
-                                    <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover" />
-                                </div>
-                                <div className="h-32 bg-black pb-8 flex items-center justify-center shrink-0">
-                                    <button 
-                                        onClick={capturePhoto}
-                                        className="w-16 h-16 rounded-full border-4 border-white bg-white/20 hover:bg-white/40 transition-all active:scale-90"
-                                    />
-                                </div>
+                                {capturedPhotoUrl ? (
+                                    <div className="flex-1 relative flex flex-col bg-black overflow-hidden justify-between">
+                                        <div className="flex-1 relative flex items-center justify-center">
+                                            <img src={capturedPhotoUrl} alt="Captured preview" referrerPolicy="no-referrer" className="max-w-full max-h-full object-contain" />
+                                        </div>
+                                        <div className="bg-slate-950/95 border-t border-slate-800 px-6 py-6 flex gap-4 justify-center items-center shrink-0 z-[120]">
+                                            <button 
+                                                onClick={handleRetake}
+                                                className="flex-1 max-w-[180px] bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-200 font-bold py-3 px-5 rounded-xl border border-slate-700 transition-all text-sm flex items-center justify-center gap-2"
+                                            >
+                                                <RefreshCw size={16} />
+                                                Retake
+                                            </button>
+                                            <button 
+                                                onClick={handleConfirmPhoto}
+                                                className="flex-1 max-w-[180px] bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-bold py-3 px-5 rounded-xl transition-all text-sm flex items-center justify-center gap-2 shadow-lg shadow-emerald-950/30"
+                                            >
+                                                <Check size={16} />
+                                                Use Photo
+                                            </button>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <>
+                                        <div className="flex-1 relative flex items-center justify-center bg-black overflow-hidden">
+                                            <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover" />
+                                        </div>
+                                        <div className="h-32 bg-black pb-8 flex items-center justify-center shrink-0">
+                                            <button 
+                                                onClick={capturePhoto}
+                                                className="w-16 h-16 rounded-full border-4 border-white bg-white/20 hover:bg-white/40 transition-all active:scale-90"
+                                            />
+                                        </div>
+                                    </>
+                                )}
                             </div>
                         )}
                         
                         {photos.length > 0 && (
                             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
                                 {photos.map((p, idx) => (
-                                    <div key={p.id} className="relative group rounded-xl border border-slate-200 shadow-2xs overflow-hidden aspect-square bg-slate-50">
-                                        <img src={p.url} alt={`Evidence ${idx + 1}`} referrerPolicy="no-referrer" className="w-full h-full object-cover" />
+                                    <div 
+                                        key={p.id} 
+                                        onClick={() => setActivePreviewImage(p.url)}
+                                        className="relative group rounded-xl border border-slate-200 shadow-2xs overflow-hidden aspect-square bg-slate-50 cursor-pointer"
+                                    >
+                                        <img src={p.url} alt={`Evidence ${idx + 1}`} referrerPolicy="no-referrer" className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" />
+                                        <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                            <span className="bg-slate-900/80 backdrop-blur-md text-white text-[10px] font-bold px-2.5 py-1.5 rounded-lg flex items-center gap-1 shadow-sm">
+                                                <Eye size={12} />
+                                                Preview
+                                            </span>
+                                        </div>
                                         {!isFieldDisabled && (
                                             <button 
-                                                onClick={() => removePhoto(p.id)}
-                                                className="absolute top-1.5 right-1.5 bg-red-500 hover:bg-red-600 text-white p-1.5 rounded-full shadow-md hover:scale-110 transition-transform"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    removePhoto(p.id);
+                                                }}
+                                                className="absolute top-1.5 right-1.5 bg-red-500 hover:bg-red-600 text-white p-1.5 rounded-full shadow-md hover:scale-110 transition-transform z-10"
                                                 type="button"
                                             >
                                                 <X size={14} />
@@ -707,12 +796,25 @@ const AuditItemCard: React.FC<{
                         {photos.length > 0 && (
                             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
                                 {photos.map((p, idx) => (
-                                    <div key={p.id} className="relative group rounded-xl border border-slate-200 shadow-2xs overflow-hidden aspect-square bg-slate-50">
-                                        <img src={p.url} alt={`Evidence ${idx + 1}`} referrerPolicy="no-referrer" className="w-full h-full object-cover" />
+                                    <div 
+                                        key={p.id} 
+                                        onClick={() => setActivePreviewImage(p.url)}
+                                        className="relative group rounded-xl border border-slate-200 shadow-2xs overflow-hidden aspect-square bg-slate-50 cursor-pointer"
+                                    >
+                                        <img src={p.url} alt={`Evidence ${idx + 1}`} referrerPolicy="no-referrer" className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" />
+                                        <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                            <span className="bg-slate-900/80 backdrop-blur-md text-white text-[10px] font-bold px-2.5 py-1.5 rounded-lg flex items-center gap-1 shadow-sm">
+                                                <Eye size={12} />
+                                                Preview
+                                            </span>
+                                        </div>
                                         {!isFieldDisabled && (
                                             <button 
-                                                onClick={() => removePhoto(p.id)}
-                                                className="absolute top-1.5 right-1.5 bg-red-500 hover:bg-red-600 text-white p-1.5 rounded-full shadow-md hover:scale-110 transition-transform"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    removePhoto(p.id);
+                                                }}
+                                                className="absolute top-1.5 right-1.5 bg-red-500 hover:bg-red-600 text-white p-1.5 rounded-full shadow-md hover:scale-110 transition-transform z-10"
                                                 type="button"
                                             >
                                                 <X size={14} />
@@ -1034,6 +1136,38 @@ const AuditItemCard: React.FC<{
                     )
                 )}
             </div>
+
+            {/* Full Screen Image Preview Modal */}
+            {activePreviewImage && (
+                <div 
+                    className="fixed inset-0 z-[150] bg-black/95 backdrop-blur-xs flex flex-col justify-center items-center p-4 animate-fadeIn"
+                    onClick={() => setActivePreviewImage(null)}
+                >
+                    <button 
+                        onClick={() => setActivePreviewImage(null)}
+                        className="absolute top-6 right-6 bg-white/10 hover:bg-white/25 text-white p-2.5 rounded-full backdrop-blur-md transition-all active:scale-95 z-20"
+                    >
+                        <X size={24} />
+                    </button>
+                    <div className="max-w-4xl max-h-[80vh] w-full h-full flex items-center justify-center relative z-10" onClick={(e) => e.stopPropagation()}>
+                        <img 
+                            src={activePreviewImage} 
+                            alt="Full Screen Preview" 
+                            referrerPolicy="no-referrer"
+                            className="max-w-full max-h-full object-contain rounded-lg shadow-2xl" 
+                        />
+                    </div>
+                    <div className="mt-6 text-center relative z-10">
+                        <button
+                            type="button"
+                            onClick={() => setActivePreviewImage(null)}
+                            className="bg-white hover:bg-slate-100 text-slate-950 px-6 py-3 rounded-xl font-bold text-sm shadow-md transition-all active:scale-95"
+                        >
+                            Close Preview
+                        </button>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
