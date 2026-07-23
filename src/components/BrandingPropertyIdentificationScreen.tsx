@@ -706,9 +706,13 @@ const AuditItemCard: React.FC<{
                                     </button>
                                 </div>
                                 {capturedPhotoUrl ? (
-                                    <div className="flex-1 relative flex flex-col bg-black overflow-hidden justify-between">
-                                        <div className="flex-1 relative flex items-center justify-center">
-                                            <img src={capturedPhotoUrl} alt="Captured preview" className="max-w-full max-h-full object-contain" />
+                                    <div className="flex-1 min-h-0 relative flex flex-col bg-black overflow-hidden justify-between">
+                                        <div className="flex-1 min-h-0 relative bg-black overflow-hidden">
+                                            <img 
+                                                src={capturedPhotoUrl} 
+                                                alt="Captured preview" 
+                                                className="absolute inset-0 w-full h-full object-contain" 
+                                            />
                                         </div>
                                         <div className="bg-slate-950/95 border-t border-slate-800 px-6 py-6 flex gap-4 justify-center items-center shrink-0 z-[1020]">
                                             <button 
@@ -729,8 +733,8 @@ const AuditItemCard: React.FC<{
                                     </div>
                                 ) : (
                                     <>
-                                        <div className="flex-1 relative flex items-center justify-center bg-black overflow-hidden">
-                                            <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover" />
+                                        <div className="flex-1 min-h-0 relative bg-black overflow-hidden">
+                                            <video ref={videoRef} autoPlay playsInline className="absolute inset-0 w-full h-full object-cover" />
                                         </div>
                                         <div className="h-32 bg-black pb-8 flex items-center justify-center shrink-0">
                                             <button 
