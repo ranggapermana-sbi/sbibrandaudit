@@ -233,13 +233,14 @@ const AuditItemCard: React.FC<{
         }
     };
 
-    const stopCamera = () => {
+    const stopCamera = (shouldRevoke: boolean | any = true) => {
+        const actualShouldRevoke = shouldRevoke === true || typeof shouldRevoke === 'object';
         if (streamRef.current) {
             streamRef.current.getTracks().forEach(t => t.stop());
             streamRef.current = null;
         }
         setIsCameraOpen(false);
-        if (capturedPhotoUrl) {
+        if (actualShouldRevoke && capturedPhotoUrl) {
             URL.revokeObjectURL(capturedPhotoUrl);
         }
         setCapturedPhotoUrl(null);
@@ -290,7 +291,7 @@ const AuditItemCard: React.FC<{
             setPhotos(prev => [...prev, newPhoto]);
             setCapturedPhotoUrl(null);
             setCapturedPhotoFile(null);
-            stopCamera();
+            stopCamera(false);
         }
     };
 
