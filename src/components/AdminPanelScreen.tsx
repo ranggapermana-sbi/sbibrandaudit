@@ -6431,7 +6431,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                                                          <img 
                                                                                                                              src={url} 
                                                                                                                              alt={`Submission Photo ${urlIdx + 1}`} 
-                                                                                                                             referrerPolicy="no-referrer" 
+                                                                                                                             referrerPolicy={url?.startsWith('blob:') || url?.startsWith('data:') ? undefined : 'no-referrer'} 
                                                                                                                              className="w-full h-full object-cover" 
                                                                                                                          />
                                                                                                                          <div className="absolute inset-0 bg-slate-950/40 opacity-0 group-hover/img:opacity-100 transition-opacity flex flex-col items-center justify-center text-white font-black text-[10px] uppercase tracking-wider text-center p-2 gap-1">
@@ -9107,7 +9107,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                             <img 
                                 src={enlargedImage.url} 
                                 alt="Enlarged Evidence" 
-                                referrerPolicy="no-referrer" 
+                                referrerPolicy={enlargedImage.url?.startsWith('blob:') || enlargedImage.url?.startsWith('data:') ? undefined : 'no-referrer'} 
                                 className="max-h-[75vh] w-auto max-w-full object-contain rounded-2xl shadow-2xl border border-slate-800" 
                             />
                         </div>

@@ -706,7 +706,7 @@ const AuditItemCard: React.FC<{
                                 {capturedPhotoUrl ? (
                                     <div className="flex-1 relative flex flex-col bg-black overflow-hidden justify-between">
                                         <div className="flex-1 relative flex items-center justify-center">
-                                            <img src={capturedPhotoUrl} alt="Captured preview" referrerPolicy="no-referrer" className="max-w-full max-h-full object-contain" />
+                                            <img src={capturedPhotoUrl} alt="Captured preview" className="max-w-full max-h-full object-contain" />
                                         </div>
                                         <div className="bg-slate-950/95 border-t border-slate-800 px-6 py-6 flex gap-4 justify-center items-center shrink-0 z-[120]">
                                             <button 
@@ -749,7 +749,7 @@ const AuditItemCard: React.FC<{
                                         onClick={() => setActivePreviewImage(p.url)}
                                         className="relative group rounded-xl border border-slate-200 shadow-2xs overflow-hidden aspect-square bg-slate-50 cursor-pointer"
                                     >
-                                        <img src={p.url} alt={`Evidence ${idx + 1}`} referrerPolicy="no-referrer" className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" />
+                                        <img src={p.url} alt={`Evidence ${idx + 1}`} referrerPolicy={p.url?.startsWith('blob:') || p.url?.startsWith('data:') ? undefined : 'no-referrer'} className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" />
                                         <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                                             <span className="bg-slate-900/80 backdrop-blur-md text-white text-[10px] font-bold px-2.5 py-1.5 rounded-lg flex items-center gap-1 shadow-sm">
                                                 <Eye size={12} />
@@ -801,7 +801,7 @@ const AuditItemCard: React.FC<{
                                         onClick={() => setActivePreviewImage(p.url)}
                                         className="relative group rounded-xl border border-slate-200 shadow-2xs overflow-hidden aspect-square bg-slate-50 cursor-pointer"
                                     >
-                                        <img src={p.url} alt={`Evidence ${idx + 1}`} referrerPolicy="no-referrer" className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" />
+                                        <img src={p.url} alt={`Evidence ${idx + 1}`} referrerPolicy={p.url?.startsWith('blob:') || p.url?.startsWith('data:') ? undefined : 'no-referrer'} className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" />
                                         <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                                             <span className="bg-slate-900/80 backdrop-blur-md text-white text-[10px] font-bold px-2.5 py-1.5 rounded-lg flex items-center gap-1 shadow-sm">
                                                 <Eye size={12} />
@@ -1153,7 +1153,7 @@ const AuditItemCard: React.FC<{
                         <img 
                             src={activePreviewImage} 
                             alt="Full Screen Preview" 
-                            referrerPolicy="no-referrer"
+                            referrerPolicy={activePreviewImage?.startsWith('blob:') || activePreviewImage?.startsWith('data:') ? undefined : 'no-referrer'}
                             className="max-w-full max-h-full object-contain rounded-lg shadow-2xl" 
                         />
                     </div>
