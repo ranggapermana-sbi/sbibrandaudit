@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { ChevronRight, Camera, Loader2, CheckCircle2, Image as ImageIcon, FileUp, Hash, Type, CheckSquare, UploadCloud, X, AlertCircle, RefreshCw, User, Lock, Unlock, Eye, Check } from 'lucide-react';
 import { supabase, HOTELS_URL, HOTELS_KEY } from '../lib/supabase';
 
@@ -692,9 +693,9 @@ const AuditItemCard: React.FC<{
             case 'camera':
                 return (
                     <div className="mt-3 space-y-3">
-                        {isCameraOpen && (
-                            <div className="fixed inset-0 z-[100] bg-black flex flex-col animate-fadeIn">
-                                <div className="absolute top-4 right-4 z-[110] flex gap-4">
+                        {isCameraOpen && createPortal(
+                            <div className="fixed inset-0 z-[999] bg-black flex flex-col animate-fadeIn">
+                                <div className="absolute top-4 right-4 z-[1010] flex gap-4">
                                     {!capturedPhotoUrl && (
                                         <button onClick={switchCamera} className="bg-white/20 p-3 rounded-full backdrop-blur-md text-white hover:bg-white/30 transition-all active:scale-95">
                                             <RefreshCw size={24} />
@@ -709,7 +710,7 @@ const AuditItemCard: React.FC<{
                                         <div className="flex-1 relative flex items-center justify-center">
                                             <img src={capturedPhotoUrl} alt="Captured preview" className="max-w-full max-h-full object-contain" />
                                         </div>
-                                        <div className="bg-slate-950/95 border-t border-slate-800 px-6 py-6 flex gap-4 justify-center items-center shrink-0 z-[120]">
+                                        <div className="bg-slate-950/95 border-t border-slate-800 px-6 py-6 flex gap-4 justify-center items-center shrink-0 z-[1020]">
                                             <button 
                                                 onClick={handleRetake}
                                                 className="flex-1 max-w-[180px] bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-200 font-bold py-3 px-5 rounded-xl border border-slate-700 transition-all text-sm flex items-center justify-center gap-2"
@@ -739,7 +740,8 @@ const AuditItemCard: React.FC<{
                                         </div>
                                     </>
                                 )}
-                            </div>
+                            </div>,
+                            document.body
                         )}
                         
                         {photos.length > 0 && (
@@ -1139,9 +1141,9 @@ const AuditItemCard: React.FC<{
             </div>
 
             {/* Full Screen Image Preview Modal */}
-            {activePreviewImage && (
+            {activePreviewImage && createPortal(
                 <div 
-                    className="fixed inset-0 z-[150] bg-black/95 backdrop-blur-xs flex flex-col justify-center items-center p-4 animate-fadeIn"
+                    className="fixed inset-0 z-[999] bg-black/95 backdrop-blur-xs flex flex-col justify-center items-center p-4 animate-fadeIn"
                     onClick={() => setActivePreviewImage(null)}
                 >
                     <button 
@@ -1167,7 +1169,8 @@ const AuditItemCard: React.FC<{
                             Close Preview
                         </button>
                     </div>
-                </div>
+                </div>,
+                document.body
             )}
         </div>
     );
