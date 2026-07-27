@@ -231,8 +231,9 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
 
       // 6. Fetch submissions to calculate completed vs total tasks
       let submittedItemIds = new Set<string>();
+      let naItemIds = new Set<string>();
       try {
-        let query = supabase.from('audit_submissions').select('item_id, hotel_id');
+        let query = supabase.from('audit_submissions').select('item_id, hotel_id, is_na');
         if (possibleHotelIds.length > 0) {
           query = query.in('hotel_id', possibleHotelIds);
         }
@@ -243,18 +244,26 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
             const subHotelIdLower = String(sub.hotel_id || '').toLowerCase();
             const matchesHotel = targetHotelIdsLower.size === 0 || targetHotelIdsLower.has(subHotelIdLower);
             if (matchesHotel && sub.item_id !== undefined && sub.item_id !== null) {
-              submittedItemIds.add(String(sub.item_id));
+              const itemIdStr = String(sub.item_id);
+              submittedItemIds.add(itemIdStr);
+              if (sub.is_na === true || String(sub.is_na) === 'true') {
+                naItemIds.add(itemIdStr);
+              }
             }
           });
         } else {
           // Fallback fetch all submissions
-          const { data: fallbackSubs } = await supabase.from('audit_submissions').select('item_id, hotel_id');
+          const { data: fallbackSubs } = await supabase.from('audit_submissions').select('item_id, hotel_id, is_na');
           if (fallbackSubs && Array.isArray(fallbackSubs)) {
             fallbackSubs.forEach((sub: any) => {
               const subHotelIdLower = String(sub.hotel_id || '').toLowerCase();
               if (targetHotelIdsLower.size === 0 || targetHotelIdsLower.has(subHotelIdLower)) {
                 if (sub.item_id !== undefined && sub.item_id !== null) {
-                  submittedItemIds.add(String(sub.item_id));
+                  const itemIdStr = String(sub.item_id);
+                  submittedItemIds.add(itemIdStr);
+                  if (sub.is_na === true || String(sub.is_na) === 'true') {
+                    naItemIds.add(itemIdStr);
+                  }
                 }
               }
             });
@@ -288,18 +297,39 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
 
       setAuditItems(sortedData);
 
-      // Calculate task statistics on self-audit items only
+      // Calculate task statistics on self-audit items only (exempting N/A items)
       const selfAuditItems = sortedData.filter((item: any) => item.filled_by_hotel !== false && item.filled_by_hotel !== 'false');
-      const totalT = selfAuditItems.length;
       let completedT = 0;
+      let totalT = 0;
       let totalP = 0;
       let completedP = 0;
+
       selfAuditItems.forEach((item: any) => {
-        const pts = item.points !== undefined && item.points !== null ? Number(item.points) : 5; // default to 5 if not specified
-        totalP += pts;
-        if (submittedItemIds.has(String(item.id))) {
-          completedT++;
-          completedP += pts;
+        const itemIdStr = String(item.id);
+        let isNa = naItemIds.has(itemIdStr);
+
+        // Also check local storage for target hotel IDs
+        for (const hId of targetHotelIds) {
+          const localKey = `sbi_audit_${hId}_${item.id}`;
+          const localStored = localStorage.getItem(localKey);
+          if (localStored) {
+            try {
+              const parsed = JSON.parse(localStored);
+              if (parsed.is_na === true || String(parsed.is_na) === 'true') {
+                isNa = true;
+              }
+            } catch (e) {}
+          }
+        }
+
+        const pts = item.points !== undefined && item.points !== null ? Number(item.points) : 5;
+        if (!isNa) {
+          totalT++;
+          totalP += pts;
+          if (submittedItemIds.has(itemIdStr)) {
+            completedT++;
+            completedP += pts;
+          }
         }
       });
 

@@ -2212,7 +2212,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     const [selectedAuditorId, setSelectedAuditorId] = useState<string>('');
     const [selectedInspectionCategoryId, setSelectedInspectionCategoryId] = useState<string>('');
     const [hotelSubmissions, setHotelSubmissions] = useState<Record<string, any>>({});
-    const [inspectionScores, setInspectionScores] = useState<Record<string, number>>(() => {
+    const [inspectionScores, setInspectionScores] = useState<Record<string, number | string>>(() => {
         const stored = localStorage.getItem('sbi_inspection_scores');
         return stored ? JSON.parse(stored) : {};
     });
@@ -2429,7 +2429,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         }
     };
 
-    const saveInspectionScore = (hotelId: string, itemId: string, score: number | undefined) => {
+    const saveInspectionScore = (hotelId: string, itemId: string, score: number | string | undefined) => {
         const updated = { ...inspectionScores };
         if (score === undefined) {
             delete updated[`${hotelId}_${itemId}`];
@@ -6162,8 +6162,24 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                 );
 
                                 const scoredItems = allHotelItems.filter(i => inspectionScores[`${hotel.id}_${i.id}`] !== undefined);
-                                const totalPointsScored = scoredItems.reduce((sum, i) => sum + Number(inspectionScores[`${hotel.id}_${i.id}`] || 0), 0);
-                                const totalPointsMax = allHotelItems.reduce((sum, i) => sum + (i.points ?? 5), 0);
+                                const totalPointsScored = scoredItems.reduce((sum, i) => {
+                                    const scoreVal = inspectionScores[`${hotel.id}_${i.id}`];
+                                    if (scoreVal === 'N/A') return sum;
+                                    const numVal = Number(scoreVal);
+                                    return sum + (isNaN(numVal) ? 0 : numVal);
+                                }, 0);
+                                const isItemNA = (item: any) => {
+                                    const scoreVal = inspectionScores[`${hotel.id}_${item.id}`];
+                                    if (scoreVal === 'N/A') return true;
+                                    const sub = hotelSubmissions[item.id];
+                                    if (sub && (sub.is_na === true || String(sub.is_na) === 'true')) return true;
+                                    return false;
+                                };
+
+                                const totalPointsMax = allHotelItems.reduce((sum, i) => {
+                                    if (isItemNA(i)) return sum;
+                                    return sum + (i.points ?? 5);
+                                }, 0);
                                 
                                 const hotelSubs = Object.values(hotelSubmissions).filter((sub: any) => 
                                     allHotelItems.some(item => String(item.id) === String(sub.item_id))
@@ -6343,6 +6359,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                 const hasSubmission = !!submission;
                                                                 const isPass = currentScore !== undefined && currentScore === (item.points ?? 5);
                                                                 const isFail = currentScore !== undefined && currentScore === 0;
+                                                                const isNA = currentScore !== undefined && currentScore === 'N/A';
                                                                 const isSelfAudit = item.filled_by_hotel !== false && item.filled_by_hotel !== 'false';
 
                                                                 return (
@@ -6505,16 +6522,20 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                     <div className="flex items-center justify-between">
                                                                                         <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Auditor Status</label>
                                                                                         <div className="flex items-baseline gap-1">
-                                                                                            <span className={`text-xl font-black ${currentScore !== undefined ? 'text-slate-900' : 'text-slate-300'}`}>
-                                                                                                {currentScore !== undefined ? (isPass ? 'PASS' : isFail ? 'FAIL' : currentScore) : '—'}
+                                                                                            <span className={`text-xl font-black ${
+                                                                                                currentScore !== undefined 
+                                                                                                    ? (isPass ? 'text-emerald-600' : isFail ? 'text-red-600' : isNA ? 'text-amber-600' : 'text-slate-900') 
+                                                                                                    : 'text-slate-300'
+                                                                                            }`}>
+                                                                                                {currentScore !== undefined ? (isPass ? 'PASS' : isFail ? 'FAIL' : isNA ? 'N/A' : currentScore) : '—'}
                                                                                             </span>
                                                                                             <span className="text-[10px] font-black text-slate-400">({item.points ?? 5} PTS)</span>
                                                                                         </div>
                                                                                     </div>
 
-                                                                                    {/* PASS / FAIL CONTROLS */}
+                                                                                    {/* PASS / FAIL / N/A CONTROLS */}
                                                                                     <div className="space-y-2">
-                                                                                        <div className="grid grid-cols-2 gap-2">
+                                                                                        <div className={`grid ${submission?.is_na ? 'grid-cols-3' : 'grid-cols-2'} gap-2`}>
                                                                                             <button
                                                                                                 type="button"
                                                                                                 id={`btn-pass-${item.id}`}
@@ -6525,7 +6546,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                                         saveInspectionScore(hotel.id, item.id, item.points ?? 5);
                                                                                                     }
                                                                                                 }}
-                                                                                                className={`py-2.5 px-3 rounded-xl font-black text-xs uppercase tracking-wider transition-all duration-150 cursor-pointer flex flex-col items-center justify-center gap-0.5 border ${
+                                                                                                className={`py-2.5 px-1.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all duration-150 cursor-pointer flex flex-col items-center justify-center gap-0.5 border ${
                                                                                                     isPass
                                                                                                         ? 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600 shadow-sm shadow-emerald-100'
                                                                                                         : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-200 hover:border-emerald-400'
@@ -6546,7 +6567,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                                         saveInspectionScore(hotel.id, item.id, 0);
                                                                                                     }
                                                                                                 }}
-                                                                                                className={`py-2.5 px-3 rounded-xl font-black text-xs uppercase tracking-wider transition-all duration-150 cursor-pointer flex flex-col items-center justify-center gap-0.5 border ${
+                                                                                                className={`py-2.5 px-1.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all duration-150 cursor-pointer flex flex-col items-center justify-center gap-0.5 border ${
                                                                                                     isFail
                                                                                                         ? 'bg-red-600 hover:bg-red-700 text-white border-red-600 shadow-sm shadow-red-100'
                                                                                                         : 'bg-red-50 hover:bg-red-100 text-red-800 border-red-200 hover:border-red-400'
@@ -6557,6 +6578,29 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                                     0 pts
                                                                                                 </span>
                                                                                             </button>
+                                                                                            {submission?.is_na && (
+                                                                                                <button
+                                                                                                    type="button"
+                                                                                                    id={`btn-na-${item.id}`}
+                                                                                                    onClick={() => {
+                                                                                                        if (isNA) {
+                                                                                                            saveInspectionScore(hotel.id, item.id, undefined);
+                                                                                                        } else {
+                                                                                                            saveInspectionScore(hotel.id, item.id, 'N/A');
+                                                                                                        }
+                                                                                                    }}
+                                                                                                    className={`py-2.5 px-1.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all duration-150 cursor-pointer flex flex-col items-center justify-center gap-0.5 border ${
+                                                                                                        isNA
+                                                                                                            ? 'bg-amber-500 hover:bg-amber-600 text-white border-amber-500 shadow-sm shadow-amber-100 ring-2 ring-amber-500 ring-offset-2'
+                                                                                                            : 'bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-200 hover:border-amber-400 animate-pulse'
+                                                                                                    }`}
+                                                                                                >
+                                                                                                    <span className="text-xs">Approve N/A</span>
+                                                                                                    <span className={`text-[9px] font-bold ${isNA ? 'text-amber-100' : 'text-amber-600'}`}>
+                                                                                                        Exempt
+                                                                                                    </span>
+                                                                                                </button>
+                                                                                            )}
                                                                                         </div>
                                                                                     </div>
 
@@ -6688,22 +6732,31 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                     return item.filled_by_hotel !== false && item.filled_by_hotel !== 'false';
                                 });
 
-                                const totalT = hotelItems.length;
                                 const submittedItemIdsForHotel = new Set<string>();
+                                const naItemIdsForHotel = new Set<string>();
                                 allSubmissions.forEach((sub: any) => {
                                     if (String(sub.hotel_id || '').toLowerCase() === hIdLower) {
                                         submittedItemIdsForHotel.add(String(sub.item_id));
+                                        if (sub.is_na === true || String(sub.is_na) === 'true') {
+                                            naItemIdsForHotel.add(String(sub.item_id));
+                                        }
                                     }
                                 });
 
                                 let completedT = 0;
+                                let totalT = 0;
                                 hotelItems.forEach((item: any) => {
-                                    if (submittedItemIdsForHotel.has(String(item.id))) {
-                                        completedT++;
+                                    const itemIdStr = String(item.id);
+                                    const isNa = naItemIdsForHotel.has(itemIdStr);
+                                    if (!isNa) {
+                                        totalT++;
+                                        if (submittedItemIdsForHotel.has(itemIdStr)) {
+                                            completedT++;
+                                        }
                                     }
                                 });
 
-                                const percentage = totalT > 0 ? Math.round((completedT / totalT) * 100) : 0;
+                                const percentage = totalT > 0 ? Math.round((completedT / totalT) * 100) : (hotelItems.length > 0 && naItemIdsForHotel.size === hotelItems.length ? 100 : 0);
                                 return { completed: completedT, total: totalT, percentage };
                             };
 

@@ -204,6 +204,7 @@ export default function PendingCategoriesScreen({ onBack, onNavigate, userProfil
 
             // 4. Fetch submissions for target hotel
             let submittedItemIds = new Set<string>();
+            let naItemIds = new Set<string>();
 
             try {
                 let query = supabase.from('audit_submissions').select('item_id, hotel_id, value, is_na');
@@ -218,7 +219,11 @@ export default function PendingCategoriesScreen({ onBack, onNavigate, userProfil
                         const subHotelIdLower = String(sub.hotel_id || '').toLowerCase();
                         const matchesHotel = targetHotelIdsLower.size === 0 || targetHotelIdsLower.has(subHotelIdLower);
                         if (matchesHotel && sub.item_id !== undefined && sub.item_id !== null) {
-                            submittedItemIds.add(String(sub.item_id));
+                            const itemIdStr = String(sub.item_id);
+                            submittedItemIds.add(itemIdStr);
+                            if (sub.is_na === true || String(sub.is_na) === 'true') {
+                                naItemIds.add(itemIdStr);
+                            }
                         }
                     });
                 } else if (subsError) {
@@ -229,7 +234,11 @@ export default function PendingCategoriesScreen({ onBack, onNavigate, userProfil
                             const subHotelIdLower = String(sub.hotel_id || '').toLowerCase();
                             if (targetHotelIdsLower.size === 0 || targetHotelIdsLower.has(subHotelIdLower)) {
                                 if (sub.item_id !== undefined && sub.item_id !== null) {
-                                    submittedItemIds.add(String(sub.item_id));
+                                    const itemIdStr = String(sub.item_id);
+                                    submittedItemIds.add(itemIdStr);
+                                    if (sub.is_na === true || String(sub.is_na) === 'true') {
+                                        naItemIds.add(itemIdStr);
+                                    }
                                 }
                             }
                         });
@@ -248,34 +257,43 @@ export default function PendingCategoriesScreen({ onBack, onNavigate, userProfil
                 );
                 
                 let completedCount = 0;
+                let validItemsCount = 0;
                 let catPointsTotal = 0;
                 let catPointsCompleted = 0;
+
                 catItems.forEach((item: any) => {
                     const itemIdStr = String(item.id);
                     let isCompleted = submittedItemIds.has(itemIdStr);
-                    const itemPoints = item.points !== undefined && item.points !== null ? Number(item.points) : 5;
-                    catPointsTotal += itemPoints;
+                    let isNa = naItemIds.has(itemIdStr);
 
                     // Check local storage fallback for any target hotel ID
-                    if (!isCompleted) {
-                        for (const hId of targetHotelIds) {
-                            const localKey = `sbi_audit_${hId}_${item.id}`;
-                            const localStored = localStorage.getItem(localKey);
-                            if (localStored) {
-                                try {
-                                    const parsed = JSON.parse(localStored);
-                                    if (parsed.isSubmitted || parsed.value !== undefined || parsed.is_na !== undefined) {
-                                        isCompleted = true;
-                                        break;
-                                    }
-                                } catch (e) {}
-                            }
+                    for (const hId of targetHotelIds) {
+                        const localKey = `sbi_audit_${hId}_${item.id}`;
+                        const localStored = localStorage.getItem(localKey);
+                        if (localStored) {
+                            try {
+                                const parsed = JSON.parse(localStored);
+                                if (parsed.is_na === true || String(parsed.is_na) === 'true') {
+                                    isNa = true;
+                                    naItemIds.add(itemIdStr);
+                                }
+                                if (parsed.isSubmitted || parsed.value !== undefined || parsed.is_na !== undefined) {
+                                    isCompleted = true;
+                                }
+                            } catch (e) {}
                         }
                     }
 
-                    if (isCompleted) {
-                        completedCount++;
-                        catPointsCompleted += itemPoints;
+                    const itemPoints = item.points !== undefined && item.points !== null ? Number(item.points) : 5;
+
+                    // If item is N/A (exempted), do NOT include it in total points or total task count
+                    if (!isNa) {
+                        catPointsTotal += itemPoints;
+                        validItemsCount++;
+                        if (isCompleted) {
+                            completedCount++;
+                            catPointsCompleted += itemPoints;
+                        }
                     }
                 });
 
@@ -284,13 +302,14 @@ export default function PendingCategoriesScreen({ onBack, onNavigate, userProfil
                 return {
                     id: cat.id,
                     name: cat.name,
-                    total: catItems.length,
-                    completed: Math.min(completedCount, catItems.length),
+                    total: validItemsCount,
+                    totalRaw: catItems.length,
+                    completed: Math.min(completedCount, validItemsCount),
                     pointsTotal: catPointsTotal,
                     pointsCompleted: catPointsCompleted,
                     sort_order: cat.sort_order
                 };
-            }).filter((cat: any) => cat.total > 0)
+            }).filter((cat: any) => cat.totalRaw > 0)
               .sort((a: any, b: any) => {
                   const sA = a.sort_order !== undefined && a.sort_order !== null ? Number(a.sort_order) : 999999;
                   const sB = b.sort_order !== undefined && b.sort_order !== null ? Number(b.sort_order) : 999999;
@@ -380,23 +399,38 @@ export default function PendingCategoriesScreen({ onBack, onNavigate, userProfil
                 );
                 
                 let completedCount = 0;
+                let validItemsCount = 0;
+                let catPointsTotal = 0;
+                let catPointsCompleted = 0;
+
                 catItems.forEach((item: any) => {
                     let isCompleted = false;
+                    let isNa = false;
                     for (const hId of targetHotelIds) {
                         const localKey = `sbi_audit_${hId}_${item.id}`;
                         const localStored = localStorage.getItem(localKey);
                         if (localStored) {
                             try {
                                 const parsed = JSON.parse(localStored);
+                                if (parsed.is_na === true || String(parsed.is_na) === 'true') {
+                                    isNa = true;
+                                }
                                 if (parsed.isSubmitted || parsed.value !== undefined || parsed.is_na !== undefined) {
                                     isCompleted = true;
-                                    break;
                                 }
                             } catch (e) {}
                         }
                     }
-                    if (isCompleted) {
-                        completedCount++;
+
+                    const itemPoints = item.points !== undefined && item.points !== null ? Number(item.points) : 5;
+
+                    if (!isNa) {
+                        catPointsTotal += itemPoints;
+                        validItemsCount++;
+                        if (isCompleted) {
+                            completedCount++;
+                            catPointsCompleted += itemPoints;
+                        }
                     }
                 });
                 
@@ -405,11 +439,14 @@ export default function PendingCategoriesScreen({ onBack, onNavigate, userProfil
                 return {
                     id: cat.id,
                     name: cat.name,
-                    total: catItems.length,
-                    completed: Math.min(completedCount, catItems.length),
+                    total: validItemsCount,
+                    totalRaw: catItems.length,
+                    completed: Math.min(completedCount, validItemsCount),
+                    pointsTotal: catPointsTotal,
+                    pointsCompleted: catPointsCompleted,
                     sort_order: cat.sort_order
                 };
-            }).filter((cat: any) => cat.total > 0)
+            }).filter((cat: any) => cat.totalRaw > 0)
               .sort((a: any, b: any) => {
                   const sA = a.sort_order !== undefined && a.sort_order !== null ? Number(a.sort_order) : 999999;
                   const sB = b.sort_order !== undefined && b.sort_order !== null ? Number(b.sort_order) : 999999;
