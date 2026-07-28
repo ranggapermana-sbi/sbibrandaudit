@@ -1055,7 +1055,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             try {
                 const { data, error } = await supabase
                     .from('audit_submissions')
-                    .select('hotel_id, item_id');
+                    .select('hotel_id, item_id, is_na, value, evidence_urls');
                 if (!error && data && active) {
                     setAllSubmissions(data);
                 }
@@ -1077,9 +1077,10 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             })
             .subscribe();
 
+        // Background fallback polling interval set to 30 seconds to conserve database resources
         const interval = setInterval(() => {
             fetchAllSubmissions();
-        }, 3000);
+        }, 30000);
 
         return () => {
             active = false;
@@ -1859,129 +1860,13 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     };
 
     const fetchRecentActivity = async () => {
-        setIsActivityLoading(true);
-        try {
-            // Fetch recent item submissions
-            const { data: subsData, error: subsError } = await supabase
-                .from('audit_submissions')
-                .select('*')
-                .order('created_at', { ascending: false })
-                .limit(200);
-            
-            // Fetch hotel audit statuses
-            const { data: statusData, error: statusError } = await supabase
-                .from('hotel_audit_status')
-                .select('*')
-                .order('finalized_at', { ascending: false });
-
-            // Fetch user enrollments and approvals
-            const { data: enrollmentsData, error: enrollmentsError } = await supabase
-                .from('audit_users')
-                .select('*')
-                .order('created_at', { ascending: false })
-                .limit(100);
-
-            const events: any[] = [];
-
-            // Add submissions
-            if (subsData && !subsError) {
-                subsData.forEach((sub: any) => {
-                    const hotelName = sub.hotels?.name || hotels.find((h: any) => String(h.id) === String(sub.hotel_id))?.name || 'Unknown Property';
-                    const submitter = sub.submitted_by || sub.submitted_by_name || 'Representative';
-                    const itemName = items.find((it: any) => String(it.id) === String(sub.item_id))?.name || 'Brand Audit Item';
-                    events.push({
-                        id: `sub-${sub.id || sub.hotel_id + '-' + sub.item_id}`,
-                        type: 'submission',
-                        hotelId: sub.hotel_id,
-                        hotelName,
-                        submitter,
-                        itemName,
-                        timestamp: sub.created_at || sub.updated_at || new Date().toISOString(),
-                    });
-                });
-            }
-
-            // Add finalised status events (only where is_finalized is true)
-            if (statusData && !statusError) {
-                statusData.forEach((st: any) => {
-                    if (st.is_finalized) {
-                        const hotelName = st.hotels?.name || hotels.find((h: any) => String(h.id) === String(st.hotel_id))?.name || 'Unknown Property';
-                        const submitter = st.finalized_by || 'Representative';
-                        events.push({
-                            id: `final-${st.hotel_id}`,
-                            type: 'finalization',
-                            hotelId: st.hotel_id,
-                            hotelName,
-                            submitter,
-                            timestamp: st.finalized_at || st.updated_at || new Date().toISOString(),
-                        });
-                    }
-                });
-            }
-
-            // Add enrollments and approvals (filtering out legacy/system/placeholder mock profiles)
-            if (enrollmentsData && !enrollmentsError) {
-                enrollmentsData.forEach((user: any) => {
-                    const firstName = user.first_name || '';
-                    const lastName = user.last_name || '';
-                    const fullName = (firstName + ' ' + lastName).trim() || user.display_name || user.email?.split('@')[0] || 'Unknown User';
-                    const roleName = user.role || '';
-                    const hotelName = user.hotel_name || '';
-
-                    const roleClean = roleName.trim();
-                    const isSystemRole = ['admin', 'auditor', 'auditee', 'representative'].includes(roleClean.toLowerCase()) || !roleClean;
-                    const isPlaceholderHotel = !hotelName || hotelName.toLowerCase().trim() === 'swiss-belhotel international';
-
-                    // Only show actual user enrollments and approvals
-                    if (!isSystemRole && !isPlaceholderHotel) {
-                        // 1. Enrollment Event
-                        events.push({
-                            id: `enroll-${user.id}`,
-                            type: 'enrollment',
-                            hotelId: user.hotel_id?.split(',')[0] || null,
-                            hotelName,
-                            fullName,
-                            roleName,
-                            timestamp: user.created_at || user.updated_at || new Date().toISOString(),
-                        });
-
-                        // 2. Approval Event (if approved)
-                        if (user.is_approved && user.approved_at) {
-                            const adminName = user.approved_by_name || 'Admin';
-                            events.push({
-                                id: `approve-${user.id}`,
-                                type: 'admin_approval',
-                                hotelId: user.hotel_id?.split(',')[0] || null,
-                                hotelName,
-                                fullName,
-                                roleName,
-                                adminName,
-                                timestamp: user.approved_at,
-                            });
-                        }
-                    }
-                });
-            }
-
-            // Sort combined by timestamp descending
-            events.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-            setRecentActivityEvents(events);
-        } catch (e) {
-            console.error("Error fetching recent activity:", e);
-        } finally {
-            setIsActivityLoading(false);
-        }
+        // Disabled to prevent unnecessary heavy queries against Supabase
+        return;
     };
 
     useEffect(() => {
-        fetchRecentActivity();
-
-        const interval = setInterval(() => {
-            fetchRecentActivity();
-        }, 20000);
-
-        return () => clearInterval(interval);
-    }, [hotels, items]);
+        // Disabled Recent Activity background polling
+    }, []);
 
     // Perform database sync on subView transition and initialization
     useEffect(() => {
@@ -2228,26 +2113,31 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     const isSubmissionForHotel = (submissionHotelId: string, hotel: Hotel) => {
         if (!submissionHotelId || !hotel) return false;
         
-        const subIdLower = String(submissionHotelId).toLowerCase();
-        const hotelIdLower = String(hotel.id).toLowerCase();
+        const subIdLower = String(submissionHotelId).trim().toLowerCase();
+        const hotelIdLower = String(hotel.id || '').trim().toLowerCase();
         
         if (subIdLower === hotelIdLower) return true;
-        
-        if (hotel.code && subIdLower === String(hotel.code).toLowerCase()) return true;
+        if (hotel.code && subIdLower === String(hotel.code).trim().toLowerCase()) return true;
+        if (hotel.name && subIdLower === String(hotel.name).trim().toLowerCase()) return true;
         
         const associatedIds = new Set<string>();
-        profilesList.forEach(p => {
-            const matchesCode = p.hotel_code && hotel.code && String(p.hotel_code).toLowerCase() === String(hotel.code).toLowerCase();
-            const matchesName = p.hotel_name && hotel.name && String(p.hotel_name).toLowerCase() === String(hotel.name).toLowerCase();
-            const matchesId = p.hotel_id && hotel.id && String(p.hotel_id).toLowerCase() === String(hotel.id).toLowerCase();
+        if (hotel.id) associatedIds.add(String(hotel.id).trim().toLowerCase());
+        if (hotel.code) associatedIds.add(String(hotel.code).trim().toLowerCase());
+        if (hotel.name) associatedIds.add(String(hotel.name).trim().toLowerCase());
+
+        (profilesList || []).forEach(p => {
+            const matchesCode = p.hotel_code && hotel.code && String(p.hotel_code).trim().toLowerCase() === String(hotel.code).trim().toLowerCase();
+            const matchesName = p.hotel_name && hotel.name && String(p.hotel_name).trim().toLowerCase() === String(hotel.name).trim().toLowerCase();
+            const matchesId = p.hotel_id && hotel.id && String(p.hotel_id).trim().toLowerCase() === String(hotel.id).trim().toLowerCase();
             if (matchesCode || matchesName || matchesId) {
-                if (p.hotel_id) associatedIds.add(String(p.hotel_id).toLowerCase());
+                if (p.hotel_id) associatedIds.add(String(p.hotel_id).trim().toLowerCase());
+                if (p.hotel_code) associatedIds.add(String(p.hotel_code).trim().toLowerCase());
+                if (p.hotel_name) associatedIds.add(String(p.hotel_name).trim().toLowerCase());
+                if (p.id) associatedIds.add(String(p.id).trim().toLowerCase());
             }
         });
         
-        if (associatedIds.has(subIdLower)) return true;
-        
-        return false;
+        return associatedIds.has(subIdLower);
     };
 
     const getSubmitterName = (sub: any, currentHotel?: any) => {
@@ -2399,10 +2289,10 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             })
             .subscribe();
 
-        // 3-second background polling interval to guarantee instant updates if WebSocket/real-time replication is disabled
+        // 30-second background polling interval to conserve Supabase database resources
         const interval = setInterval(() => {
             fetchSubmissionsLocal();
-        }, 3000);
+        }, 30000);
 
         return () => {
             active = false;
@@ -4397,174 +4287,11 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                 </div>
                                                 <ChevronRight className="text-slate-300 group-hover:text-indigo-600 group-hover:translate-x-1 transition-all" size={18} />
                                             </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </section>
-
-                        {/* Recent Activity info */}
-                        <section className="bg-white p-6 sm:p-8 rounded-[28px] border border-slate-150/80 shadow-[0_12px_40px_rgba(15,23,42,0.02)] mt-6 animate-fadeIn">
-                            <h2 className="text-lg font-bold text-slate-900 mb-6 flex items-center justify-between">
-                                <div className="flex items-center gap-2">
-                                    <Clock size={18} className="text-indigo-600 animate-pulse" />
-                                    <span className="tracking-tight">Recent Activity</span>
-                                </div>
-                                {isActivityLoading && (
-                                    <span className="text-xs text-slate-400 font-medium flex items-center gap-1.5">
-                                        <RefreshCw size={12} className="animate-spin text-indigo-500" />
-                                        Updating...
-                                    </span>
-                                )}
-                            </h2>
-                            <div className="space-y-3">
-                                {recentActivityEvents.length > 0 ? (
-                                    (() => {
-                                        const itemsPerPage = 10;
-                                        const totalPages = Math.ceil(recentActivityEvents.length / itemsPerPage);
-                                        const currentPage = Math.min(activityCurrentPage, Math.max(1, totalPages));
-                                        const paginated = recentActivityEvents.slice(
-                                            (currentPage - 1) * itemsPerPage,
-                                            currentPage * itemsPerPage
-                                        );
-
-                                        return (
-                                            <>
-                                                {paginated.map((event) => {
-                                                    const isFinal = event.type === 'finalization';
-                                                    const isEnroll = event.type === 'enrollment';
-                                                    const isAdminApproval = event.type === 'admin_approval';
-                                                    return (
-                                                        <div 
-                                                            key={event.id} 
-                                                            onClick={() => {
-                                                                if (isEnroll || isAdminApproval) {
-                                                                    setSubView('users');
-                                                                } else {
-                                                                    setSelectedInspectionHotelId(event.hotelId);
-                                                                    setSubView('inspection');
-                                                                }
-                                                            }}
-                                                            className={`group flex items-start sm:items-center justify-between p-4 rounded-2xl border transition-all duration-200 cursor-pointer ${
-                                                                isFinal 
-                                                                    ? 'bg-emerald-50/30 border-emerald-100 hover:bg-emerald-50/60 hover:border-emerald-200' 
-                                                                    : isEnroll
-                                                                        ? 'bg-indigo-50/30 border-indigo-100/70 hover:bg-indigo-50/60 hover:border-indigo-200'
-                                                                        : isAdminApproval
-                                                                            ? 'bg-rose-50/25 border-rose-100/70 hover:bg-rose-50/50 hover:border-rose-200'
-                                                                            : 'bg-slate-50/50 border-slate-100 hover:bg-white hover:border-indigo-100 hover:shadow-md'
-                                                            }`}
-                                                        >
-                                                            <div className="flex items-start gap-3 sm:items-center">
-                                                                <div className={`p-2.5 rounded-xl border flex-shrink-0 transition-all ${
-                                                                    isFinal 
-                                                                        ? 'bg-emerald-100/60 border-emerald-200/80 text-emerald-700' 
-                                                                        : isEnroll
-                                                                            ? 'bg-indigo-100/60 border-indigo-200/80 text-indigo-700'
-                                                                            : isAdminApproval
-                                                                                ? 'bg-rose-100/60 border-rose-200/80 text-rose-700'
-                                                                                : 'bg-white border-slate-100 text-slate-600 group-hover:bg-indigo-50 group-hover:text-indigo-600'
-                                                                }`}>
-                                                                    {isFinal ? (
-                                                                        <FileCheck size={16} />
-                                                                    ) : isEnroll ? (
-                                                                        <Users size={16} />
-                                                                    ) : isAdminApproval ? (
-                                                                        <ShieldCheck size={16} />
-                                                                    ) : (
-                                                                        <ClipboardList size={16} />
-                                                                    )}
-                                                                </div>
-                                                                <div className="leading-relaxed">
-                                                                    <p className="text-xs text-slate-700 font-medium font-sans flex flex-wrap items-center gap-x-1.5 gap-y-1">
-                                                                        {isAdminApproval ? (
-                                                                            <>
-                                                                                <span className="text-rose-700 bg-rose-50 border border-rose-150 px-2 py-0.5 rounded-md font-bold text-[10px] uppercase tracking-wider mr-1">Admin Activity:</span>
-                                                                                <span className="font-bold text-amber-800 bg-amber-50 border border-amber-100/50 px-1.5 py-0.5 rounded-md">{event.adminName}</span>
-                                                                                <span>approved</span>
-                                                                                <span className="font-bold text-amber-800 bg-amber-50 border border-amber-100/50 px-1.5 py-0.5 rounded-md">{event.fullName}</span>
-                                                                                <span>as</span>
-                                                                                <span className="text-indigo-600 font-semibold">{event.roleName}</span>
-                                                                                <span>for</span>
-                                                                                <span className="font-bold text-indigo-700 bg-indigo-50/70 border border-indigo-100/60 px-1.5 py-0.5 rounded-md">{event.hotelName}</span>
-                                                                            </>
-                                                                        ) : isEnroll ? (
-                                                                            <>
-                                                                                <span className="font-bold text-indigo-700 bg-indigo-50/70 border border-indigo-100/60 px-1.5 py-0.5 rounded-md">{event.hotelName}</span>
-                                                                                <span>:</span>
-                                                                                <span className="font-bold text-amber-800 bg-amber-50 border border-amber-100/50 px-1.5 py-0.5 rounded-md">{event.fullName}</span>
-                                                                                <span>enrolled as</span>
-                                                                                <span className="text-indigo-600 font-semibold">{event.roleName}</span>
-                                                                            </>
-                                                                        ) : (
-                                                                            <>
-                                                                                <span className="font-bold text-indigo-700 bg-indigo-50/70 border border-indigo-100/60 px-1.5 py-0.5 rounded-md">{event.hotelName}</span>
-                                                                                <span>:</span>
-                                                                                <span className="font-bold text-amber-800 bg-amber-50 border border-amber-100/50 px-1.5 py-0.5 rounded-md">{event.submitter}</span>
-                                                                                {isFinal ? (
-                                                                                    <>
-                                                                                        <span>submitted and</span>
-                                                                                        <span className="text-emerald-700 font-bold bg-emerald-50 px-1.5 py-0.5 rounded-md border border-emerald-100">finalised</span>
-                                                                                        <span>the Brand Audit</span>
-                                                                                    </>
-                                                                                ) : (
-                                                                                    <>
-                                                                                        <span>submitted</span>
-                                                                                        <span className="text-indigo-600 font-semibold bg-indigo-50/40 px-1.5 py-0.5 rounded-md border border-indigo-100/20">{event.itemName}</span>
-                                                                                    </>
-                                                                                )}
-                                                                            </>
-                                                                        )}{' '}
-                                                                        at <span className="font-mono text-slate-500 font-semibold">{formatActivityTimestamp(event.timestamp)}</span>.
-                                                                    </p>
-                                                                </div>
-                                                            </div>
-                                                            <ChevronRight size={16} className="text-slate-300 group-hover:text-indigo-600 group-hover:translate-x-0.5 transition-all self-center ml-3" />
-                                                        </div>
-                                                    );
-                                                })}
-
-                                                {totalPages > 1 && (
-                                                    <div className="mt-6 flex items-center justify-between border-t border-slate-100 pt-4 font-sans">
-                                                        <button
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                setActivityCurrentPage(prev => Math.max(prev - 1, 1));
-                                                            }}
-                                                            disabled={currentPage === 1}
-                                                            className="px-3.5 py-1.5 text-xs font-bold text-slate-600 bg-slate-50 hover:bg-slate-100 disabled:opacity-45 disabled:cursor-not-allowed rounded-xl transition-all border border-slate-200/60"
-                                                        >
-                                                            &larr; Previous
-                                                        </button>
-                                                        <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider">
-                                                            Page {currentPage} of {totalPages}
-                                                        </span>
-                                                        <button
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                setActivityCurrentPage(prev => Math.min(prev + 1, totalPages));
-                                                            }}
-                                                            disabled={currentPage === totalPages}
-                                                            className="px-3.5 py-1.5 text-xs font-bold text-slate-600 bg-slate-50 hover:bg-slate-100 disabled:opacity-45 disabled:cursor-not-allowed rounded-xl transition-all border border-slate-200/60"
-                                                        >
-                                                            Next &rarr;
-                                                        </button>
-                                                    </div>
-                                                )}
-                                            </>
-                                        );
-                                    })()
-                                ) : (
-                                    <div className="py-16 text-center bg-slate-50/50 rounded-3xl border border-dashed border-slate-200">
-                                        <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 mx-auto mb-3">
-                                            <Search size={20} />
                                         </div>
-                                        <p className="text-slate-400 text-sm font-black uppercase tracking-widest">No Activity Found</p>
-                                        <p className="text-[11px] text-slate-300 font-bold mt-1">Property updates and brand audit statuses will appear here.</p>
                                     </div>
-                                )}
-                            </div>
-                        </section>
-                    </>
+                                </div>
+                            </section>
+                        </>
                 ) : subView === 'users' ? (
                     (userProfile?.access_level !== 'admin' && userProfile?.access_level !== 'auditor') ? (
                         <div className="bg-red-50/50 border border-red-100 p-8 rounded-[28px] text-center max-w-lg mx-auto my-12 animate-fadeIn shadow-sm">
@@ -6552,8 +6279,9 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                     <th className="px-6 py-4">Brand</th>
                                                     <th className="px-6 py-4">Region</th>
                                                     <th className="px-6 py-4">Assigned Group</th>
-                                                    <th className="px-6 py-4">Scoring Progress</th>
-                                                    <th className="px-6 py-4">Evidence</th>
+                                                    <th className="px-6 py-4">Hotel Audit Progress</th>
+                                                    <th className="px-6 py-4">Auditor Review</th>
+                                                    <th className="px-6 py-4">Evidence Received</th>
                                                 </tr>
                                             </thead>
                                             <tbody className="divide-y divide-slate-100">
@@ -6594,8 +6322,17 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                             (!assignedItemIds || assignedItemIds.length === 0 || assignedItemIds.includes(String(item.id)))
                                                         );
                                                         const totalItems = allHotelItems.length;
+
+                                                        // Hotel's actual filled items & progress (including draft submissions before finalising)
+                                                        const hotelSubs = allSubmissions.filter(s => isSubmissionForHotel(s.hotel_id, hotel));
+                                                        const submittedItemIdsSet = new Set(hotelSubs.map(s => String(s.item_id)));
+                                                        const hotelFilledCount = allHotelItems.filter(item => submittedItemIdsSet.has(String(item.id))).length;
+                                                        const hotelProgressPct = totalItems > 0 ? Math.round((hotelFilledCount / totalItems) * 100) : 0;
+                                                        const isFinalized = finalizedStatuses[hotel.id]?.is_finalized === true;
+
+                                                        // Auditor scoring progress
                                                         const scoredItems = allHotelItems.filter(i => inspectionScores[`${hotel.id}_${i.id}`] !== undefined).length;
-                                                        const completionPercent = totalItems > 0 ? Math.round((scoredItems / totalItems) * 100) : 0;
+                                                        const auditorScoringPercent = totalItems > 0 ? Math.round((scoredItems / totalItems) * 100) : 0;
 
                                                         return (
                                                             <tr 
@@ -6611,17 +6348,52 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                 <td className="px-6 py-4 text-slate-600 font-medium">{hotel.region || 'N/A'}</td>
                                                                 <td className="px-6 py-4 text-slate-600 font-medium">{hotelGroups.map(g => g.name).join(', ') || 'Unassigned'}</td>
                                                                 <td className="px-6 py-4">
+                                                                    <div className="flex flex-col gap-1.5 w-44">
+                                                                        <div className="flex items-center justify-between text-[11px] font-extrabold">
+                                                                            <span className="text-slate-700">{hotelFilledCount}/{totalItems} items</span>
+                                                                            <span className={hotelProgressPct === 100 ? 'text-emerald-600' : 'text-amber-600'}>
+                                                                                {hotelProgressPct}%
+                                                                            </span>
+                                                                        </div>
+                                                                        <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                                                                            <div 
+                                                                                className={`h-full transition-all duration-300 ${isFinalized ? 'bg-emerald-500' : hotelProgressPct > 0 ? 'bg-amber-500' : 'bg-slate-300'}`} 
+                                                                                style={{ width: `${hotelProgressPct}%` }}
+                                                                            />
+                                                                        </div>
+                                                                        <div>
+                                                                            {isFinalized ? (
+                                                                                <span className="inline-flex items-center gap-1 text-[9px] font-extrabold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full uppercase tracking-wider">
+                                                                                    Finalized & Submitted
+                                                                                </span>
+                                                                            ) : hotelProgressPct === 100 ? (
+                                                                                <span className="inline-flex items-center gap-1 text-[9px] font-extrabold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-full uppercase tracking-wider">
+                                                                                    100% Filled (Draft)
+                                                                                </span>
+                                                                            ) : hotelProgressPct > 0 ? (
+                                                                                <span className="inline-flex items-center gap-1 text-[9px] font-extrabold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full uppercase tracking-wider">
+                                                                                    In Progress
+                                                                                </span>
+                                                                            ) : (
+                                                                                <span className="inline-flex items-center gap-1 text-[9px] font-extrabold text-slate-500 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-full uppercase tracking-wider">
+                                                                                    Not Started
+                                                                                </span>
+                                                                            )}
+                                                                        </div>
+                                                                    </div>
+                                                                </td>
+                                                                <td className="px-6 py-4">
                                                                     <div className="flex items-center gap-2 font-bold text-[11px]">
                                                                         <div className="w-16 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                                                                            <div className="h-full bg-indigo-500" style={{ width: `${completionPercent}%` }}></div>
+                                                                            <div className="h-full bg-indigo-500" style={{ width: `${auditorScoringPercent}%` }}></div>
                                                                         </div>
-                                                                        <span className={completionPercent === 100 ? 'text-emerald-600' : 'text-slate-700'}>
-                                                                            {completionPercent}%
+                                                                        <span className={auditorScoringPercent === 100 ? 'text-emerald-600' : 'text-slate-700'}>
+                                                                            {scoredItems}/{totalItems} ({auditorScoringPercent}%)
                                                                         </span>
                                                                     </div>
                                                                 </td>
                                                                 <td className="px-6 py-4 font-bold text-indigo-700">
-                                                                    {allSubmissions.filter(s => isSubmissionForHotel(s.hotel_id, hotel)).length}
+                                                                    {hotelSubs.length} items
                                                                 </td>
                                                             </tr>
                                                         );
@@ -7213,8 +6985,9 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                 const hIdLower = String(hotelId).toLowerCase();
                                 const currentHotel = hotels.find(h => 
                                     String(h.id).toLowerCase() === hIdLower || 
-                                    (h.code && String(h.code).toLowerCase() === hIdLower)
-                                );
+                                    (h.code && String(h.code).toLowerCase() === hIdLower) ||
+                                    (h.name && String(h.name).toLowerCase() === hIdLower)
+                                ) || { id: hotelId } as Hotel;
                                 
                                 const possibleIds = [
                                     hIdLower,
@@ -7223,9 +6996,21 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                     currentHotel?.name ? String(currentHotel.name).toLowerCase() : null
                                 ].filter(Boolean) as string[];
 
+                                (profilesList || []).forEach(p => {
+                                    const matchesCode = p.hotel_code && currentHotel?.code && String(p.hotel_code).trim().toLowerCase() === String(currentHotel.code).trim().toLowerCase();
+                                    const matchesName = p.hotel_name && currentHotel?.name && String(p.hotel_name).trim().toLowerCase() === String(currentHotel.name).trim().toLowerCase();
+                                    const matchesId = p.hotel_id && currentHotel?.id && String(p.hotel_id).trim().toLowerCase() === String(currentHotel.id).trim().toLowerCase();
+                                    if (matchesCode || matchesName || matchesId) {
+                                        if (p.hotel_id) possibleIds.push(String(p.hotel_id).toLowerCase());
+                                        if (p.hotel_code) possibleIds.push(String(p.hotel_code).toLowerCase());
+                                        if (p.hotel_name) possibleIds.push(String(p.hotel_name).toLowerCase());
+                                        if (p.id) possibleIds.push(String(p.id).toLowerCase());
+                                    }
+                                });
+
                                 const assignedGroups = groups.filter(g => {
                                     const hotelIds = g.hotelIds || g.hotel_id || [];
-                                    return hotelIds.some(hId => possibleIds.includes(String(hId).toLowerCase()));
+                                    return hotelIds.some((hId: any) => possibleIds.includes(String(hId).toLowerCase()));
                                 });
 
                                 let assignedCategoryIds: string[] | null = null;
@@ -7240,15 +7025,15 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                         cids.forEach((id: any) => allCatIds.add(String(id)));
                                         iids.forEach((id: any) => allItemIds.add(String(id)));
                                     });
-                                    assignedCategoryIds = Array.from(allCatIds);
-                                    assignedItemIds = Array.from(allItemIds);
+                                    if (allCatIds.size > 0) assignedCategoryIds = Array.from(allCatIds);
+                                    if (allItemIds.size > 0) assignedItemIds = Array.from(allItemIds);
                                 }
 
                                 const hotelItems = items.filter((item: any) => {
-                                    if (assignedCategoryIds && !assignedCategoryIds.includes(String(item.categoryId || item.category_id))) {
+                                    if (assignedCategoryIds && assignedCategoryIds.length > 0 && !assignedCategoryIds.includes(String(item.categoryId || item.category_id))) {
                                         return false;
                                     }
-                                    if (assignedItemIds && !assignedItemIds.includes(String(item.id))) {
+                                    if (assignedItemIds && assignedItemIds.length > 0 && !assignedItemIds.includes(String(item.id))) {
                                         return false;
                                     }
                                     return item.filled_by_hotel !== false && item.filled_by_hotel !== 'false';
@@ -7256,23 +7041,85 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
 
                                 const submittedItemIdsForHotel = new Set<string>();
                                 const naItemIdsForHotel = new Set<string>();
-                                allSubmissions.forEach((sub: any) => {
-                                    if (String(sub.hotel_id || '').toLowerCase() === hIdLower) {
-                                        submittedItemIdsForHotel.add(String(sub.item_id));
-                                        if (sub.is_na === true || String(sub.is_na) === 'true') {
-                                            naItemIdsForHotel.add(String(sub.item_id));
+
+                                // 1. Match from Supabase submissions
+                                (allSubmissions || []).forEach((sub: any) => {
+                                    if (sub.item_id !== undefined && sub.item_id !== null) {
+                                        const itemIdStr = String(sub.item_id);
+                                        if (currentHotel && isSubmissionForHotel(sub.hotel_id, currentHotel)) {
+                                            submittedItemIdsForHotel.add(itemIdStr);
+                                            if (sub.is_na === true || String(sub.is_na) === 'true') {
+                                                naItemIdsForHotel.add(itemIdStr);
+                                            }
+                                        } else if (possibleIds.includes(String(sub.hotel_id || '').toLowerCase())) {
+                                            submittedItemIdsForHotel.add(itemIdStr);
+                                            if (sub.is_na === true || String(sub.is_na) === 'true') {
+                                                naItemIdsForHotel.add(itemIdStr);
+                                            }
                                         }
                                     }
                                 });
+
+                                // 2. Match from Local Storage
+                                try {
+                                    for (let i = 0; i < localStorage.length; i++) {
+                                        const key = localStorage.key(i);
+                                        if (key && key.startsWith('sbi_audit_')) {
+                                            if (key.includes('_finalized')) continue;
+                                            const raw = localStorage.getItem(key);
+                                            if (!raw) continue;
+                                            
+                                            const rest = key.replace('sbi_audit_', '');
+                                            const parts = rest.split('_');
+                                            if (parts.length >= 2) {
+                                                const keyHotelId = parts[0];
+                                                const keyItemId = parts.slice(1).join('_');
+                                                
+                                                if ((currentHotel && isSubmissionForHotel(keyHotelId, currentHotel)) || possibleIds.includes(keyHotelId.toLowerCase())) {
+                                                    try {
+                                                        const parsed = JSON.parse(raw);
+                                                        if (parsed.value !== undefined || parsed.is_na || (parsed.evidence_urls && parsed.evidence_urls.length > 0) || parsed.isSubmitted) {
+                                                            submittedItemIdsForHotel.add(String(keyItemId));
+                                                            if (parsed.is_na) {
+                                                                naItemIdsForHotel.add(String(keyItemId));
+                                                            }
+                                                        }
+                                                    } catch (e) {}
+                                                }
+                                            }
+                                        }
+                                    }
+                                } catch (e) {
+                                    console.warn("Could not scan localStorage in getHotelProgress:", e);
+                                }
 
                                 let completedT = 0;
                                 let totalT = 0;
                                 hotelItems.forEach((item: any) => {
                                     const itemIdStr = String(item.id);
-                                    const isNa = naItemIdsForHotel.has(itemIdStr);
+                                    let isSubmitted = submittedItemIdsForHotel.has(itemIdStr);
+                                    let isNa = naItemIdsForHotel.has(itemIdStr);
+
+                                    if (!isSubmitted) {
+                                        for (const pId of possibleIds) {
+                                            const localKey = `sbi_audit_${pId}_${item.id}`;
+                                            const localStored = localStorage.getItem(localKey);
+                                            if (localStored) {
+                                                try {
+                                                    const parsed = JSON.parse(localStored);
+                                                    if (parsed.value !== undefined || parsed.is_na || (parsed.evidence_urls && parsed.evidence_urls.length > 0) || parsed.isSubmitted) {
+                                                        isSubmitted = true;
+                                                        if (parsed.is_na) isNa = true;
+                                                        break;
+                                                    }
+                                                } catch (e) {}
+                                            }
+                                        }
+                                    }
+
                                     if (!isNa) {
                                         totalT++;
-                                        if (submittedItemIdsForHotel.has(itemIdStr)) {
+                                        if (isSubmitted) {
                                             completedT++;
                                         }
                                     }
@@ -7289,12 +7136,31 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                 return isFinalized || (total > 0 && percentage === 100);
                             };
 
-                            // 2. Helper to calculate combined hotel-based progress for a list of hotels
+                            // 2. Helper to calculate combined average progress across a group of hotels
                             const calculateHotelBasedProgress = (hotelList: Hotel[]) => {
                                 const totalHotels = hotelList.length;
-                                const completedHotels = hotelList.filter(h => isHotelCompleted(h.id)).length;
-                                const percentage = totalHotels > 0 ? Math.round((completedHotels / totalHotels) * 100) : 0;
-                                return { completedHotels, totalHotels, percentage };
+                                if (totalHotels === 0) {
+                                    return { completedHotels: 0, inProgressHotels: 0, totalHotels: 0, percentage: 0 };
+                                }
+
+                                let completedHotels = 0;
+                                let inProgressHotels = 0;
+                                let sumPercentage = 0;
+
+                                hotelList.forEach(h => {
+                                    const { percentage } = getHotelProgress(h.id);
+                                    const isFinalized = finalizedStatuses[h.id]?.is_finalized === true;
+                                    
+                                    sumPercentage += percentage;
+                                    if (isFinalized || percentage === 100) {
+                                        completedHotels++;
+                                    } else if (percentage > 0) {
+                                        inProgressHotels++;
+                                    }
+                                });
+
+                                const avgPercentage = Math.round(sumPercentage / totalHotels);
+                                return { completedHotels, inProgressHotels, totalHotels, percentage: avgPercentage };
                             };
 
                             // Unique categories for filtering / summary cards (excluding corporate assets)
@@ -7386,7 +7252,10 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                             />
                                                         </div>
                                                         <p className={`text-[10px] font-medium mt-1.5 flex justify-between items-center ${progressRegionFilter === rp.name ? 'text-indigo-200' : 'text-slate-400'}`}>
-                                                            <span>{rp.completedHotels} of {rp.totalHotels} {rp.totalHotels === 1 ? 'hotel' : 'hotels'} completed</span>
+                                                            <span>
+                                                                {rp.completedHotels > 0 ? `${rp.completedHotels} done • ` : ''}
+                                                                {rp.inProgressHotels} in progress ({rp.totalHotels} {rp.totalHotels === 1 ? 'hotel' : 'hotels'})
+                                                            </span>
                                                             {progressRegionFilter === rp.name && <span className="text-[9px] font-black uppercase bg-indigo-500/50 px-1.5 py-0.5 rounded">Active Filter</span>}
                                                         </p>
                                                     </div>
@@ -7425,7 +7294,10 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                             />
                                                         </div>
                                                         <p className={`text-[10px] font-medium mt-1.5 flex justify-between items-center ${progressCountryFilter === cp.name ? 'text-emerald-200' : 'text-slate-400'}`}>
-                                                            <span>{cp.completedHotels} of {cp.totalHotels} {cp.totalHotels === 1 ? 'hotel' : 'hotels'} completed</span>
+                                                            <span>
+                                                                {cp.completedHotels > 0 ? `${cp.completedHotels} done • ` : ''}
+                                                                {cp.inProgressHotels} in progress ({cp.totalHotels} {cp.totalHotels === 1 ? 'hotel' : 'hotels'})
+                                                            </span>
                                                             {progressCountryFilter === cp.name && <span className="text-[9px] font-black uppercase bg-emerald-500/50 px-1.5 py-0.5 rounded">Active Filter</span>}
                                                         </p>
                                                     </div>
@@ -7464,7 +7336,10 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                             />
                                                         </div>
                                                         <p className={`text-[10px] font-medium mt-1.5 flex justify-between items-center ${progressBrandFilter === bp.name ? 'text-amber-200' : 'text-slate-400'}`}>
-                                                            <span>{bp.completedHotels} of {bp.totalHotels} {bp.totalHotels === 1 ? 'hotel' : 'hotels'} completed</span>
+                                                            <span>
+                                                                {bp.completedHotels > 0 ? `${bp.completedHotels} done • ` : ''}
+                                                                {bp.inProgressHotels} in progress ({bp.totalHotels} {bp.totalHotels === 1 ? 'hotel' : 'hotels'})
+                                                            </span>
                                                             {progressBrandFilter === bp.name && <span className="text-[9px] font-black uppercase bg-amber-500/50 px-1.5 py-0.5 rounded">Active Filter</span>}
                                                         </p>
                                                     </div>
