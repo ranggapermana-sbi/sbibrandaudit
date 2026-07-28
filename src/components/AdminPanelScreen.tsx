@@ -2213,6 +2213,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     // Auditor scoring & inspection states
     const [selectedInspectionHotelId, setSelectedInspectionHotelId] = useState<string>('');
     const [selectedAuditorId, setSelectedAuditorId] = useState<string>('');
+    const [hotelAssignmentSearch, setHotelAssignmentSearch] = useState<string>('');
     const [selectedInspectionCategoryId, setSelectedInspectionCategoryId] = useState<string>('');
     const [hotelSubmissions, setHotelSubmissions] = useState<Record<string, any>>({});
     const [inspectionScores, setInspectionScores] = useState<Record<string, number | string>>(() => {
@@ -3257,6 +3258,67 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         if (!auditorId) return;
         const allCatIds = catList.map(cat => cat.id);
         await handleBatchAssignCategories(auditorId, allCatIds, false);
+    };
+
+    const handleBatchAssignHotels = async (auditorId: string, hotelIds: string[], assign: boolean) => {
+        if (!auditorId || hotelIds.length === 0) return;
+
+        const hotelIdSet = new Set(hotelIds);
+        let updated = [...auditorAssignments];
+
+        if (assign) {
+            hotelIds.forEach(hId => {
+                if (!updated.some(a => a.user_id === auditorId && a.hotel_id === hId)) {
+                    updated.push({ user_id: auditorId, hotel_id: hId });
+                }
+            });
+        } else {
+            updated = updated.filter(a => !(a.user_id === auditorId && hotelIdSet.has(a.hotel_id)));
+        }
+
+        setAuditorAssignments(updated);
+
+        try {
+            if (assign) {
+                const missingHotelIds = hotelIds.filter(hId => 
+                    !auditorAssignments.some(a => a.user_id === auditorId && a.hotel_id === hId)
+                );
+                if (missingHotelIds.length > 0) {
+                    const rowsToInsert = missingHotelIds.map(hId => ({ user_id: auditorId, hotel_id: hId }));
+                    const { error: insErr } = await supabase.from('auditor_assignments').insert(rowsToInsert);
+                    if (insErr) {
+                        for (const row of rowsToInsert) {
+                            await supabase.from('auditor_assignments').insert(row);
+                        }
+                    }
+                }
+            } else {
+                await supabase.from('auditor_assignments')
+                    .delete()
+                    .eq('user_id', auditorId)
+                    .in('hotel_id', hotelIds);
+            }
+
+            const { data: refetch } = await supabase.from('auditor_assignments').select('*');
+            if (refetch && refetch.length >= 0) {
+                setAuditorAssignments(refetch);
+            }
+        } catch (err) {
+            console.error('Batch hotel assignment error:', err);
+        }
+    };
+
+    const handleAssignAllHotels = async (auditorId: string, targetHotels?: any[]) => {
+        if (!auditorId) return;
+        const listToAssign = targetHotels || hotels;
+        const allHotelIds = listToAssign.map(h => h.id);
+        await handleBatchAssignHotels(auditorId, allHotelIds, true);
+    };
+
+    const handleClearAllHotels = async (auditorId: string) => {
+        if (!auditorId) return;
+        const allHotelIds = hotels.map(h => h.id);
+        await handleBatchAssignHotels(auditorId, allHotelIds, false);
     };
     const handleOpenAddHotel = () => {
         setEditingHotel(null);
@@ -5830,6 +5892,37 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                         </button>
                                     </div>
 
+                                    {selectedAuditorId && assignmentTab === 'hotels' && (
+                                        <div className="flex items-center gap-2">
+                                            <button
+                                                onClick={() => {
+                                                    const filtered = hotels.filter(h => {
+                                                        if (!hotelAssignmentSearch) return true;
+                                                        const term = hotelAssignmentSearch.toLowerCase();
+                                                        return (
+                                                            h.name.toLowerCase().includes(term) ||
+                                                            (h.code && h.code.toLowerCase().includes(term)) ||
+                                                            (h.brandClass && h.brandClass.toLowerCase().includes(term)) ||
+                                                            (h.region && h.region.toLowerCase().includes(term))
+                                                        );
+                                                    });
+                                                    handleAssignAllHotels(selectedAuditorId, filtered);
+                                                }}
+                                                className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-[10px] font-extrabold rounded-lg transition-all border border-indigo-200 active:scale-95 flex items-center gap-1 cursor-pointer"
+                                            >
+                                                <CheckCircle2 size={12} />
+                                                <span>Assign All</span>
+                                            </button>
+                                            <button
+                                                onClick={() => handleClearAllHotels(selectedAuditorId)}
+                                                className="px-2.5 py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-600 text-[10px] font-extrabold rounded-lg transition-all border border-slate-200 active:scale-95 flex items-center gap-1 cursor-pointer"
+                                            >
+                                                <X size={12} />
+                                                <span>Clear All</span>
+                                            </button>
+                                        </div>
+                                    )}
+
                                     {selectedAuditorId && assignmentTab === 'categories' && (
                                         <div className="flex items-center gap-2">
                                             <button
@@ -5852,56 +5945,143 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                     <div>
                                         {/* TAB 1: HOTEL ASSIGNMENTS */}
                                         {assignmentTab === 'hotels' && (
-                                            <div className="space-y-3">
-                                                <div className="text-xs font-bold text-slate-500 mb-2">
-                                                    Select which properties <strong className="text-slate-800">{profilesList.find(p => p.id === selectedAuditorId)?.display_name || 'Selected Auditor'}</strong> can perform audits on:
-                                                </div>
-                                                <div className="space-y-2 max-h-[500px] overflow-y-auto pr-1">
-                                                    {hotels.map(hotel => {
-                                                        const assignment = auditorAssignments.find(a => a.hotel_id === hotel.id);
-                                                        const isAssignedToSelected = assignment?.user_id === selectedAuditorId;
-                                                        const isAssignedToOther = assignment && assignment.user_id !== selectedAuditorId;
-                                                        const assignedUser = isAssignedToOther ? profilesList.find(p => p.id === assignment.user_id) : null;
-                                                        
-                                                        return (
-                                                            <div key={hotel.id} className="flex items-center justify-between p-3.5 bg-slate-50/80 hover:bg-slate-100/60 rounded-xl border border-slate-200/60 transition-all">
+                                            <div className="space-y-4">
+                                                {/* AUDITOR ASSIGNED HOTELS SCOPE SUMMARY BANNER */}
+                                                {(() => {
+                                                    const selectedAuditor = profilesList.find(p => p.id === selectedAuditorId);
+                                                    const assignedHotelIds = auditorAssignments
+                                                        .filter(a => a.user_id === selectedAuditorId)
+                                                        .map(a => a.hotel_id);
+                                                    const assignedCount = assignedHotelIds.length;
+                                                    const totalCount = hotels.length;
+                                                    const coveragePct = totalCount > 0 ? Math.round((assignedCount / totalCount) * 100) : 0;
+
+                                                    return (
+                                                        <div className="bg-gradient-to-r from-indigo-50/80 via-purple-50/40 to-slate-50 border border-indigo-200/80 rounded-xl p-4 space-y-2.5">
+                                                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                                                                 <div>
-                                                                    <div className="text-sm font-bold text-slate-800">{hotel.name}</div>
-                                                                    <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
-                                                                        {hotel.brandClass} • {hotel.region || 'Region Unspecified'}
+                                                                    <div className="text-xs font-black text-slate-800 flex items-center gap-2">
+                                                                        <Building size={15} className="text-indigo-600" />
+                                                                        <span>Hotel Scope for <strong className="text-indigo-800">{selectedAuditor?.display_name || 'Selected Auditor'}</strong></span>
+                                                                    </div>
+                                                                    <div className="text-[11px] font-semibold text-slate-500 mt-0.5">
+                                                                        {assignedCount} of {totalCount} properties assigned to this auditor
                                                                     </div>
                                                                 </div>
-                                                                <button 
-                                                                    onClick={async (e) => {
-                                                                        e.stopPropagation();
-                                                                        if (isAssignedToSelected) {
-                                                                            const { error } = await supabase.from('auditor_assignments').delete().eq('user_id', selectedAuditorId).eq('hotel_id', hotel.id);
-                                                                            if (error) console.error('Delete error', error);
-                                                                        } else {
-                                                                            if (isAssignedToOther) {
-                                                                                const { error: delError } = await supabase.from('auditor_assignments').delete().eq('hotel_id', hotel.id);
-                                                                                if (delError) console.error('Delete other error', delError);
-                                                                            }
-                                                                            const { error } = await supabase.from('auditor_assignments').insert({ user_id: selectedAuditorId, hotel_id: hotel.id });
-                                                                            if (error) console.error('Insert error details:', error.message, error.details, error.hint);
-                                                                        }
-                                                                        const { data, error: fetchError } = await supabase.from('auditor_assignments').select('*');
-                                                                        if (fetchError) console.error('Fetch error', fetchError);
-                                                                        if (data) setAuditorAssignments(data);
-                                                                    }}
-                                                                    className={`px-3.5 py-1.5 text-xs font-black rounded-lg pointer-events-auto transition-all ${
-                                                                        isAssignedToSelected 
-                                                                            ? 'bg-indigo-600 text-white shadow-2xs hover:bg-indigo-700' 
-                                                                            : isAssignedToOther 
-                                                                            ? 'bg-amber-100 text-amber-800 border border-amber-200 hover:bg-amber-200' 
-                                                                            : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
+                                                                <div className="flex items-center gap-1.5 shrink-0">
+                                                                    <span className="text-xs font-black text-indigo-700 bg-white px-2.5 py-1 rounded-lg border border-indigo-200 shadow-2xs">
+                                                                        {coveragePct}% Assigned
+                                                                    </span>
+                                                                </div>
+                                                            </div>
+
+                                                            {/* Progress bar */}
+                                                            <div className="w-full h-1.5 bg-indigo-100/60 rounded-full overflow-hidden">
+                                                                <div 
+                                                                    className="h-full bg-indigo-600 rounded-full transition-all duration-300"
+                                                                    style={{ width: `${coveragePct}%` }}
+                                                                />
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })()}
+
+                                                {/* HOTEL SEARCH / FILTER BAR */}
+                                                <div className="relative">
+                                                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                                                    <input
+                                                        type="text"
+                                                        placeholder="Search properties by name, code, brand, or region..."
+                                                        value={hotelAssignmentSearch}
+                                                        onChange={(e) => setHotelAssignmentSearch(e.target.value)}
+                                                        className="w-full pl-9 pr-8 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all font-medium"
+                                                    />
+                                                    {hotelAssignmentSearch && (
+                                                        <button 
+                                                            onClick={() => setHotelAssignmentSearch('')}
+                                                            className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs font-bold cursor-pointer"
+                                                        >
+                                                            ×
+                                                        </button>
+                                                    )}
+                                                </div>
+
+                                                <div className="space-y-2 max-h-[480px] overflow-y-auto pr-1">
+                                                    {hotels
+                                                        .filter(hotel => {
+                                                            if (!hotelAssignmentSearch) return true;
+                                                            const term = hotelAssignmentSearch.toLowerCase();
+                                                            return (
+                                                                hotel.name.toLowerCase().includes(term) ||
+                                                                (hotel.code && hotel.code.toLowerCase().includes(term)) ||
+                                                                (hotel.brandClass && hotel.brandClass.toLowerCase().includes(term)) ||
+                                                                (hotel.region && hotel.region.toLowerCase().includes(term))
+                                                            );
+                                                        })
+                                                        .map(hotel => {
+                                                            const isAssignedToSelected = auditorAssignments.some(
+                                                                a => a.user_id === selectedAuditorId && a.hotel_id === hotel.id
+                                                            );
+                                                            const otherAssignments = auditorAssignments.filter(
+                                                                a => a.hotel_id === hotel.id && a.user_id !== selectedAuditorId
+                                                            );
+                                                            const otherAuditors = otherAssignments
+                                                                .map(a => profilesList.find(p => p.id === a.user_id))
+                                                                .filter(Boolean);
+
+                                                            return (
+                                                                <div 
+                                                                    key={hotel.id} 
+                                                                    className={`flex items-center justify-between p-3.5 rounded-xl border transition-all ${
+                                                                        isAssignedToSelected
+                                                                            ? 'bg-indigo-50/50 border-indigo-200/90 shadow-2xs'
+                                                                            : 'bg-slate-50/80 hover:bg-slate-100/60 border-slate-200/60'
                                                                     }`}
                                                                 >
-                                                                    {isAssignedToSelected ? 'Assigned' : isAssignedToOther ? `Reassign (${assignedUser?.first_name || 'Other'})` : 'Assign'}
-                                                                </button>
-                                                            </div>
-                                                        );
-                                                    })}
+                                                                    <div className="space-y-1 pr-2">
+                                                                        <div className="flex items-center gap-2">
+                                                                            <span className="text-sm font-bold text-slate-800">{hotel.name}</span>
+                                                                            {hotel.code && (
+                                                                                <span className="px-1.5 py-0.5 bg-slate-200/70 text-slate-700 text-[9px] font-black rounded uppercase">
+                                                                                    {hotel.code}
+                                                                                </span>
+                                                                            )}
+                                                                        </div>
+                                                                        <div className="flex flex-wrap items-center gap-2 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
+                                                                            <span>{hotel.brandClass} • {hotel.region || 'Region Unspecified'}</span>
+                                                                            {otherAuditors.length > 0 && (
+                                                                                <span className="text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded font-bold normal-case">
+                                                                                    Also assigned to: {otherAuditors.map(u => u?.display_name || u?.first_name || 'Auditor').join(', ')}
+                                                                                </span>
+                                                                            )}
+                                                                        </div>
+                                                                    </div>
+                                                                    <button 
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            handleBatchAssignHotels(selectedAuditorId, [hotel.id], !isAssignedToSelected);
+                                                                        }}
+                                                                        className={`px-3.5 py-1.5 text-xs font-black rounded-lg transition-all flex items-center gap-1.5 cursor-pointer shrink-0 active:scale-95 ${
+                                                                            isAssignedToSelected 
+                                                                                ? 'bg-indigo-600 text-white shadow-2xs hover:bg-indigo-700 ring-2 ring-indigo-500/20' 
+                                                                                : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 hover:border-slate-300'
+                                                                        }`}
+                                                                    >
+                                                                        {isAssignedToSelected ? (
+                                                                            <>
+                                                                                <CheckCircle2 size={13} />
+                                                                                <span>Assigned</span>
+                                                                            </>
+                                                                        ) : (
+                                                                            <>
+                                                                                <Plus size={13} />
+                                                                                <span>Assign</span>
+                                                                            </>
+                                                                        )}
+                                                                    </button>
+                                                                </div>
+                                                            );
+                                                        })}
                                                 </div>
                                             </div>
                                         )}
@@ -6515,8 +6695,6 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                 const isItemNA = (item: any) => {
                                     const scoreVal = inspectionScores[`${hotel.id}_${item.id}`];
                                     if (scoreVal === 'N/A') return true;
-                                    const sub = hotelSubmissions[item.id];
-                                    if (sub && (sub.is_na === true || String(sub.is_na) === 'true')) return true;
                                     return false;
                                 };
 
