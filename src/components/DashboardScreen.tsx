@@ -309,7 +309,7 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
         let isNa = naItemIds.has(itemIdStr);
 
         // Also check local storage for target hotel IDs
-        for (const hId of targetHotelIds) {
+        for (const hId of possibleHotelIds) {
           const localKey = `sbi_audit_${hId}_${item.id}`;
           const localStored = localStorage.getItem(localKey);
           if (localStored) {

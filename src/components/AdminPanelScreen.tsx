@@ -108,6 +108,9 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     });
     const [assignmentTab, setAssignmentTab] = useState<'hotels' | 'categories'>('hotels');
     const [categoryAssignmentSearch, setCategoryAssignmentSearch] = useState('');
+    const [selectedCategoryBatchIds, setSelectedCategoryBatchIds] = useState<Set<string>>(new Set());
+    const [categoryDeptFilter, setCategoryDeptFilter] = useState<string>('all');
+    const [groupByDept, setGroupByDept] = useState<boolean>(true);
     const [selectedGroupId, setSelectedGroupId] = useState<string>('');
     const [groupAssignmentTab, setGroupAssignmentTab] = useState<'categories' | 'items'>('categories');
     const [groupSearchQuery, setGroupSearchQuery] = useState('');
@@ -3144,17 +3147,14 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     const handleToggleCategoryAssignment = async (auditorId: string, categoryId: string) => {
         if (!auditorId || !categoryId) return;
 
-        const existing = auditorCategoryAssignments.find(a => a.category_id === categoryId);
-        const isAssignedToSelected = existing?.user_id === auditorId;
-        const isAssignedToOther = existing && existing.user_id !== auditorId;
+        const isAssignedToSelected = auditorCategoryAssignments.some(
+            a => a.user_id === auditorId && a.category_id === categoryId
+        );
 
         let updated = [...auditorCategoryAssignments];
         if (isAssignedToSelected) {
             updated = updated.filter(a => !(a.user_id === auditorId && a.category_id === categoryId));
         } else {
-            if (isAssignedToOther) {
-                updated = updated.filter(a => a.category_id !== categoryId);
-            }
             updated.push({ user_id: auditorId, category_id: categoryId });
         }
 
@@ -3177,19 +3177,6 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                         .eq('category_id', categoryId);
                 }
             } else {
-                if (isAssignedToOther) {
-                    const { error: delErr } = await supabase
-                        .from('auditor_category_assignments')
-                        .delete()
-                        .eq('category_id', categoryId);
-                    if (delErr) {
-                        await supabase
-                            .from('auditor_assignments')
-                            .delete()
-                            .eq('category_id', categoryId);
-                    }
-                }
-
                 const { error: insErr } = await supabase
                     .from('auditor_category_assignments')
                     .insert({ user_id: auditorId, category_id: categoryId });
@@ -3215,32 +3202,61 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         }
     };
 
-    const handleAssignAllCategories = async (auditorId: string) => {
-        if (!auditorId) return;
-        const newAssignments = catList.map(cat => ({ user_id: auditorId, category_id: cat.id }));
-        setAuditorCategoryAssignments(newAssignments);
-        localStorage.setItem('sbi_auditor_category_assignments', JSON.stringify(newAssignments));
+    const handleBatchAssignCategories = async (auditorId: string, categoryIds: string[], assign: boolean) => {
+        if (!auditorId || categoryIds.length === 0) return;
 
-        try {
-            await supabase.from('auditor_category_assignments').delete().neq('user_id', '00000000-0000-0000-0000-000000000000');
-            await supabase.from('auditor_category_assignments').insert(newAssignments);
-        } catch (e) {
-            console.warn('Batch assign error:', e);
+        const catIdSet = new Set(categoryIds);
+        let updated = [...auditorCategoryAssignments];
+
+        if (assign) {
+            categoryIds.forEach(cId => {
+                if (!updated.some(a => a.user_id === auditorId && a.category_id === cId)) {
+                    updated.push({ user_id: auditorId, category_id: cId });
+                }
+            });
+        } else {
+            updated = updated.filter(a => !(a.user_id === auditorId && catIdSet.has(a.category_id)));
         }
-    };
 
-    const handleClearAllCategories = async (auditorId: string) => {
-        if (!auditorId) return;
-        const updated = auditorCategoryAssignments.filter(a => a.user_id !== auditorId);
         setAuditorCategoryAssignments(updated);
         localStorage.setItem('sbi_auditor_category_assignments', JSON.stringify(updated));
 
         try {
-            await supabase.from('auditor_category_assignments').delete().eq('user_id', auditorId);
-            await supabase.from('auditor_assignments').delete().eq('user_id', auditorId).not('category_id', 'is', null);
-        } catch (e) {
-            console.warn('Batch clear error:', e);
+            if (assign) {
+                const rowsToInsert = categoryIds.map(cId => ({ user_id: auditorId, category_id: cId }));
+                await supabase.from('auditor_category_assignments').upsert(rowsToInsert, { onConflict: 'user_id,category_id' });
+            } else {
+                await supabase.from('auditor_category_assignments')
+                    .delete()
+                    .eq('user_id', auditorId)
+                    .in('category_id', categoryIds);
+            }
+
+            const { data: refetchCat } = await supabase.from('auditor_category_assignments').select('*');
+            if (refetchCat && refetchCat.length >= 0) {
+                setAuditorCategoryAssignments(refetchCat);
+                localStorage.setItem('sbi_auditor_category_assignments', JSON.stringify(refetchCat));
+            }
+        } catch (err) {
+            console.error('Batch category assignment error:', err);
         }
+    };
+
+    const handleAssignDepartmentCategories = async (auditorId: string, departmentId: string, assign: boolean) => {
+        const deptCatIds = catList.filter(c => c.departmentId === departmentId).map(c => c.id);
+        await handleBatchAssignCategories(auditorId, deptCatIds, assign);
+    };
+
+    const handleAssignAllCategories = async (auditorId: string) => {
+        if (!auditorId) return;
+        const allCatIds = catList.map(cat => cat.id);
+        await handleBatchAssignCategories(auditorId, allCatIds, true);
+    };
+
+    const handleClearAllCategories = async (auditorId: string) => {
+        if (!auditorId) return;
+        const allCatIds = catList.map(cat => cat.id);
+        await handleBatchAssignCategories(auditorId, allCatIds, false);
     };
     const handleOpenAddHotel = () => {
         setEditingHotel(null);
@@ -5893,71 +5909,399 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                         {/* TAB 2: AUDIT CATEGORY ASSIGNMENTS */}
                                         {assignmentTab === 'categories' && (
                                             <div className="space-y-4">
-                                                <div className="flex items-center justify-between gap-3">
-                                                    <div className="relative flex-1">
-                                                        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                                                        <input
-                                                            type="text"
-                                                            value={categoryAssignmentSearch}
-                                                            onChange={(e) => setCategoryAssignmentSearch(e.target.value)}
-                                                            placeholder="Search categories or department..."
-                                                            className="w-full pl-9 pr-8 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium outline-none focus:border-indigo-400 focus:bg-white transition-all"
-                                                        />
-                                                        {categoryAssignmentSearch && (
-                                                            <button onClick={() => setCategoryAssignmentSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
-                                                                <X size={12} />
-                                                            </button>
-                                                        )}
+                                                {/* AUDITOR ASSIGNED SCOPE SUMMARY BANNER */}
+                                                {(() => {
+                                                    const selectedAuditor = profilesList.find(p => p.id === selectedAuditorId);
+                                                    const auditorCatIds = auditorCategoryAssignments
+                                                        .filter(a => a.user_id === selectedAuditorId)
+                                                        .map(a => a.category_id);
+                                                    const assignedCount = auditorCatIds.length;
+                                                    const totalCount = catList.length;
+                                                    const totalAssignedItems = items.filter(i => auditorCatIds.includes(i.categoryId)).length;
+                                                    const coveragePct = totalCount > 0 ? Math.round((assignedCount / totalCount) * 100) : 0;
+
+                                                    return (
+                                                        <div className="bg-linear-to-r from-emerald-50/80 via-teal-50/40 to-slate-50 border border-emerald-200/80 rounded-xl p-4 space-y-2.5">
+                                                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                                                                <div>
+                                                                    <div className="text-xs font-black text-slate-800 flex items-center gap-2">
+                                                                        <Layers size={15} className="text-emerald-600" />
+                                                                        <span>Category Assignment Scope for <strong className="text-emerald-800">{selectedAuditor?.display_name || 'Selected Auditor'}</strong></span>
+                                                                    </div>
+                                                                    <div className="text-[11px] font-semibold text-slate-500 mt-0.5">
+                                                                        {assignedCount} of {totalCount} categories assigned ({totalAssignedItems} checklist items in scope)
+                                                                    </div>
+                                                                </div>
+                                                                <div className="flex items-center gap-1.5 shrink-0">
+                                                                    <span className="text-xs font-black text-emerald-700 bg-white px-2.5 py-1 rounded-lg border border-emerald-200 shadow-2xs">
+                                                                        {coveragePct}% Coverage
+                                                                    </span>
+                                                                </div>
+                                                            </div>
+
+                                                            {/* Progress bar */}
+                                                            <div className="w-full h-1.5 bg-emerald-100/60 rounded-full overflow-hidden">
+                                                                <div 
+                                                                    className="h-full bg-emerald-500 rounded-full transition-all duration-300"
+                                                                    style={{ width: `${coveragePct}%` }}
+                                                                />
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })()}
+
+                                                {/* SEARCH, DEPARTMENT FILTER & CONTROLS */}
+                                                <div className="space-y-3">
+                                                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+                                                        {/* SEARCH INPUT */}
+                                                        <div className="relative flex-1">
+                                                            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                                                            <input
+                                                                type="text"
+                                                                value={categoryAssignmentSearch}
+                                                                onChange={(e) => setCategoryAssignmentSearch(e.target.value)}
+                                                                placeholder="Search category or department..."
+                                                                className="w-full pl-9 pr-8 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium outline-none focus:border-indigo-400 focus:bg-white transition-all"
+                                                            />
+                                                            {categoryAssignmentSearch && (
+                                                                <button onClick={() => setCategoryAssignmentSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                                                                    <X size={12} />
+                                                                </button>
+                                                            )}
+                                                        </div>
+
+                                                        {/* DEPARTMENT FILTER DROPDOWN */}
+                                                        <select
+                                                            value={categoryDeptFilter}
+                                                            onChange={(e) => setCategoryDeptFilter(e.target.value)}
+                                                            className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 outline-none focus:border-indigo-400 focus:bg-white transition-all shrink-0"
+                                                        >
+                                                            <option value="all">All Departments ({departments.length})</option>
+                                                            {departments.map(d => (
+                                                                <option key={d.id} value={d.id}>{d.name}</option>
+                                                            ))}
+                                                        </select>
+
+                                                        {/* GROUP BY DEPT TOGGLE */}
+                                                        <button
+                                                            onClick={() => setGroupByDept(!groupByDept)}
+                                                            className={`px-3 py-2 rounded-xl text-xs font-bold border transition-all shrink-0 flex items-center gap-1.5 ${
+                                                                groupByDept 
+                                                                    ? 'bg-indigo-50 border-indigo-200 text-indigo-700' 
+                                                                    : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                                                            }`}
+                                                            title="Toggle grouping categories by department"
+                                                        >
+                                                            <Layers size={13} />
+                                                            <span>{groupByDept ? 'Grouped by Dept' : 'Flat View'}</span>
+                                                        </button>
                                                     </div>
+
+                                                    {/* MULTI-SELECT BATCH ACTION BAR (IF BATCH SELECTED) */}
+                                                    {(() => {
+                                                        const filteredCatList = catList.filter(cat => {
+                                                            if (categoryDeptFilter !== 'all' && cat.departmentId !== categoryDeptFilter) return false;
+                                                            if (categoryAssignmentSearch) {
+                                                                const query = categoryAssignmentSearch.toLowerCase();
+                                                                const deptName = departments.find(d => d.id === cat.departmentId)?.name || '';
+                                                                return cat.name.toLowerCase().includes(query) || deptName.toLowerCase().includes(query);
+                                                            }
+                                                            return true;
+                                                        });
+
+                                                        const filteredCatIds = filteredCatList.map(c => c.id);
+                                                        const allFilteredSelectedForBatch = filteredCatIds.length > 0 && filteredCatIds.every(id => selectedCategoryBatchIds.has(id));
+
+                                                        return (
+                                                            <div className="flex items-center justify-between gap-2 p-2 bg-slate-100/70 rounded-xl text-xs font-semibold text-slate-600 border border-slate-200/50">
+                                                                <div className="flex items-center gap-2">
+                                                                    <input
+                                                                        type="checkbox"
+                                                                        checked={allFilteredSelectedForBatch}
+                                                                        onChange={(e) => {
+                                                                            if (e.target.checked) {
+                                                                                setSelectedCategoryBatchIds(new Set([...selectedCategoryBatchIds, ...filteredCatIds]));
+                                                                            } else {
+                                                                                const newSet = new Set(selectedCategoryBatchIds);
+                                                                                filteredCatIds.forEach(id => newSet.delete(id));
+                                                                                setSelectedCategoryBatchIds(newSet);
+                                                                            }
+                                                                        }}
+                                                                        className="w-4 h-4 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500 cursor-pointer"
+                                                                        id="select-all-cat-batch"
+                                                                    />
+                                                                    <label htmlFor="select-all-cat-batch" className="cursor-pointer font-bold text-slate-700">
+                                                                        Select All ({filteredCatList.length})
+                                                                    </label>
+                                                                    {selectedCategoryBatchIds.size > 0 && (
+                                                                        <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] font-black rounded-md">
+                                                                            {selectedCategoryBatchIds.size} checked
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+
+                                                                {selectedCategoryBatchIds.size > 0 ? (
+                                                                    <div className="flex items-center gap-2">
+                                                                        <button
+                                                                            onClick={() => {
+                                                                                handleBatchAssignCategories(selectedAuditorId, Array.from(selectedCategoryBatchIds), true);
+                                                                                setSelectedCategoryBatchIds(new Set());
+                                                                            }}
+                                                                            className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-[11px] rounded-lg transition-all shadow-2xs active:scale-95"
+                                                                        >
+                                                                            Assign ({selectedCategoryBatchIds.size}) to Auditor
+                                                                        </button>
+                                                                        <button
+                                                                            onClick={() => {
+                                                                                handleBatchAssignCategories(selectedAuditorId, Array.from(selectedCategoryBatchIds), false);
+                                                                                setSelectedCategoryBatchIds(new Set());
+                                                                            }}
+                                                                            className="px-3 py-1 bg-slate-200 hover:bg-slate-300 text-slate-700 font-extrabold text-[11px] rounded-lg transition-all active:scale-95"
+                                                                        >
+                                                                            Unassign ({selectedCategoryBatchIds.size})
+                                                                        </button>
+                                                                        <button
+                                                                            onClick={() => setSelectedCategoryBatchIds(new Set())}
+                                                                            className="text-slate-400 hover:text-slate-600 p-1"
+                                                                            title="Clear selection"
+                                                                        >
+                                                                            <X size={14} />
+                                                                        </button>
+                                                                    </div>
+                                                                ) : (
+                                                                    <div className="text-[11px] text-slate-400 font-medium">
+                                                                        Check boxes to assign/unassign multiple categories in bulk
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        );
+                                                    })()}
                                                 </div>
 
-                                                <div className="space-y-2 max-h-[500px] overflow-y-auto pr-1">
-                                                    {catList
-                                                        .filter(cat => {
-                                                            if (!categoryAssignmentSearch) return true;
-                                                            const query = categoryAssignmentSearch.toLowerCase();
-                                                            const dept = departments.find(d => d.id === cat.departmentId)?.name || '';
-                                                            return cat.name.toLowerCase().includes(query) || dept.toLowerCase().includes(query);
-                                                        })
-                                                        .map(cat => {
-                                                            const existingAssignment = auditorCategoryAssignments.find(a => a.category_id === cat.id);
-                                                            const isAssignedToSelected = existingAssignment?.user_id === selectedAuditorId;
-                                                            const isAssignedToOther = existingAssignment && existingAssignment.user_id !== selectedAuditorId;
-                                                            const assignedAuditor = isAssignedToOther ? profilesList.find(p => p.id === existingAssignment.user_id) : null;
-                                                            const dept = departments.find(d => d.id === cat.departmentId);
-                                                            const itemCount = items.filter(i => i.categoryId === cat.id).length;
+                                                {/* CATEGORY LIST RENDER */}
+                                                <div className="space-y-4 max-h-[520px] overflow-y-auto pr-1">
+                                                    {(() => {
+                                                        const filteredCatList = catList.filter(cat => {
+                                                            if (categoryDeptFilter !== 'all' && cat.departmentId !== categoryDeptFilter) return false;
+                                                            if (categoryAssignmentSearch) {
+                                                                const query = categoryAssignmentSearch.toLowerCase();
+                                                                const deptName = departments.find(d => d.id === cat.departmentId)?.name || '';
+                                                                return cat.name.toLowerCase().includes(query) || deptName.toLowerCase().includes(query);
+                                                            }
+                                                            return true;
+                                                        });
 
+                                                        if (filteredCatList.length === 0) {
                                                             return (
-                                                                <div key={cat.id} className="flex items-center justify-between p-3.5 bg-slate-50/80 hover:bg-slate-100/60 rounded-xl border border-slate-200/60 transition-all">
-                                                                    <div className="space-y-0.5">
-                                                                        <div className="flex items-center gap-2">
-                                                                            <span className="text-sm font-bold text-slate-800">{cat.name}</span>
-                                                                            {dept && (
-                                                                                <span className="px-2 py-0.5 bg-slate-200/70 text-slate-700 text-[9px] font-black uppercase rounded-md">
-                                                                                    {dept.name}
-                                                                                </span>
-                                                                            )}
-                                                                        </div>
-                                                                        <div className="text-[10px] font-semibold text-slate-400">
-                                                                            {itemCount} checklist items in category
-                                                                        </div>
-                                                                    </div>
-
-                                                                    <button
-                                                                        onClick={() => handleToggleCategoryAssignment(selectedAuditorId, cat.id)}
-                                                                        className={`px-3.5 py-1.5 text-xs font-black rounded-lg transition-all ${
-                                                                            isAssignedToSelected 
-                                                                                ? 'bg-emerald-600 text-white shadow-2xs hover:bg-emerald-700' 
-                                                                                : isAssignedToOther 
-                                                                                ? 'bg-amber-100 text-amber-800 border border-amber-200 hover:bg-amber-200' 
-                                                                                : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
-                                                                        }`}
-                                                                    >
-                                                                        {isAssignedToSelected ? 'Assigned' : isAssignedToOther ? `Reassign (${assignedAuditor?.first_name || 'Other'})` : 'Assign Category'}
-                                                                    </button>
+                                                                <div className="text-center py-12 text-slate-400 font-bold text-xs border border-dashed border-slate-200 rounded-xl">
+                                                                    No categories match your search / department filter.
                                                                 </div>
                                                             );
-                                                        })}
+                                                        }
+
+                                                        if (groupByDept) {
+                                                            // Group by department
+                                                            const deptsWithCatsMap = new Map<string, typeof catList>();
+                                                            filteredCatList.forEach(cat => {
+                                                                const dId = cat.departmentId || 'unassigned';
+                                                                if (!deptsWithCatsMap.has(dId)) {
+                                                                    deptsWithCatsMap.set(dId, []);
+                                                                }
+                                                                deptsWithCatsMap.get(dId)!.push(cat);
+                                                            });
+
+                                                            return Array.from(deptsWithCatsMap.entries()).map(([deptId, deptCats]) => {
+                                                                const deptObj = departments.find(d => d.id === deptId);
+                                                                const deptName = deptObj?.name || 'Unassigned Department';
+                                                                const deptCatIds = deptCats.map(c => c.id);
+                                                                
+                                                                const assignedInDeptCount = deptCatIds.filter(cId => 
+                                                                    auditorCategoryAssignments.some(a => a.user_id === selectedAuditorId && a.category_id === cId)
+                                                                ).length;
+
+                                                                const allInDeptAssigned = assignedInDeptCount === deptCats.length;
+
+                                                                return (
+                                                                    <div key={deptId} className="bg-slate-50/60 rounded-2xl border border-slate-200/80 p-3.5 space-y-2.5">
+                                                                        {/* DEPARTMENT HEADER BAR */}
+                                                                        <div className="flex items-center justify-between pb-2 border-b border-slate-200/60">
+                                                                            <div className="flex items-center gap-2">
+                                                                                <div className="w-2 h-2 rounded-full bg-emerald-500" />
+                                                                                <span className="font-extrabold text-xs text-slate-800 uppercase tracking-wider">{deptName}</span>
+                                                                                <span className="px-2 py-0.5 bg-slate-200/70 text-slate-700 text-[10px] font-bold rounded-md">
+                                                                                    {assignedInDeptCount} / {deptCats.length} assigned
+                                                                                </span>
+                                                                            </div>
+
+                                                                            <div className="flex items-center gap-1.5">
+                                                                                <button
+                                                                                    onClick={() => handleAssignDepartmentCategories(selectedAuditorId, deptId, !allInDeptAssigned)}
+                                                                                    className={`px-2.5 py-1 text-[10px] font-black rounded-lg transition-all border ${
+                                                                                        allInDeptAssigned
+                                                                                            ? 'bg-slate-100 hover:bg-slate-200 text-slate-600 border-slate-200'
+                                                                                            : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border-emerald-200'
+                                                                                    }`}
+                                                                                >
+                                                                                    {allInDeptAssigned ? 'Unassign All Dept' : `Assign All ${deptName}`}
+                                                                                </button>
+                                                                            </div>
+                                                                        </div>
+
+                                                                        {/* CATEGORIES IN DEPT */}
+                                                                        <div className="space-y-1.5">
+                                                                            {deptCats.map(cat => {
+                                                                                const isAssignedToSelected = auditorCategoryAssignments.some(
+                                                                                    a => a.user_id === selectedAuditorId && a.category_id === cat.id
+                                                                                );
+                                                                                const isBatchChecked = selectedCategoryBatchIds.has(cat.id);
+                                                                                const itemCount = items.filter(i => i.categoryId === cat.id).length;
+
+                                                                                // Check if assigned to other auditors as well
+                                                                                const otherAuditorAssignments = auditorCategoryAssignments.filter(
+                                                                                    a => a.category_id === cat.id && a.user_id !== selectedAuditorId
+                                                                                );
+                                                                                const otherAuditorsList = otherAuditorAssignments
+                                                                                    .map(a => profilesList.find(p => p.id === a.user_id)?.first_name)
+                                                                                    .filter(Boolean);
+
+                                                                                return (
+                                                                                    <div 
+                                                                                        key={cat.id} 
+                                                                                        className={`flex items-center justify-between p-3 rounded-xl border transition-all ${
+                                                                                            isAssignedToSelected 
+                                                                                                ? 'bg-emerald-50/60 border-emerald-200/90 shadow-2xs' 
+                                                                                                : 'bg-white border-slate-200/70 hover:bg-slate-50'
+                                                                                        }`}
+                                                                                    >
+                                                                                        <div className="flex items-center gap-3">
+                                                                                            <input
+                                                                                                type="checkbox"
+                                                                                                checked={isBatchChecked}
+                                                                                                onChange={(e) => {
+                                                                                                    const newSet = new Set(selectedCategoryBatchIds);
+                                                                                                    if (e.target.checked) newSet.add(cat.id);
+                                                                                                    else newSet.delete(cat.id);
+                                                                                                    setSelectedCategoryBatchIds(newSet);
+                                                                                                }}
+                                                                                                className="w-4 h-4 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500 cursor-pointer"
+                                                                                            />
+
+                                                                                            <div className="space-y-0.5">
+                                                                                                <div className="flex items-center gap-2">
+                                                                                                    <span className="text-xs font-bold text-slate-800">{cat.name}</span>
+                                                                                                    {isAssignedToSelected && (
+                                                                                                        <span className="px-2 py-0.5 bg-emerald-600 text-white text-[9px] font-black uppercase rounded-md flex items-center gap-1 shadow-2xs">
+                                                                                                            <Check size={10} /> Assigned
+                                                                                                        </span>
+                                                                                                    )}
+                                                                                                </div>
+                                                                                                <div className="text-[10px] font-semibold text-slate-400 flex items-center gap-2">
+                                                                                                    <span>{itemCount} checklist items</span>
+                                                                                                    {otherAuditorsList.length > 0 && (
+                                                                                                        <span className="text-amber-600 font-bold">
+                                                                                                            • Also assigned to: {otherAuditorsList.join(', ')}
+                                                                                                        </span>
+                                                                                                    )}
+                                                                                                </div>
+                                                                                            </div>
+                                                                                        </div>
+
+                                                                                        <button
+                                                                                            onClick={() => handleToggleCategoryAssignment(selectedAuditorId, cat.id)}
+                                                                                            className={`px-3 py-1.5 text-xs font-black rounded-lg transition-all ${
+                                                                                                isAssignedToSelected 
+                                                                                                    ? 'bg-emerald-600 text-white shadow-2xs hover:bg-emerald-700' 
+                                                                                                    : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-100 hover:border-indigo-300'
+                                                                                            }`}
+                                                                                        >
+                                                                                            {isAssignedToSelected ? 'Assigned' : 'Assign'}
+                                                                                        </button>
+                                                                                    </div>
+                                                                                );
+                                                                            })}
+                                                                        </div>
+                                                                    </div>
+                                                                );
+                                                            });
+                                                        } else {
+                                                            // Flat list
+                                                            return filteredCatList.map(cat => {
+                                                                const isAssignedToSelected = auditorCategoryAssignments.some(
+                                                                    a => a.user_id === selectedAuditorId && a.category_id === cat.id
+                                                                );
+                                                                const isBatchChecked = selectedCategoryBatchIds.has(cat.id);
+                                                                const dept = departments.find(d => d.id === cat.departmentId);
+                                                                const itemCount = items.filter(i => i.categoryId === cat.id).length;
+
+                                                                const otherAuditorAssignments = auditorCategoryAssignments.filter(
+                                                                    a => a.category_id === cat.id && a.user_id !== selectedAuditorId
+                                                                );
+                                                                const otherAuditorsList = otherAuditorAssignments
+                                                                    .map(a => profilesList.find(p => p.id === a.user_id)?.first_name)
+                                                                    .filter(Boolean);
+
+                                                                return (
+                                                                    <div 
+                                                                        key={cat.id} 
+                                                                        className={`flex items-center justify-between p-3.5 rounded-xl border transition-all ${
+                                                                            isAssignedToSelected 
+                                                                                ? 'bg-emerald-50/60 border-emerald-200/90 shadow-2xs' 
+                                                                                : 'bg-slate-50/80 border-slate-200/60 hover:bg-slate-100/60'
+                                                                        }`}
+                                                                    >
+                                                                        <div className="flex items-center gap-3">
+                                                                            <input
+                                                                                type="checkbox"
+                                                                                checked={isBatchChecked}
+                                                                                onChange={(e) => {
+                                                                                    const newSet = new Set(selectedCategoryBatchIds);
+                                                                                    if (e.target.checked) newSet.add(cat.id);
+                                                                                    else newSet.delete(cat.id);
+                                                                                    setSelectedCategoryBatchIds(newSet);
+                                                                                }}
+                                                                                className="w-4 h-4 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500 cursor-pointer"
+                                                                            />
+
+                                                                            <div className="space-y-0.5">
+                                                                                <div className="flex items-center gap-2">
+                                                                                    <span className="text-sm font-bold text-slate-800">{cat.name}</span>
+                                                                                    {dept && (
+                                                                                        <span className="px-2 py-0.5 bg-slate-200/70 text-slate-700 text-[9px] font-black uppercase rounded-md">
+                                                                                            {dept.name}
+                                                                                        </span>
+                                                                                    )}
+                                                                                    {isAssignedToSelected && (
+                                                                                        <span className="px-2 py-0.5 bg-emerald-600 text-white text-[9px] font-black uppercase rounded-md flex items-center gap-1 shadow-2xs">
+                                                                                            <Check size={10} /> Assigned
+                                                                                        </span>
+                                                                                    )}
+                                                                                </div>
+                                                                                <div className="text-[10px] font-semibold text-slate-400 flex items-center gap-2">
+                                                                                    <span>{itemCount} checklist items</span>
+                                                                                    {otherAuditorsList.length > 0 && (
+                                                                                        <span className="text-amber-600 font-bold">
+                                                                                            • Also assigned to: {otherAuditorsList.join(', ')}
+                                                                                        </span>
+                                                                                    )}
+                                                                                </div>
+                                                                            </div>
+                                                                        </div>
+
+                                                                        <button
+                                                                            onClick={() => handleToggleCategoryAssignment(selectedAuditorId, cat.id)}
+                                                                            className={`px-3.5 py-1.5 text-xs font-black rounded-lg transition-all ${
+                                                                                isAssignedToSelected 
+                                                                                    ? 'bg-emerald-600 text-white shadow-2xs hover:bg-emerald-700' 
+                                                                                    : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
+                                                                            }`}
+                                                                        >
+                                                                            {isAssignedToSelected ? 'Assigned' : 'Assign Category'}
+                                                                        </button>
+                                                                    </div>
+                                                                );
+                                                            });
+                                                        }
+                                                    })()}
                                                 </div>
                                             </div>
                                         )}
@@ -6535,7 +6879,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
 
                                                                                     {/* PASS / FAIL / N/A CONTROLS */}
                                                                                     <div className="space-y-2">
-                                                                                        <div className={`grid ${submission?.is_na ? 'grid-cols-3' : 'grid-cols-2'} gap-2`}>
+                                                                                        <div className="grid grid-cols-3 gap-2">
                                                                                             <button
                                                                                                 type="button"
                                                                                                 id={`btn-pass-${item.id}`}
@@ -6578,29 +6922,29 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                                     0 pts
                                                                                                 </span>
                                                                                             </button>
-                                                                                            {submission?.is_na && (
-                                                                                                <button
-                                                                                                    type="button"
-                                                                                                    id={`btn-na-${item.id}`}
-                                                                                                    onClick={() => {
-                                                                                                        if (isNA) {
-                                                                                                            saveInspectionScore(hotel.id, item.id, undefined);
-                                                                                                        } else {
-                                                                                                            saveInspectionScore(hotel.id, item.id, 'N/A');
-                                                                                                        }
-                                                                                                    }}
-                                                                                                    className={`py-2.5 px-1.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all duration-150 cursor-pointer flex flex-col items-center justify-center gap-0.5 border ${
-                                                                                                        isNA
-                                                                                                            ? 'bg-amber-500 hover:bg-amber-600 text-white border-amber-500 shadow-sm shadow-amber-100 ring-2 ring-amber-500 ring-offset-2'
-                                                                                                            : 'bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-200 hover:border-amber-400 animate-pulse'
-                                                                                                    }`}
-                                                                                                >
-                                                                                                    <span className="text-xs">Approve N/A</span>
-                                                                                                    <span className={`text-[9px] font-bold ${isNA ? 'text-amber-100' : 'text-amber-600'}`}>
-                                                                                                        Exempt
-                                                                                                    </span>
-                                                                                                </button>
-                                                                                            )}
+                                                                                            <button
+                                                                                                type="button"
+                                                                                                id={`btn-na-${item.id}`}
+                                                                                                onClick={() => {
+                                                                                                    if (isNA) {
+                                                                                                        saveInspectionScore(hotel.id, item.id, undefined);
+                                                                                                    } else {
+                                                                                                        saveInspectionScore(hotel.id, item.id, 'N/A');
+                                                                                                    }
+                                                                                                }}
+                                                                                                className={`py-2.5 px-1.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all duration-150 cursor-pointer flex flex-col items-center justify-center gap-0.5 border ${
+                                                                                                    isNA
+                                                                                                        ? 'bg-amber-500 hover:bg-amber-600 text-white border-amber-500 shadow-sm shadow-amber-100 ring-2 ring-amber-500 ring-offset-2'
+                                                                                                        : submission?.is_na
+                                                                                                        ? 'bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-300 hover:border-amber-400 animate-pulse'
+                                                                                                        : 'bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-200 hover:border-amber-400'
+                                                                                                }`}
+                                                                                            >
+                                                                                                <span className="text-xs">{submission?.is_na ? 'Approve N/A' : 'N/A'}</span>
+                                                                                                <span className={`text-[9px] font-bold ${isNA ? 'text-amber-100' : 'text-amber-600'}`}>
+                                                                                                    Exempt
+                                                                                                </span>
+                                                                                            </button>
                                                                                         </div>
                                                                                     </div>
 
