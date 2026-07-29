@@ -1077,10 +1077,10 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             })
             .subscribe();
 
-        // Background fallback polling interval set to 30 seconds to conserve database resources
+        // Background fallback polling interval set to 120 seconds (real-time channels handle instant sync)
         const interval = setInterval(() => {
             fetchAllSubmissions();
-        }, 30000);
+        }, 120000);
 
         return () => {
             active = false;
@@ -1577,11 +1577,37 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             } else if (data) {
                 const statusesMap: Record<string, any> = {};
                 data.forEach((row: any) => {
-                    statusesMap[row.hotel_id] = {
+                    const info = {
                         is_finalized: !!row.is_finalized,
                         finalized_by: row.finalized_by,
                         finalized_at: row.finalized_at
                     };
+                    if (row.hotel_id) {
+                        const rawId = String(row.hotel_id).trim();
+                        statusesMap[rawId] = info;
+                        statusesMap[rawId.toLowerCase()] = info;
+
+                        // Also associate with matching hotel code or name from hotels list
+                        const matchedHotel = hotels.find(h => 
+                            String(h.id).toLowerCase() === rawId.toLowerCase() ||
+                            (h.code && String(h.code).toLowerCase() === rawId.toLowerCase()) ||
+                            (h.name && String(h.name).toLowerCase() === rawId.toLowerCase())
+                        );
+                        if (matchedHotel) {
+                            if (matchedHotel.id) {
+                                statusesMap[matchedHotel.id] = info;
+                                statusesMap[String(matchedHotel.id).toLowerCase()] = info;
+                            }
+                            if (matchedHotel.code) {
+                                statusesMap[matchedHotel.code] = info;
+                                statusesMap[String(matchedHotel.code).toLowerCase()] = info;
+                            }
+                            if (matchedHotel.name) {
+                                statusesMap[matchedHotel.name] = info;
+                                statusesMap[String(matchedHotel.name).toLowerCase()] = info;
+                            }
+                        }
+                    }
                 });
                 setFinalizedStatuses(statusesMap);
             }
@@ -2137,7 +2163,70 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             }
         });
         
-        return associatedIds.has(subIdLower);
+        if (associatedIds.has(subIdLower)) return true;
+        if (hotel.name && subIdLower.length > 3 && (subIdLower.includes(String(hotel.name).trim().toLowerCase()) || String(hotel.name).trim().toLowerCase().includes(subIdLower))) return true;
+        if (hotel.code && hotel.code.length >= 2 && (subIdLower.includes(String(hotel.code).trim().toLowerCase()) || String(hotel.code).trim().toLowerCase().includes(subIdLower))) return true;
+        return false;
+    };
+
+    const getHotelFinalizedInfo = (hotelIdOrHotel: any): { is_finalized: boolean, finalized_by?: string, finalized_at?: string } => {
+        if (!hotelIdOrHotel) return { is_finalized: false };
+
+        let currentHotel: Hotel | undefined;
+        if (typeof hotelIdOrHotel === 'object' && hotelIdOrHotel !== null) {
+            currentHotel = hotelIdOrHotel as Hotel;
+        } else {
+            const hIdLower = String(hotelIdOrHotel).trim().toLowerCase();
+            currentHotel = hotels.find(h => 
+                String(h.id).toLowerCase() === hIdLower || 
+                (h.code && String(h.code).toLowerCase() === hIdLower) ||
+                (h.name && String(h.name).toLowerCase() === hIdLower)
+            );
+        }
+
+        const possibleIds = new Set<string>();
+        if (typeof hotelIdOrHotel === 'string') possibleIds.add(hotelIdOrHotel.trim().toLowerCase());
+        if (currentHotel) {
+            if (currentHotel.id) possibleIds.add(String(currentHotel.id).trim().toLowerCase());
+            if (currentHotel.code) possibleIds.add(String(currentHotel.code).trim().toLowerCase());
+            if (currentHotel.name) possibleIds.add(String(currentHotel.name).trim().toLowerCase());
+
+            (profilesList || []).forEach(p => {
+                const matchesCode = p.hotel_code && currentHotel?.code && String(p.hotel_code).trim().toLowerCase() === String(currentHotel.code).trim().toLowerCase();
+                const matchesName = p.hotel_name && currentHotel?.name && String(p.hotel_name).trim().toLowerCase() === String(currentHotel.name).trim().toLowerCase();
+                const matchesId = p.hotel_id && currentHotel?.id && String(p.hotel_id).trim().toLowerCase() === String(currentHotel.id).trim().toLowerCase();
+                if (matchesCode || matchesName || matchesId) {
+                    if (p.hotel_id) possibleIds.add(String(p.hotel_id).trim().toLowerCase());
+                    if (p.hotel_code) possibleIds.add(String(p.hotel_code).trim().toLowerCase());
+                    if (p.hotel_name) possibleIds.add(String(p.hotel_name).trim().toLowerCase());
+                    if (p.id) possibleIds.add(String(p.id).trim().toLowerCase());
+                }
+            });
+        }
+
+        for (const pid of Array.from(possibleIds)) {
+            if (finalizedStatuses[pid]?.is_finalized) {
+                return finalizedStatuses[pid];
+            }
+            for (const [key, val] of Object.entries(finalizedStatuses)) {
+                const statusVal = val as { is_finalized?: boolean; finalized_by?: string; finalized_at?: string } | undefined;
+                if (key.toLowerCase() === pid && statusVal?.is_finalized) {
+                    return {
+                        is_finalized: true,
+                        finalized_by: statusVal.finalized_by,
+                        finalized_at: statusVal.finalized_at
+                    };
+                }
+            }
+            if (localStorage.getItem(`sbi_audit_finalized_${pid}`) === 'true') {
+                return {
+                    is_finalized: true,
+                    finalized_by: localStorage.getItem(`sbi_audit_finalized_by_${pid}`) || 'Representative',
+                    finalized_at: localStorage.getItem(`sbi_audit_finalized_at_${pid}`) || new Date().toISOString()
+                };
+            }
+        }
+        return { is_finalized: false };
     };
 
     const getSubmitterName = (sub: any, currentHotel?: any) => {
@@ -2193,39 +2282,152 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             return;
         }
         try {
-            const hotel = hotels.find(h => h.id === selectedInspectionHotelId);
+            const hotel = hotels.find(h => h.id === selectedInspectionHotelId) || hotels.find(h => isSubmissionForHotel(selectedInspectionHotelId, h));
+            const currentHotel = hotel || (selectedInspectionHotelId ? { id: selectedInspectionHotelId, code: selectedInspectionHotelId, name: selectedInspectionHotelId } as Hotel : undefined);
+
             const associatedIds = new Set<string>();
-            if (hotel) {
-                associatedIds.add(hotel.id);
-                if (hotel.code) associatedIds.add(hotel.code);
-                associatedIds.add(hotel.name);
+            if (currentHotel) {
+                if (currentHotel.id) {
+                    associatedIds.add(String(currentHotel.id));
+                    associatedIds.add(String(currentHotel.id).toLowerCase());
+                    associatedIds.add(String(currentHotel.id).toUpperCase());
+                }
+                if (currentHotel.code) {
+                    associatedIds.add(String(currentHotel.code));
+                    associatedIds.add(String(currentHotel.code).toLowerCase());
+                    associatedIds.add(String(currentHotel.code).toUpperCase());
+                }
+                if (currentHotel.name) {
+                    associatedIds.add(String(currentHotel.name));
+                }
                 
                 profilesList.forEach(p => {
-                    const matchesCode = p.hotel_code && hotel.code && String(p.hotel_code).toLowerCase() === String(hotel.code).toLowerCase();
-                    const matchesName = p.hotel_name && hotel.name && String(p.hotel_name).toLowerCase() === String(hotel.name).toLowerCase();
-                    const matchesId = p.hotel_id && hotel.id && String(p.hotel_id).toLowerCase() === String(hotel.id).toLowerCase();
+                    const matchesCode = p.hotel_code && currentHotel.code && String(p.hotel_code).trim().toLowerCase() === String(currentHotel.code).trim().toLowerCase();
+                    const matchesName = p.hotel_name && currentHotel.name && String(p.hotel_name).trim().toLowerCase() === String(currentHotel.name).trim().toLowerCase();
+                    const matchesId = p.hotel_id && currentHotel.id && String(p.hotel_id).trim().toLowerCase() === String(currentHotel.id).trim().toLowerCase();
                     if (matchesCode || matchesName || matchesId) {
-                        if (p.hotel_id) associatedIds.add(String(p.hotel_id));
+                        if (p.hotel_id) {
+                            associatedIds.add(String(p.hotel_id));
+                            associatedIds.add(String(p.hotel_id).toLowerCase());
+                        }
+                        if (p.hotel_code) {
+                            associatedIds.add(String(p.hotel_code));
+                            associatedIds.add(String(p.hotel_code).toLowerCase());
+                        }
+                        if (p.hotel_name) {
+                            associatedIds.add(String(p.hotel_name));
+                        }
+                        if (p.id) {
+                            associatedIds.add(String(p.id));
+                        }
                     }
                 });
             } else {
-                associatedIds.add(selectedInspectionHotelId);
+                associatedIds.add(String(selectedInspectionHotelId));
+                associatedIds.add(String(selectedInspectionHotelId).toLowerCase());
             }
 
-            const { data, error } = await supabase
-                .from('audit_submissions')
-                .select('*')
-                .in('hotel_id', Array.from(associatedIds));
-            
-            if (error) throw error;
-            
+            const idList = Array.from(associatedIds).filter(id => id && String(id).trim().length > 0);
+            let subsData: any[] | null = null;
+
+            if (idList.length > 0) {
+                const { data, error } = await supabase
+                    .from('audit_submissions')
+                    .select('*')
+                    .in('hotel_id', idList);
+                if (!error && data && data.length > 0) {
+                    subsData = data;
+                }
+            }
+
+            // Fallback 1: Query specifically by target IDs if .in returned 0 items
+            if ((!subsData || subsData.length === 0) && (currentHotel?.id || currentHotel?.code || selectedInspectionHotelId)) {
+                const targetIds = [currentHotel?.id, currentHotel?.code, selectedInspectionHotelId].filter(Boolean) as string[];
+                for (const tid of targetIds) {
+                    const { data, error } = await supabase
+                        .from('audit_submissions')
+                        .select('*')
+                        .eq('hotel_id', tid);
+                    if (!error && data && data.length > 0) {
+                        subsData = data;
+                        break;
+                    }
+                }
+            }
+
+            // Fallback 2: Select all submissions and filter using isSubmissionForHotel
+            if (!subsData || subsData.length === 0) {
+                const { data, error } = await supabase
+                    .from('audit_submissions')
+                    .select('*');
+                if (!error && data && data.length > 0) {
+                    if (currentHotel) {
+                        subsData = data.filter(s => isSubmissionForHotel(s.hotel_id, currentHotel));
+                    } else {
+                        subsData = data.filter(s => String(s.hotel_id).toLowerCase() === String(selectedInspectionHotelId).toLowerCase());
+                    }
+                }
+            }
+
+            // Fallback 3: Filter from existing allSubmissions state
+            if ((!subsData || subsData.length === 0) && allSubmissions && allSubmissions.length > 0) {
+                if (currentHotel) {
+                    subsData = allSubmissions.filter(s => isSubmissionForHotel(s.hotel_id, currentHotel));
+                }
+            }
+
             const submissionsMap: Record<string, any> = {};
-            data?.forEach(sub => {
-                submissionsMap[sub.item_id] = sub;
+            (subsData || []).forEach(sub => {
+                if (sub && sub.item_id !== undefined && sub.item_id !== null) {
+                    submissionsMap[sub.item_id] = sub;
+                }
             });
+
+            // ALSO check localStorage for any client-side saved property submissions
+            try {
+                for (let i = 0; i < localStorage.length; i++) {
+                    const key = localStorage.key(i);
+                    if (key && key.startsWith('sbi_audit_') && !key.startsWith('sbi_audit_finalized_')) {
+                        const parts = key.replace('sbi_audit_', '').split('_');
+                        if (parts.length >= 2) {
+                            const item_id = parts.pop();
+                            const hId = parts.join('_');
+                            if (currentHotel && isSubmissionForHotel(hId, currentHotel) && item_id) {
+                                if (!submissionsMap[item_id]) {
+                                    try {
+                                        const parsed = JSON.parse(localStorage.getItem(key) || '{}');
+                                        if (parsed && (parsed.value !== undefined || parsed.is_na || parsed.evidence_urls)) {
+                                            submissionsMap[item_id] = {
+                                                item_id,
+                                                hotel_id: hId,
+                                                value: parsed.value || '',
+                                                is_na: !!parsed.is_na,
+                                                evidence_urls: parsed.evidence_urls || [],
+                                                score: parsed.score,
+                                                remarks: parsed.remarks || ''
+                                            };
+                                        }
+                                    } catch (e) {}
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (lsErr) {}
+
             setHotelSubmissions(submissionsMap);
         } catch (err) {
-            console.error("Error fetching hotel submissions:", err);
+            console.warn("Could not fetch audit submissions for auditor, using state fallback:", err);
+            const hotel = hotels.find(h => h.id === selectedInspectionHotelId);
+            if (allSubmissions && allSubmissions.length > 0) {
+                const submissionsMap: Record<string, any> = {};
+                allSubmissions.filter(s => hotel ? isSubmissionForHotel(s.hotel_id, hotel) : String(s.hotel_id) === String(selectedInspectionHotelId)).forEach(sub => {
+                    if (sub && sub.item_id !== undefined && sub.item_id !== null) {
+                        submissionsMap[sub.item_id] = sub;
+                    }
+                });
+                setHotelSubmissions(submissionsMap);
+            }
         }
     };
 
@@ -2236,41 +2438,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 if (active) setHotelSubmissions({});
                 return;
             }
-            try {
-                const hotel = hotels.find(h => h.id === selectedInspectionHotelId);
-                const associatedIds = new Set<string>();
-                if (hotel) {
-                    associatedIds.add(hotel.id);
-                    if (hotel.code) associatedIds.add(hotel.code);
-                    associatedIds.add(hotel.name);
-                    
-                    profilesList.forEach(p => {
-                        const matchesCode = p.hotel_code && hotel.code && String(p.hotel_code).toLowerCase() === String(hotel.code).toLowerCase();
-                        const matchesName = p.hotel_name && hotel.name && String(p.hotel_name).toLowerCase() === String(hotel.name).toLowerCase();
-                        const matchesId = p.hotel_id && hotel.id && String(p.hotel_id).toLowerCase() === String(hotel.id).toLowerCase();
-                        if (matchesCode || matchesName || matchesId) {
-                            if (p.hotel_id) associatedIds.add(String(p.hotel_id));
-                        }
-                    });
-                } else {
-                    associatedIds.add(selectedInspectionHotelId);
-                }
-
-                const { data, error } = await supabase
-                    .from('audit_submissions')
-                    .select('*')
-                    .in('hotel_id', Array.from(associatedIds));
-                
-                if (error) throw error;
-                
-                const submissionsMap: Record<string, any> = {};
-                data?.forEach(sub => {
-                    submissionsMap[sub.item_id] = sub;
-                });
-                if (active) setHotelSubmissions(submissionsMap);
-            } catch (err) {
-                console.error("Error fetching hotel submissions:", err);
-            }
+            await fetchHotelSubmissionsForAuditor();
         };
         fetchSubmissionsLocal();
 
@@ -2289,10 +2457,10 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             })
             .subscribe();
 
-        // 30-second background polling interval to conserve Supabase database resources
+        // 120-second background polling interval to conserve Supabase database resources
         const interval = setInterval(() => {
             fetchSubmissionsLocal();
-        }, 30000);
+        }, 120000);
 
         return () => {
             active = false;
@@ -6327,8 +6495,8 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                         const hotelSubs = allSubmissions.filter(s => isSubmissionForHotel(s.hotel_id, hotel));
                                                         const submittedItemIdsSet = new Set(hotelSubs.map(s => String(s.item_id)));
                                                         const hotelFilledCount = allHotelItems.filter(item => submittedItemIdsSet.has(String(item.id))).length;
-                                                        const hotelProgressPct = totalItems > 0 ? Math.round((hotelFilledCount / totalItems) * 100) : 0;
-                                                        const isFinalized = finalizedStatuses[hotel.id]?.is_finalized === true;
+                                                        const isFinalized = getHotelFinalizedInfo(hotel).is_finalized;
+                                                        const hotelProgressPct = isFinalized ? 100 : (totalItems > 0 ? Math.round((hotelFilledCount / totalItems) * 100) : 0);
 
                                                         // Auditor scoring progress
                                                         const scoredItems = allHotelItems.filter(i => inspectionScores[`${hotel.id}_${i.id}`] !== undefined).length;
@@ -6519,11 +6687,11 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                 </div>
 
                                                 <div className="flex flex-wrap gap-3">
-                                                    {finalizedStatuses[hotel.id]?.is_finalized && (
+                                                    {getHotelFinalizedInfo(hotel).is_finalized && (
                                                         <button 
                                                             onClick={() => handleUnlockHotel(hotel.id)}
                                                             className="h-11 px-5 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 rounded-2xl flex items-center gap-2 text-xs font-black uppercase tracking-widest text-emerald-400 transition-all active:scale-95"
-                                                            title={`Finalised by ${finalizedStatuses[hotel.id]?.finalized_by || 'Representative'} on ${finalizedStatuses[hotel.id]?.finalized_at ? new Date(finalizedStatuses[hotel.id]?.finalized_at).toLocaleDateString() : ''}. Click to unlock.`}
+                                                            title={`Finalised by ${getHotelFinalizedInfo(hotel).finalized_by || 'Representative'} on ${getHotelFinalizedInfo(hotel).finalized_at ? new Date(getHotelFinalizedInfo(hotel).finalized_at!).toLocaleDateString() : ''}. Click to unlock.`}
                                                         >
                                                             <Unlock size={14} className="text-emerald-400" />
                                                             Unlock Audit
@@ -6531,19 +6699,9 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                     )}
                                                     <button 
                                                         onClick={async () => {
-                                                            const { data: directData, error: e1 } = await supabase
-                                                                .from('audit_submissions')
-                                                                .select('*')
-                                                                .in('hotel_id', [hotel.id, hotel.code || '', ...(profilesList.filter(p => (p.hotel_code && hotel.code && String(p.hotel_code).toLowerCase() === String(hotel.code).toLowerCase()) || (p.hotel_name && hotel.name && String(p.hotel_name).toLowerCase() === String(hotel.name).toLowerCase())).map(p => p.hotel_id).filter(Boolean))]);
-                                                            
-                                                            if (!e1) {
-                                                                const submissionsMap: Record<string, any> = {};
-                                                                if (directData) directData.forEach(sub => submissionsMap[sub.item_id] = sub);
-                                                                
-                                                                setHotelSubmissions(submissionsMap);
-                                                                setToastMessage("Data Sync Successful");
-                                                                setTimeout(() => setToastMessage(null), 2000);
-                                                            }
+                                                            await fetchHotelSubmissionsForAuditor();
+                                                            setToastMessage("Data Sync Successful");
+                                                            setTimeout(() => setToastMessage(null), 2000);
                                                         }}
                                                         className="h-11 px-5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-2xl flex items-center gap-2 text-xs font-black uppercase tracking-widest transition-all active:scale-95"
                                                     >
@@ -6630,7 +6788,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                 <span className={`px-2.5 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider border ${isCatComplete ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-indigo-50 text-indigo-700 border-indigo-200'}`}>
                                                                     {scoredInCat} / {catItems.length} REVIEWED
                                                                 </span>
-                                                                {finalizedStatuses[hotel.id]?.is_finalized && (
+                                                                {getHotelFinalizedInfo(hotel).is_finalized && (
                                                                     <button 
                                                                         onClick={() => handleUnlockHotel(hotel.id)}
                                                                         className="ml-2 inline-flex items-center gap-1 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all active:scale-95"
@@ -6980,6 +7138,34 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                 return bClass !== 'corporate' && hType !== 'corporate';
                             });
 
+                            // Pre-index valid local storage entries ONCE to avoid heavy O(Hotels * Storage) CPU overhead
+                            const localAuditEntries: Array<{ keyHotelId: string; keyItemId: string; parsed: any }> = [];
+                            try {
+                                for (let i = 0; i < localStorage.length; i++) {
+                                    const key = localStorage.key(i);
+                                    if (key && key.startsWith('sbi_audit_')) {
+                                        if (key.includes('_finalized')) continue;
+                                        const raw = localStorage.getItem(key);
+                                        if (!raw) continue;
+                                        
+                                        const rest = key.replace('sbi_audit_', '');
+                                        const parts = rest.split('_');
+                                        if (parts.length >= 2) {
+                                            const keyHotelId = parts[0];
+                                            const keyItemId = parts.slice(1).join('_');
+                                            try {
+                                                const parsed = JSON.parse(raw);
+                                                if (parsed.value !== undefined || parsed.is_na || (parsed.evidence_urls && parsed.evidence_urls.length > 0) || parsed.isSubmitted) {
+                                                    localAuditEntries.push({ keyHotelId, keyItemId, parsed });
+                                                }
+                                            } catch (e) {}
+                                        }
+                                    }
+                                }
+                            } catch (e) {
+                                console.warn("Could not pre-scan localStorage:", e);
+                            }
+
                             // 1. Helper to calculate progress for a single hotel
                             const getHotelProgress = (hotelId: string) => {
                                 const hIdLower = String(hotelId).toLowerCase();
@@ -7060,62 +7246,22 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                     }
                                 });
 
-                                // 2. Match from Local Storage
-                                try {
-                                    for (let i = 0; i < localStorage.length; i++) {
-                                        const key = localStorage.key(i);
-                                        if (key && key.startsWith('sbi_audit_')) {
-                                            if (key.includes('_finalized')) continue;
-                                            const raw = localStorage.getItem(key);
-                                            if (!raw) continue;
-                                            
-                                            const rest = key.replace('sbi_audit_', '');
-                                            const parts = rest.split('_');
-                                            if (parts.length >= 2) {
-                                                const keyHotelId = parts[0];
-                                                const keyItemId = parts.slice(1).join('_');
-                                                
-                                                if ((currentHotel && isSubmissionForHotel(keyHotelId, currentHotel)) || possibleIds.includes(keyHotelId.toLowerCase())) {
-                                                    try {
-                                                        const parsed = JSON.parse(raw);
-                                                        if (parsed.value !== undefined || parsed.is_na || (parsed.evidence_urls && parsed.evidence_urls.length > 0) || parsed.isSubmitted) {
-                                                            submittedItemIdsForHotel.add(String(keyItemId));
-                                                            if (parsed.is_na) {
-                                                                naItemIdsForHotel.add(String(keyItemId));
-                                                            }
-                                                        }
-                                                    } catch (e) {}
-                                                }
-                                            }
+                                // 2. Match from pre-indexed Local Storage
+                                localAuditEntries.forEach(({ keyHotelId, keyItemId, parsed }) => {
+                                    if ((currentHotel && isSubmissionForHotel(keyHotelId, currentHotel)) || possibleIds.includes(keyHotelId.toLowerCase())) {
+                                        submittedItemIdsForHotel.add(String(keyItemId));
+                                        if (parsed.is_na) {
+                                            naItemIdsForHotel.add(String(keyItemId));
                                         }
                                     }
-                                } catch (e) {
-                                    console.warn("Could not scan localStorage in getHotelProgress:", e);
-                                }
+                                });
 
                                 let completedT = 0;
                                 let totalT = 0;
                                 hotelItems.forEach((item: any) => {
                                     const itemIdStr = String(item.id);
-                                    let isSubmitted = submittedItemIdsForHotel.has(itemIdStr);
-                                    let isNa = naItemIdsForHotel.has(itemIdStr);
-
-                                    if (!isSubmitted) {
-                                        for (const pId of possibleIds) {
-                                            const localKey = `sbi_audit_${pId}_${item.id}`;
-                                            const localStored = localStorage.getItem(localKey);
-                                            if (localStored) {
-                                                try {
-                                                    const parsed = JSON.parse(localStored);
-                                                    if (parsed.value !== undefined || parsed.is_na || (parsed.evidence_urls && parsed.evidence_urls.length > 0) || parsed.isSubmitted) {
-                                                        isSubmitted = true;
-                                                        if (parsed.is_na) isNa = true;
-                                                        break;
-                                                    }
-                                                } catch (e) {}
-                                            }
-                                        }
-                                    }
+                                    const isSubmitted = submittedItemIdsForHotel.has(itemIdStr);
+                                    const isNa = naItemIdsForHotel.has(itemIdStr);
 
                                     if (!isNa) {
                                         totalT++;
@@ -7125,15 +7271,30 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                     }
                                 });
 
-                                const percentage = totalT > 0 ? Math.round((completedT / totalT) * 100) : (hotelItems.length > 0 && naItemIdsForHotel.size === hotelItems.length ? 100 : 0);
-                                return { completed: completedT, total: totalT, percentage };
+                                const finalInfo = getHotelFinalizedInfo(currentHotel || hotelId);
+                                let percentage = totalT > 0 ? Math.round((completedT / totalT) * 100) : (hotelItems.length > 0 && naItemIdsForHotel.size === hotelItems.length ? 100 : 0);
+
+                                if (finalInfo.is_finalized) {
+                                    percentage = 100;
+                                    if (totalT > 0) {
+                                        completedT = totalT;
+                                    } else if (submittedItemIdsForHotel.size > 0) {
+                                        completedT = submittedItemIdsForHotel.size;
+                                        totalT = submittedItemIdsForHotel.size;
+                                    } else {
+                                        completedT = 1;
+                                        totalT = 1;
+                                    }
+                                }
+
+                                return { completed: completedT, total: totalT, percentage, isFinalized: finalInfo.is_finalized };
                             };
 
                             // Helper to check if a hotel is completed
                             const isHotelCompleted = (hotelId: string) => {
-                                const { completed, total, percentage } = getHotelProgress(hotelId);
-                                const isFinalized = finalizedStatuses[hotelId]?.is_finalized === true;
-                                return isFinalized || (total > 0 && percentage === 100);
+                                const { percentage, isFinalized } = getHotelProgress(hotelId);
+                                const finInfo = getHotelFinalizedInfo(hotelId);
+                                return isFinalized || finInfo.is_finalized || percentage === 100;
                             };
 
                             // 2. Helper to calculate combined average progress across a group of hotels
@@ -7148,13 +7309,15 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                 let sumPercentage = 0;
 
                                 hotelList.forEach(h => {
-                                    const { percentage } = getHotelProgress(h.id);
-                                    const isFinalized = finalizedStatuses[h.id]?.is_finalized === true;
+                                    const { percentage, isFinalized } = getHotelProgress(h.id);
+                                    const finInfo = getHotelFinalizedInfo(h);
+                                    const isFin = isFinalized || finInfo.is_finalized;
+                                    const effPct = isFin ? 100 : percentage;
                                     
-                                    sumPercentage += percentage;
-                                    if (isFinalized || percentage === 100) {
+                                    sumPercentage += effPct;
+                                    if (isFin || effPct === 100) {
                                         completedHotels++;
-                                    } else if (percentage > 0) {
+                                    } else if (effPct > 0) {
                                         inProgressHotels++;
                                     }
                                 });
@@ -7474,7 +7637,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                     {filteredHotels.length > 0 ? (
                                                         filteredHotels.map((h, i) => {
                                                             const { completed, total, percentage } = getHotelProgress(h.id);
-                                                            const finalInfo = finalizedStatuses[h.id] || { is_finalized: false };
+                                                            const finalInfo = getHotelFinalizedInfo(h);
                                                             
                                                             let statusText = "Not Started";
                                                             let statusStyle = "bg-slate-50 text-slate-600 border-slate-200/50";
@@ -7816,7 +7979,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                         </div>
                                                     </td>
                                                     <td className="px-6 py-4 whitespace-nowrap">
-                                                        {finalizedStatuses[hotel.id]?.is_finalized ? (
+                                                        {getHotelFinalizedInfo(hotel).is_finalized ? (
                                                             <div className="flex items-center gap-2">
                                                                 <span className="inline-flex items-center gap-1.5 px-2 py-1 text-[10px] font-black text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-md">
                                                                     <Lock size={10} />
@@ -7824,7 +7987,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                 </span>
                                                                 <button
                                                                     onClick={() => handleUnlockHotel(hotel.id)}
-                                                                    title={`Finalised by ${finalizedStatuses[hotel.id]?.finalized_by || 'Representative'} on ${finalizedStatuses[hotel.id]?.finalized_at ? new Date(finalizedStatuses[hotel.id]?.finalized_at).toLocaleDateString() : ''}. Click to unlock.`}
+                                                                    title={`Finalised by ${getHotelFinalizedInfo(hotel).finalized_by || 'Representative'} on ${getHotelFinalizedInfo(hotel).finalized_at ? new Date(getHotelFinalizedInfo(hotel).finalized_at!).toLocaleDateString() : ''}. Click to unlock.`}
                                                                     className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-slate-100 rounded-md transition-all active:scale-95 flex items-center justify-center"
                                                                 >
                                                                     <Unlock size={13} />
