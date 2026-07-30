@@ -102,7 +102,14 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     const [progressPage, setProgressPage] = useState<number>(1);
     const [progressPageSize, setProgressPageSize] = useState<number>(10);
     const [auditorAccess, setAuditorAccess] = useState<Record<string, boolean>>({});
-    const [auditorAssignments, setAuditorAssignments] = useState<any[]>([]);
+    const [auditorAssignments, setAuditorAssignments] = useState<any[]>(() => {
+        try {
+            const stored = localStorage.getItem('sbi_auditor_assignments');
+            return stored ? JSON.parse(stored) : [];
+        } catch (e) {
+            return [];
+        }
+    });
     const [auditorCategoryAssignments, setAuditorCategoryAssignments] = useState<any[]>(() => {
         try {
             const stored = localStorage.getItem('sbi_auditor_category_assignments');
@@ -293,10 +300,29 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     useEffect(() => {
         const fetchAuditorAssignments = async () => {
             // Hotel assignments
-            const { data, error } = await supabase
-                .from('auditor_assignments')
-                .select('*');
-            if (data) setAuditorAssignments(data);
+            try {
+                const { data, error } = await supabase
+                    .from('auditor_assignments')
+                    .select('*');
+                if (data) {
+                    const localSaved = localStorage.getItem('sbi_auditor_assignments');
+                    let localList: any[] = [];
+                    if (localSaved) {
+                        try { localList = JSON.parse(localSaved); } catch (e) {}
+                    }
+                    const map = new Map<string, any>();
+                    data.forEach((item: any) => map.set(`${item.user_id}_${item.hotel_id}`, item));
+                    localList.forEach((item: any) => {
+                        const key = `${item.user_id}_${item.hotel_id}`;
+                        if (!map.has(key)) map.set(key, item);
+                    });
+                    const merged = Array.from(map.values());
+                    setAuditorAssignments(merged);
+                    localStorage.setItem('sbi_auditor_assignments', JSON.stringify(merged));
+                }
+            } catch (err) {
+                console.warn('Could not fetch auditor assignments from Supabase:', err);
+            }
 
             // Category assignments
             try {
@@ -3354,45 +3380,76 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     const handleBatchAssignHotels = async (auditorId: string, hotelIds: string[], assign: boolean) => {
         if (!auditorId || hotelIds.length === 0) return;
 
-        const hotelIdSet = new Set(hotelIds);
-        let updated = [...auditorAssignments];
+        const hotelIdSet = new Set(hotelIds.map(id => String(id)));
+        
+        // 1. Calculate updated list immediately and persist to local state + localStorage
+        const currentList = [...auditorAssignments];
+        let updated: any[] = [];
 
         if (assign) {
+            updated = [...currentList];
             hotelIds.forEach(hId => {
-                if (!updated.some(a => a.user_id === auditorId && a.hotel_id === hId)) {
+                if (!updated.some(a => String(a.user_id) === String(auditorId) && String(a.hotel_id) === String(hId))) {
                     updated.push({ user_id: auditorId, hotel_id: hId });
                 }
             });
         } else {
-            updated = updated.filter(a => !(a.user_id === auditorId && hotelIdSet.has(a.hotel_id)));
+            updated = currentList.filter(a => !(String(a.user_id) === String(auditorId) && hotelIdSet.has(String(a.hotel_id))));
         }
 
         setAuditorAssignments(updated);
+        localStorage.setItem('sbi_auditor_assignments', JSON.stringify(updated));
 
         try {
             if (assign) {
-                const missingHotelIds = hotelIds.filter(hId => 
-                    !auditorAssignments.some(a => a.user_id === auditorId && a.hotel_id === hId)
-                );
+                // Determine missing hotel IDs based on current state before operation
+                const existingAssignments = currentList.filter(a => String(a.user_id) === String(auditorId));
+                const existingHotelIds = new Set(existingAssignments.map(a => String(a.hotel_id)));
+                const missingHotelIds = hotelIds.filter(hId => !existingHotelIds.has(String(hId)));
+
                 if (missingHotelIds.length > 0) {
                     const rowsToInsert = missingHotelIds.map(hId => ({ user_id: auditorId, hotel_id: hId }));
                     const { error: insErr } = await supabase.from('auditor_assignments').insert(rowsToInsert);
                     if (insErr) {
+                        console.warn('Supabase insert warning, retrying individual rows:', insErr);
                         for (const row of rowsToInsert) {
                             await supabase.from('auditor_assignments').insert(row);
                         }
                     }
                 }
             } else {
-                await supabase.from('auditor_assignments')
+                const { error: delErr } = await supabase.from('auditor_assignments')
                     .delete()
                     .eq('user_id', auditorId)
                     .in('hotel_id', hotelIds);
+                if (delErr) {
+                    console.warn('Supabase delete warning:', delErr);
+                }
             }
 
+            // Refetch from DB and safely MERGE with updated local state so items are not wiped out
             const { data: refetch } = await supabase.from('auditor_assignments').select('*');
             if (refetch && refetch.length >= 0) {
-                setAuditorAssignments(refetch);
+                const map = new Map<string, any>();
+                refetch.forEach((item: any) => map.set(`${item.user_id}_${item.hotel_id}`, item));
+
+                // Merge with updated state
+                updated.forEach((item: any) => {
+                    const key = `${item.user_id}_${item.hotel_id}`;
+                    if (assign) {
+                        // Ensure newly assigned items remain in local state even if DB failed or delayed
+                        if (!map.has(key)) map.set(key, item);
+                    } else {
+                        // Ensure unassigned items are removed from DB map if DB delete failed or delayed
+                        if (String(item.user_id) === String(auditorId) && hotelIdSet.has(String(item.hotel_id))) {
+                            map.delete(key);
+                        }
+                    }
+                });
+
+                const merged = Array.from(map.values());
+                setAuditorAssignments(merged);
+                localStorage.setItem('sbi_auditor_assignments', JSON.stringify(merged));
             }
         } catch (err) {
             console.error('Batch hotel assignment error:', err);
@@ -10538,69 +10595,26 @@ CREATE TABLE IF NOT EXISTS public.audit_users (
 
 CREATE TABLE IF NOT EXISTS public.auditor_assignments (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-    user_id UUID NOT NULL,
+    user_id VARCHAR(255) NOT NULL,
     hotel_id VARCHAR(100) NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS public.auditor_category_assignments (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-    user_id UUID NOT NULL,
+    user_id VARCHAR(255) NOT NULL,
     category_id UUID NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
     UNIQUE(user_id, category_id)
 );
 
-CREATE TABLE IF NOT EXISTS public.audit_checklist_groups (
-    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-    name VARCHAR(255) NOT NULL,
-    description TEXT,
-    category_ids TEXT[] DEFAULT '{}',
-    item_ids TEXT[] DEFAULT '{}',
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS public.audit_group_hotels (
-    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-    group_id UUID NOT NULL REFERENCES audit_checklist_groups(id) ON DELETE CASCADE,
-    hotel_id VARCHAR(100) NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
-    UNIQUE(group_id, hotel_id)
-);
-
-CREATE TABLE IF NOT EXISTS public.audit_item_locks (
-    hotel_id VARCHAR(100) NOT NULL,
-    item_id VARCHAR(100) NOT NULL,
-    locked_by_name VARCHAR(255) NOT NULL,
-    locked_by_email VARCHAR(255) NOT NULL,
-    locked_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
-    PRIMARY KEY (hotel_id, item_id)
-);
-
--- Step 2: Create performance indexes on filtered query columns
-
--- Submissions indexes for fast hotel & item lookups
-CREATE INDEX IF NOT EXISTS idx_audit_submissions_hotel_id ON public.audit_submissions(hotel_id);
-CREATE INDEX IF NOT EXISTS idx_audit_submissions_item_id ON public.audit_submissions(item_id);
-CREATE INDEX IF NOT EXISTS idx_audit_submissions_hotel_item ON public.audit_submissions(hotel_id, item_id);
-
--- User management & role access indexes
-CREATE INDEX IF NOT EXISTS idx_audit_users_email ON public.audit_users(email);
-CREATE INDEX IF NOT EXISTS idx_audit_users_access_level ON public.audit_users(access_level);
-CREATE INDEX IF NOT EXISTS idx_audit_users_role ON public.audit_users(role);
-
--- Auditor assignment indexes
-CREATE INDEX IF NOT EXISTS idx_auditor_assignments_user_id ON public.auditor_assignments(user_id);
-CREATE INDEX IF NOT EXISTS idx_auditor_assignments_hotel_id ON public.auditor_assignments(hotel_id);
-CREATE INDEX IF NOT EXISTS idx_auditor_category_assignments_user_id ON public.auditor_category_assignments(user_id);
-CREATE INDEX IF NOT EXISTS idx_auditor_category_assignments_cat_id ON public.auditor_category_assignments(category_id);
-
--- Checklist groups & hotel junction indexes
-CREATE INDEX IF NOT EXISTS idx_audit_group_hotels_group_id ON public.audit_group_hotels(group_id);
-CREATE INDEX IF NOT EXISTS idx_audit_group_hotels_hotel_id ON public.audit_group_hotels(hotel_id);
-
--- Audit item lock indexes
-CREATE INDEX IF NOT EXISTS idx_audit_item_locks_hotel_item ON public.audit_item_locks(hotel_id, item_id);`;
+ALTER TABLE public.auditor_assignments ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow public select auditor_assignments" ON public.auditor_assignments;
+CREATE POLICY "Allow public select auditor_assignments" ON public.auditor_assignments FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Allow public insert auditor_assignments" ON public.auditor_assignments;
+CREATE POLICY "Allow public insert auditor_assignments" ON public.auditor_assignments FOR INSERT WITH CHECK (true);
+DROP POLICY IF EXISTS "Allow public delete auditor_assignments" ON public.auditor_assignments;
+CREATE POLICY "Allow public delete auditor_assignments" ON public.auditor_assignments FOR DELETE USING (true);`;
                                                 navigator.clipboard.writeText(sqlText);
                                                 setCopiedSql(true);
                                                 setTimeout(() => setCopiedSql(false), 2500);
@@ -10646,18 +10660,27 @@ CREATE TABLE IF NOT EXISTS public.audit_users (
 
 CREATE TABLE IF NOT EXISTS public.auditor_assignments (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-    user_id UUID NOT NULL,
+    user_id VARCHAR(255) NOT NULL,
     hotel_id VARCHAR(100) NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS public.auditor_category_assignments (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-    user_id UUID NOT NULL,
+    user_id VARCHAR(255) NOT NULL,
     category_id UUID NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
     UNIQUE(user_id, category_id)
 );
+
+-- Enable RLS and add public access policies
+ALTER TABLE public.auditor_assignments ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow public select auditor_assignments" ON public.auditor_assignments;
+CREATE POLICY "Allow public select auditor_assignments" ON public.auditor_assignments FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Allow public insert auditor_assignments" ON public.auditor_assignments;
+CREATE POLICY "Allow public insert auditor_assignments" ON public.auditor_assignments FOR INSERT WITH CHECK (true);
+DROP POLICY IF EXISTS "Allow public delete auditor_assignments" ON public.auditor_assignments;
+CREATE POLICY "Allow public delete auditor_assignments" ON public.auditor_assignments FOR DELETE USING (true);
 
 CREATE TABLE IF NOT EXISTS public.audit_checklist_groups (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
