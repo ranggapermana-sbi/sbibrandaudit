@@ -86,73 +86,78 @@ export default function App() {
       const cleanMainUrl = mainUrl.replace(/\/rest\/v1\/?$/, '').trim();
       const mainAnonKey = import.meta.env.MAIN_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd2bnd4cmVqZ2RraXhic3poeGt3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkxNTE2ODcsImV4cCI6MjA5NDcyNzY4N30.Pvv9rgR_Vr9McwxLrYfELeSpWYLNH2NPw0nkeGD6ZXo';
 
-      const response = await fetch(`${cleanMainUrl}/rest/v1/audit_users?id=eq.${userId}`, {
-        headers: {
-          'apikey': mainAnonKey,
-          'Authorization': `Bearer ${mainAnonKey}`
-        }
-      });
-      if (response.ok) {
-        const data = await response.json();
-        if (Array.isArray(data) && data.length > 0) {
-          let prof = data[0];
-          // Clear stale super admin / admin row for ranggapermana to allow proper auditee onboarding
-          if (prof && prof.email === 'ranggapermana@swiss-belhotel.com' && (prof.role === 'Super Admin' || prof.access_level === 'admin')) {
-            await fetch(`${cleanMainUrl}/rest/v1/audit_users?id=eq.${userId}`, {
-              method: 'DELETE',
-              headers: {
-                'apikey': mainAnonKey,
-                'Authorization': `Bearer ${mainAnonKey}`
-              }
-            });
-            prof = null;
+      let prof: any = null;
+
+      try {
+        const response = await fetch(`${cleanMainUrl}/rest/v1/audit_users?id=eq.${userId}`, {
+          headers: {
+            'apikey': mainAnonKey,
+            'Authorization': `Bearer ${mainAnonKey}`
           }
+        });
+        if (response.ok) {
+          const data = await response.json();
+          if (Array.isArray(data) && data.length > 0) {
+            prof = data[0];
+          }
+        }
+      } catch (fetchErr) {
+        console.warn("Could not fetch remote profile via rest, using fallback:", fetchErr);
+      }
 
-          // Check if mandatory onboarding fields are fully populated
-          if (prof && (prof.access_level === 'admin' || (prof.first_name && prof.role && (prof.hotel_id || prof.hotel_name)))) {
-            setUserProfile(prof);
-            if (prof.email === 'brandaudit@swiss-belhotel.com' || prof.is_approved) {
-              const savedScreen = sessionStorage.getItem('sbi_audit_current_screen') as AppScreen | null;
-              const savedCategoryStr = sessionStorage.getItem('sbi_audit_selected_category');
-              const savedHotelStr = sessionStorage.getItem('sbi_audit_active_hotel');
+      // Check local cached profile if remote failed or returned empty
+      if (!prof) {
+        try {
+          const cached = localStorage.getItem(`sbi_profile_${userId}`);
+          if (cached) {
+            prof = JSON.parse(cached);
+          }
+        } catch (e) {}
+      }
 
-              let restoredState = false;
-              if (savedScreen) {
-                try {
-                  if (savedHotelStr) {
-                    const parsedHotel = JSON.parse(savedHotelStr);
-                    setActiveHotel(parsedHotel);
-                  }
-                  if (savedCategoryStr) {
-                    const parsedCategory = JSON.parse(savedCategoryStr);
-                    setSelectedCategory(parsedCategory);
-                  }
-                  setCurrentScreen(savedScreen);
-                  restoredState = true;
-                } catch (e) {
-                  console.warn("Failed to restore state:", e);
-                }
+      // Check if profile exists and onboarding fields are populated
+      if (prof && (prof.access_level === 'admin' || prof.access_level === 'auditor' || (prof.first_name && prof.role && (prof.hotel_id || prof.hotel_name)))) {
+        setUserProfile(prof);
+        if (prof.email === 'brandaudit@swiss-belhotel.com' || prof.is_approved || prof.access_level === 'admin' || prof.access_level === 'auditor') {
+          const savedScreen = sessionStorage.getItem('sbi_audit_current_screen') as AppScreen | null;
+          const savedCategoryStr = sessionStorage.getItem('sbi_audit_selected_category');
+          const savedHotelStr = sessionStorage.getItem('sbi_audit_active_hotel');
+
+          let restoredState = false;
+          if (savedScreen) {
+            try {
+              if (savedHotelStr) {
+                const parsedHotel = JSON.parse(savedHotelStr);
+                setActiveHotel(parsedHotel);
               }
-
-              if (!restoredState) {
-                const hotelIds = prof.hotel_id ? String(prof.hotel_id).split(',').map((s: string) => s.trim()).filter(Boolean) : [];
-                if (hotelIds.length > 1 && !activeHotel && prof.email !== 'brandaudit@swiss-belhotel.com') {
-                  setCurrentScreen('selectHotel');
-                } else {
-                  if (prof.access_level === 'admin' || prof.access_level === 'auditor') {
-                    setCurrentScreen('adminPanel');
-                  } else {
-                    setCurrentScreen('dashboard');
-                  }
-                }
+              if (savedCategoryStr) {
+                const parsedCategory = JSON.parse(savedCategoryStr);
+                setSelectedCategory(parsedCategory);
               }
-            } else {
-              setCurrentScreen('pendingApproval');
+              setCurrentScreen(savedScreen);
+              restoredState = true;
+            } catch (e) {
+              console.warn("Failed to restore state:", e);
             }
-            setIsLoadingSession(false);
-            return;
           }
+
+          if (!restoredState) {
+            const hotelIds = prof.hotel_id ? String(prof.hotel_id).split(',').map((s: string) => s.trim()).filter(Boolean) : [];
+            if (hotelIds.length > 1 && !activeHotel && prof.email !== 'brandaudit@swiss-belhotel.com') {
+              setCurrentScreen('selectHotel');
+            } else {
+              if (prof.access_level === 'admin' || prof.access_level === 'auditor') {
+                setCurrentScreen('adminPanel');
+              } else {
+                setCurrentScreen('dashboard');
+              }
+            }
+          }
+        } else {
+          setCurrentScreen('pendingApproval');
         }
+        setIsLoadingSession(false);
+        return;
       }
     } catch (err) {
       console.warn("Could not fetch remote profile info, falling back to signup state:", err);
@@ -194,17 +199,18 @@ export default function App() {
   }, [userProfile, currentScreen]);
 
   useEffect(() => {
-    // Check initial active session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) {
-        checkProfileOnboarding(session);
-      } else {
-        setIsLoadingSession(false);
-      }
-    });
+    let isMounted = true;
 
     // Listen for auth state transitions dynamically
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    // Note: onAuthStateChange fires immediately with INITIAL_SESSION or SIGNED_IN upon subscription
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (!isMounted) return;
+
+      // Skip duplicate profile checks on routine background token refresh if profile is already active
+      if (event === 'TOKEN_REFRESHED' && userProfile && session?.user?.id === userProfile.id) {
+        return;
+      }
+
       if (session) {
         checkProfileOnboarding(session);
       } else {
@@ -215,7 +221,10 @@ export default function App() {
       }
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      isMounted = false;
+      subscription.unsubscribe();
+    };
   }, []);
 
   const handleSelectHotel = (hotel: any) => {
@@ -280,9 +289,7 @@ export default function App() {
           <LoginScreen 
             onLogin={() => {
               setIsLoadingSession(true);
-              supabase.auth.getSession().then(({ data: { session } }) => {
-                checkProfileOnboarding(session);
-              });
+              // onAuthStateChange automatically catches SIGNED_IN state transitions
             }} 
             onAdminAccess={() => setCurrentScreen('adminPanel')} 
           />

@@ -115,7 +115,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     const [groupAssignmentTab, setGroupAssignmentTab] = useState<'categories' | 'items'>('categories');
     const [groupSearchQuery, setGroupSearchQuery] = useState('');
     const [showSqlModal, setShowSqlModal] = useState(false);
-    const [sqlModalTab, setSqlModalTab] = useState<'auditor' | 'checklist' | 'finalize' | 'photolock'>('checklist');
+    const [sqlModalTab, setSqlModalTab] = useState<'auditor' | 'checklist' | 'finalize' | 'photolock' | 'indexes'>('checklist');
     const [groupExpandedCats, setGroupExpandedCats] = useState<Record<string, boolean>>({});
     const [enlargedImage, setEnlargedImage] = useState<{ url: string; title?: string } | null>(null);
 
@@ -9798,6 +9798,16 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                             >
                                 Photo Temporary Lock SQL
                             </button>
+                            <button
+                                onClick={() => setSqlModalTab('indexes')}
+                                className={`flex-1 py-2 text-center text-xs font-black rounded-xl transition-all ${
+                                    sqlModalTab === 'indexes'
+                                        ? 'bg-emerald-800 text-white shadow-2xs'
+                                        : 'text-slate-400 hover:text-white'
+                                }`}
+                            >
+                                Database Indexes & Performance SQL
+                            </button>
                         </div>
 
                         <div className="p-6 overflow-y-auto space-y-4 text-xs">
@@ -9979,7 +9989,7 @@ CREATE POLICY "Allow public insert/update hotel_audit_status" ON hotel_audit_sta
                                         </pre>
                                     </div>
                                 </>
-                            ) : (
+                            ) : sqlModalTab === 'photolock' ? (
                                 <>
                                     <p className="text-slate-300 font-medium leading-relaxed">
                                         Execute the following SQL script in your <strong className="text-emerald-400">Supabase Dashboard → SQL Editor</strong> to enable real-time <strong className="text-emerald-400">Temporary Photo-Taking Locking</strong>:
@@ -10026,6 +10036,216 @@ CREATE POLICY "Allow public read audit_item_locks" ON audit_item_locks FOR SELEC
 
 DROP POLICY IF EXISTS "Allow public write audit_item_locks" ON audit_item_locks;
 CREATE POLICY "Allow public write audit_item_locks" ON audit_item_locks FOR ALL USING (true);`}
+                                        </pre>
+                                    </div>
+                                </>
+                            ) : (
+                                <>
+                                    <p className="text-slate-300 font-medium leading-relaxed">
+                                        Execute the following SQL script in your <strong className="text-emerald-400">Supabase Dashboard → SQL Editor</strong> to create high-performance database indexes on all primary query columns (WHERE filters, foreign keys, and unique lookups):
+                                    </p>
+
+                                    <div className="relative bg-slate-950 border border-slate-800 rounded-2xl p-4 font-mono text-[11px] text-emerald-300 overflow-x-auto leading-relaxed">
+                                        <button
+                                            onClick={() => {
+                                                const sqlText = `-- Complete Performance & Database Indexing Script for Swiss-Belhotel Brand Audit
+-- Step 1: Ensure all required system tables exist safely
+
+CREATE TABLE IF NOT EXISTS public.audit_submissions (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    hotel_id VARCHAR(100) NOT NULL,
+    item_id VARCHAR(100) NOT NULL,
+    value TEXT,
+    is_na BOOLEAN DEFAULT false,
+    score NUMERIC,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    UNIQUE(hotel_id, item_id)
+);
+
+CREATE TABLE IF NOT EXISTS public.audit_users (
+    id UUID PRIMARY KEY,
+    email VARCHAR(255),
+    full_name VARCHAR(255),
+    role VARCHAR(50) DEFAULT 'auditor',
+    access_level VARCHAR(50) DEFAULT 'single_property',
+    hotel_id VARCHAR(100),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS public.auditor_assignments (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    user_id UUID NOT NULL,
+    hotel_id VARCHAR(100) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS public.auditor_category_assignments (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    user_id UUID NOT NULL,
+    category_id UUID NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    UNIQUE(user_id, category_id)
+);
+
+CREATE TABLE IF NOT EXISTS public.audit_checklist_groups (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    description TEXT,
+    category_ids TEXT[] DEFAULT '{}',
+    item_ids TEXT[] DEFAULT '{}',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS public.audit_group_hotels (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    group_id UUID NOT NULL REFERENCES audit_checklist_groups(id) ON DELETE CASCADE,
+    hotel_id VARCHAR(100) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    UNIQUE(group_id, hotel_id)
+);
+
+CREATE TABLE IF NOT EXISTS public.audit_item_locks (
+    hotel_id VARCHAR(100) NOT NULL,
+    item_id VARCHAR(100) NOT NULL,
+    locked_by_name VARCHAR(255) NOT NULL,
+    locked_by_email VARCHAR(255) NOT NULL,
+    locked_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    PRIMARY KEY (hotel_id, item_id)
+);
+
+-- Step 2: Create performance indexes on filtered query columns
+
+-- Submissions indexes for fast hotel & item lookups
+CREATE INDEX IF NOT EXISTS idx_audit_submissions_hotel_id ON public.audit_submissions(hotel_id);
+CREATE INDEX IF NOT EXISTS idx_audit_submissions_item_id ON public.audit_submissions(item_id);
+CREATE INDEX IF NOT EXISTS idx_audit_submissions_hotel_item ON public.audit_submissions(hotel_id, item_id);
+
+-- User management & role access indexes
+CREATE INDEX IF NOT EXISTS idx_audit_users_email ON public.audit_users(email);
+CREATE INDEX IF NOT EXISTS idx_audit_users_access_level ON public.audit_users(access_level);
+CREATE INDEX IF NOT EXISTS idx_audit_users_role ON public.audit_users(role);
+
+-- Auditor assignment indexes
+CREATE INDEX IF NOT EXISTS idx_auditor_assignments_user_id ON public.auditor_assignments(user_id);
+CREATE INDEX IF NOT EXISTS idx_auditor_assignments_hotel_id ON public.auditor_assignments(hotel_id);
+CREATE INDEX IF NOT EXISTS idx_auditor_category_assignments_user_id ON public.auditor_category_assignments(user_id);
+CREATE INDEX IF NOT EXISTS idx_auditor_category_assignments_cat_id ON public.auditor_category_assignments(category_id);
+
+-- Checklist groups & hotel junction indexes
+CREATE INDEX IF NOT EXISTS idx_audit_group_hotels_group_id ON public.audit_group_hotels(group_id);
+CREATE INDEX IF NOT EXISTS idx_audit_group_hotels_hotel_id ON public.audit_group_hotels(hotel_id);
+
+-- Audit item lock indexes
+CREATE INDEX IF NOT EXISTS idx_audit_item_locks_hotel_item ON public.audit_item_locks(hotel_id, item_id);`;
+                                                navigator.clipboard.writeText(sqlText);
+                                                setCopiedSql(true);
+                                                setTimeout(() => setCopiedSql(false), 2500);
+                                            }}
+                                            className="absolute top-3 right-3 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-lg font-sans text-[10px] font-bold flex items-center gap-1.5 transition-all border border-slate-700 active:scale-95"
+                                        >
+                                            {copiedSql ? (
+                                                <>
+                                                    <Check size={12} className="text-emerald-400" />
+                                                    <span>Copied!</span>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <Copy size={12} />
+                                                    <span>Copy SQL</span>
+                                                </>
+                                            )}
+                                        </button>
+                                        <pre className="pt-2">
+{`-- Step 1: Ensure all required system tables exist safely
+
+CREATE TABLE IF NOT EXISTS public.audit_submissions (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    hotel_id VARCHAR(100) NOT NULL,
+    item_id VARCHAR(100) NOT NULL,
+    value TEXT,
+    is_na BOOLEAN DEFAULT false,
+    score NUMERIC,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    UNIQUE(hotel_id, item_id)
+);
+
+CREATE TABLE IF NOT EXISTS public.audit_users (
+    id UUID PRIMARY KEY,
+    email VARCHAR(255),
+    full_name VARCHAR(255),
+    role VARCHAR(50) DEFAULT 'auditor',
+    access_level VARCHAR(50) DEFAULT 'single_property',
+    hotel_id VARCHAR(100),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS public.auditor_assignments (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    user_id UUID NOT NULL,
+    hotel_id VARCHAR(100) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS public.auditor_category_assignments (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    user_id UUID NOT NULL,
+    category_id UUID NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    UNIQUE(user_id, category_id)
+);
+
+CREATE TABLE IF NOT EXISTS public.audit_checklist_groups (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    description TEXT,
+    category_ids TEXT[] DEFAULT '{}',
+    item_ids TEXT[] DEFAULT '{}',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS public.audit_group_hotels (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    group_id UUID NOT NULL REFERENCES audit_checklist_groups(id) ON DELETE CASCADE,
+    hotel_id VARCHAR(100) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    UNIQUE(group_id, hotel_id)
+);
+
+CREATE TABLE IF NOT EXISTS public.audit_item_locks (
+    hotel_id VARCHAR(100) NOT NULL,
+    item_id VARCHAR(100) NOT NULL,
+    locked_by_name VARCHAR(255) NOT NULL,
+    locked_by_email VARCHAR(255) NOT NULL,
+    locked_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    PRIMARY KEY (hotel_id, item_id)
+);
+
+-- Step 2: Create performance indexes on filtered query columns
+
+-- 1. Submissions indexes for fast hotel & item lookups
+CREATE INDEX IF NOT EXISTS idx_audit_submissions_hotel_id ON public.audit_submissions(hotel_id);
+CREATE INDEX IF NOT EXISTS idx_audit_submissions_item_id ON public.audit_submissions(item_id);
+CREATE INDEX IF NOT EXISTS idx_audit_submissions_hotel_item ON public.audit_submissions(hotel_id, item_id);
+
+-- 2. User management & role access indexes
+CREATE INDEX IF NOT EXISTS idx_audit_users_email ON public.audit_users(email);
+CREATE INDEX IF NOT EXISTS idx_audit_users_access_level ON public.audit_users(access_level);
+CREATE INDEX IF NOT EXISTS idx_audit_users_role ON public.audit_users(role);
+
+-- 3. Auditor assignment indexes
+CREATE INDEX IF NOT EXISTS idx_auditor_assignments_user_id ON public.auditor_assignments(user_id);
+CREATE INDEX IF NOT EXISTS idx_auditor_assignments_hotel_id ON public.auditor_assignments(hotel_id);
+CREATE INDEX IF NOT EXISTS idx_auditor_category_assignments_user_id ON public.auditor_category_assignments(user_id);
+CREATE INDEX IF NOT EXISTS idx_auditor_category_assignments_cat_id ON public.auditor_category_assignments(category_id);
+
+-- 4. Checklist groups & hotel junction indexes
+CREATE INDEX IF NOT EXISTS idx_audit_group_hotels_group_id ON public.audit_group_hotels(group_id);
+CREATE INDEX IF NOT EXISTS idx_audit_group_hotels_hotel_id ON public.audit_group_hotels(hotel_id);
+
+-- 5. Audit item lock indexes
+CREATE INDEX IF NOT EXISTS idx_audit_item_locks_hotel_item ON public.audit_item_locks(hotel_id, item_id);`}
                                         </pre>
                                     </div>
                                 </>

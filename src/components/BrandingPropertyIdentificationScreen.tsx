@@ -325,10 +325,11 @@ const AuditItemCard: React.FC<{
                     .from('audit_submissions')
                     .select('*')
                     .eq('hotel_id', hotelId)
-                    .eq('item_id', item.id);
+                    .eq('item_id', item.id)
+                    .maybeSingle();
                 
-                if (!error && data && data.length > 0 && active) {
-                    const submission = data[0];
+                if (!error && data && active) {
+                    const submission = data;
                     const val = submission.value || '';
                     setValue(val);
                     setIsNa(submission.is_na || false);
