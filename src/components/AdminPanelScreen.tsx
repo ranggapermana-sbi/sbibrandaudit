@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, CheckCircle, Clock, Building, BarChart3, ChevronRight, Plus, Trash2, Edit, Search, X, AlertCircle, MapPin, Settings2, Calendar, Star, Briefcase, ClipboardList, FileCheck, Layers, Package, Camera, ImageIcon, FileText, Hash, Type, CheckSquare, Users, ShieldCheck, Percent, GripVertical, ChevronUp, ChevronDown, Eye, User, RefreshCw, CheckCircle2, Maximize2, ExternalLink, ZoomIn, Database, Copy, Check, Lock, Unlock } from 'lucide-react';
+import { ArrowLeft, CheckCircle, Clock, Building, BarChart3, ChevronRight, ChevronLeft, ChevronsLeft, ChevronsRight, ArrowUpDown, Plus, Trash2, Edit, Search, X, AlertCircle, MapPin, Settings2, Calendar, Star, Briefcase, ClipboardList, FileCheck, Layers, Package, Camera, ImageIcon, FileText, Hash, Type, CheckSquare, Users, ShieldCheck, Percent, GripVertical, ChevronUp, ChevronDown, Eye, User, RefreshCw, CheckCircle2, Maximize2, ExternalLink, ZoomIn, Database, Copy, Check, Lock, Unlock } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { apiCache } from '../lib/cache';
 
 import { Department, Hotel, AuditBatch, AuditCategory, AuditItem, AuditGroup } from '../types';
 import { DEFAULT_DEPARTMENTS, DEFAULT_CATEGORIES, DEFAULT_HOTELS, DEFAULT_BATCHES, DEFAULT_GROUPS, DEFAULT_OFFLINE_ITEMS, HARDCODED_TEST_HOTELS } from '../lib/constants';
@@ -96,6 +97,10 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     const [progressBrandFilter, setProgressBrandFilter] = useState<string>('');
     const [progressBrandLeadFilter, setProgressBrandLeadFilter] = useState<'all' | 'has_lead' | 'no_lead'>('all');
     const [progressSearchQuery, setProgressSearchQuery] = useState<string>('');
+    const [progressSortField, setProgressSortField] = useState<'name' | 'brand' | 'location' | 'progress' | 'status'>('name');
+    const [progressSortDirection, setProgressSortDirection] = useState<'asc' | 'desc'>('asc');
+    const [progressPage, setProgressPage] = useState<number>(1);
+    const [progressPageSize, setProgressPageSize] = useState<number>(10);
     const [auditorAccess, setAuditorAccess] = useState<Record<string, boolean>>({});
     const [auditorAssignments, setAuditorAssignments] = useState<any[]>([]);
     const [auditorCategoryAssignments, setAuditorCategoryAssignments] = useState<any[]>(() => {
@@ -478,26 +483,28 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     const [profilesList, setProfilesList] = useState<any[]>([]);
     const [isProfilesTableMissing, setIsProfilesTableMissing] = useState(false);
 
-    const fetchProfilesFromSupabase = async () => {
+    const fetchProfilesFromSupabase = async (forceRefresh = false) => {
         setIsProfilesTableMissing(false);
         try {
-            const response = await fetch(`${MAIN_URL}audit_users?select=*&order=created_at.desc`, {
-                headers: {
-                    'apikey': MAIN_KEY,
-                    'Authorization': `Bearer ${MAIN_KEY}`
+            const data = await apiCache.getOrFetch<any[]>('audit_users_profiles', async () => {
+                const response = await fetch(`${MAIN_URL}audit_users?select=*&order=created_at.desc`, {
+                    headers: {
+                        'apikey': MAIN_KEY,
+                        'Authorization': `Bearer ${MAIN_KEY}`
+                    }
+                });
+                if (response.ok) {
+                    const res = await response.json();
+                    if (Array.isArray(res)) return res;
                 }
-            });
-            if (response.ok) {
-                const data = await response.json();
-                if (Array.isArray(data)) {
-                    setProfilesList(data);
-                }
-            } else {
                 if (response.status === 404 || response.status === 400) {
                     setIsProfilesTableMissing(true);
                 }
-                console.warn(`Profiles fetch returned status: ${response.status}`);
-                loadFallbackProfiles();
+                throw new Error(`Profiles fetch returned status: ${response.status}`);
+            }, { forceRefresh });
+
+            if (Array.isArray(data)) {
+                setProfilesList(data);
             }
         } catch (err) {
             console.warn("Failed to fetch profiles:", err);
@@ -1089,29 +1096,31 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         };
     }, [subView]);
 
-    const fetchCategoriesFromSupabase = async () => {
+    const fetchCategoriesFromSupabase = async (forceRefresh = false) => {
         setIsSupabaseLoading(true);
         setSupabaseErrorMsg(null);
         try {
-            const response = await fetch(`${MAIN_URL}audit_categories?select=*&order=name.asc`, {
-                headers: {
-                    'apikey': MAIN_KEY,
-                    'Authorization': `Bearer ${MAIN_KEY}`
+            const mapped = await apiCache.getOrFetch<AuditCategory[]>('audit_categories', async () => {
+                const response = await fetch(`${MAIN_URL}audit_categories?select=*&order=name.asc`, {
+                    headers: {
+                        'apikey': MAIN_KEY,
+                        'Authorization': `Bearer ${MAIN_KEY}`
+                    }
+                });
+                if (!response.ok) {
+                    throw new Error(`Failed to fetch categories: HTTP ${response.status}`);
                 }
-            });
-            if (!response.ok) {
-                throw new Error(`Failed to fetch categories: HTTP ${response.status}`);
-            }
-            const data = await response.json();
-            
-            const mapped: AuditCategory[] = data.map((item: any) => ({
-                id: String(item.id),
-                name: item.name,
-                totalTasks: item.total_tasks || 5, // Map to DB column
-                completed: item.completed || 0,
-                departmentId: item.department_id ? String(item.department_id) : undefined,
-                sort_order: item.sort_order !== undefined && item.sort_order !== null ? Number(item.sort_order) : undefined
-            }));
+                const data = await response.json();
+                
+                return data.map((item: any) => ({
+                    id: String(item.id),
+                    name: item.name,
+                    totalTasks: item.total_tasks || 5, // Map to DB column
+                    completed: item.completed || 0,
+                    departmentId: item.department_id ? String(item.department_id) : undefined,
+                    sort_order: item.sort_order !== undefined && item.sort_order !== null ? Number(item.sort_order) : undefined
+                }));
+            }, { forceRefresh });
             
             // Build initial categoryOrder from fetched sort_order values
             const initialCategoryOrder: Record<string, string[]> = { ...categoryOrder };
@@ -1154,37 +1163,38 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         }
     };
 
-    const fetchGroupsFromSupabase = async () => {
+    const fetchGroupsFromSupabase = async (forceRefresh = false) => {
         try {
-            // Fetch checklist groups
-            const { data: groupsData, error: groupsError } = await supabase
-                .from('audit_checklist_groups')
-                .select('*')
-                .order('name', { ascending: true });
+            const mapped = await apiCache.getOrFetch<AuditGroup[]>('audit_checklist_groups', async () => {
+                // Fetch checklist groups
+                const { data: groupsData, error: groupsError } = await supabase
+                    .from('audit_checklist_groups')
+                    .select('*')
+                    .order('name', { ascending: true });
 
-            if (groupsError) {
-                console.warn("Could not fetch groups from Supabase, relying on localStorage fallback:", groupsError);
-                return;
-            }
+                if (groupsError) {
+                    throw groupsError;
+                }
 
-            // Fetch join table associations
-            const { data: groupHotels, error: ghError } = await supabase
-                .from('audit_group_hotels')
-                .select('*');
+                // Fetch join table associations
+                const { data: groupHotels } = await supabase
+                    .from('audit_group_hotels')
+                    .select('*');
 
-            const mapped: AuditGroup[] = (groupsData || []).map((g: any) => {
-                const hotelIds = (groupHotels || [])
-                    .filter((gh: any) => gh.group_id === g.id)
-                    .map((gh: any) => String(gh.hotel_id));
-                return {
-                    id: String(g.id),
-                    name: g.name,
-                    description: g.description || '',
-                    hotelIds,
-                    categoryIds: g.category_ids || [],
-                    itemIds: g.item_ids || []
-                };
-            });
+                return (groupsData || []).map((g: any) => {
+                    const hotelIds = (groupHotels || [])
+                        .filter((gh: any) => gh.group_id === g.id)
+                        .map((gh: any) => String(gh.hotel_id));
+                    return {
+                        id: String(g.id),
+                        name: g.name,
+                        description: g.description || '',
+                        hotelIds,
+                        categoryIds: g.category_ids || [],
+                        itemIds: g.item_ids || []
+                    };
+                });
+            }, { forceRefresh });
 
             setGroups(mapped);
             if (mapped.length > 0 && !selectedGroupId) {
@@ -1390,33 +1400,35 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         }
     };
 
-    const fetchItemsFromSupabase = async () => {
+    const fetchItemsFromSupabase = async (forceRefresh = false) => {
         setIsSupabaseLoading(true);
         setSupabaseErrorMsg(null);
         try {
-            const response = await fetch(`${MAIN_URL}audit_items?select=*&order=name.asc`, {
-                headers: {
-                    'apikey': MAIN_KEY,
-                    'Authorization': `Bearer ${MAIN_KEY}`
+            const mapped = await apiCache.getOrFetch<AuditItem[]>('audit_items', async () => {
+                const response = await fetch(`${MAIN_URL}audit_items?select=*&order=name.asc`, {
+                    headers: {
+                        'apikey': MAIN_KEY,
+                        'Authorization': `Bearer ${MAIN_KEY}`
+                    }
+                });
+                if (!response.ok && response.status !== 404) {
+                     throw new Error(`Failed to fetch items: HTTP ${response.status}`);
                 }
-            });
-            if (!response.ok && response.status !== 404) {
-                 throw new Error(`Failed to fetch items: HTTP ${response.status}`);
-            }
-            const data = response.ok ? await response.json() : [];
-            
-            const mapped: AuditItem[] = data.map((item: any) => ({
-                id: String(item.id),
-                name: item.name,
-                departmentId: String(item.department_id),
-                categoryId: String(item.category_id),
-                inputType: item.input_type as AuditItem['inputType'],
-                points: item.points !== undefined && item.points !== null ? Number(item.points) : (item.point !== undefined && item.point !== null ? Number(item.point) : 5),
-                description: item.description,
-                sort_order: item.sort_order !== undefined && item.sort_order !== null ? Number(item.sort_order) : undefined,
-                filled_by_hotel: item.filled_by_hotel !== undefined && item.filled_by_hotel !== null ? Boolean(item.filled_by_hotel) : true,
-                min_value: item.min_value !== undefined && item.min_value !== null ? Number(item.min_value) : undefined
-            }));
+                const data = response.ok ? await response.json() : [];
+                
+                return data.map((item: any) => ({
+                    id: String(item.id),
+                    name: item.name,
+                    departmentId: String(item.department_id),
+                    categoryId: String(item.category_id),
+                    inputType: item.input_type as AuditItem['inputType'],
+                    points: item.points !== undefined && item.points !== null ? Number(item.points) : (item.point !== undefined && item.point !== null ? Number(item.point) : 5),
+                    description: item.description,
+                    sort_order: item.sort_order !== undefined && item.sort_order !== null ? Number(item.sort_order) : undefined,
+                    filled_by_hotel: item.filled_by_hotel !== undefined && item.filled_by_hotel !== null ? Boolean(item.filled_by_hotel) : true,
+                    min_value: item.min_value !== undefined && item.min_value !== null ? Number(item.min_value) : undefined
+                }));
+            }, { forceRefresh });
             
             // Build initial itemOrder from fetched sort_order values
             const initialItemOrder: Record<string, string[]> = { ...itemOrder };
@@ -1485,26 +1497,28 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     const [departments, setDepartments] = useState<Department[]>(DEFAULT_DEPARTMENTS);
 
     // Fetch departments function
-    const fetchDepartmentsFromSupabase = async () => {
+    const fetchDepartmentsFromSupabase = async (forceRefresh = false) => {
         setIsSupabaseLoading(true);
         setSupabaseErrorMsg(null);
         try {
-            const response = await fetch(`${MAIN_URL}audit_departments?select=*&order=name.asc`, {
-                headers: {
-                    'apikey': MAIN_KEY,
-                    'Authorization': `Bearer ${MAIN_KEY}`
+            const mapped = await apiCache.getOrFetch<Department[]>('audit_departments', async () => {
+                const response = await fetch(`${MAIN_URL}audit_departments?select=*&order=name.asc`, {
+                    headers: {
+                        'apikey': MAIN_KEY,
+                        'Authorization': `Bearer ${MAIN_KEY}`
+                    }
+                });
+                if (!response.ok) {
+                    throw new Error(`Failed to fetch departments: HTTP ${response.status}`);
                 }
-            });
-            if (!response.ok) {
-                throw new Error(`Failed to fetch departments: HTTP ${response.status}`);
-            }
-            const data = await response.json();
-            
-            const mapped: Department[] = data.map((item: any) => ({
-                id: String(item.id),
-                name: item.name,
-                head: item.head
-            }));
+                const data = await response.json();
+                
+                return data.map((item: any) => ({
+                    id: String(item.id),
+                    name: item.name,
+                    head: item.head
+                }));
+            }, { forceRefresh });
             
             setDepartments(mapped);
             localStorage.setItem('sbi_audit_departments_v2', JSON.stringify(mapped));
@@ -1649,93 +1663,96 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     };
 
     // Fetch hotels function
-    const fetchHotelsFromSupabase = async () => {
+    const fetchHotelsFromSupabase = async (forceRefresh = false) => {
         setIsSupabaseLoading(true);
         setSupabaseErrorMsg(null);
         try {
-            const response = await fetch(`${HOTELS_URL}hotels?select=*`, {
-                headers: {
-                    'apikey': HOTELS_KEY,
-                    'Authorization': `Bearer ${HOTELS_KEY}`
-                }
-            });
-            if (!response.ok) {
-                throw new Error(`Failed to fetch database: HTTP ${response.status} - ${response.statusText}`);
-            }
-            const data = await response.json();
-            
-            // Map Supabase layout to local structure
-            const mapped: Hotel[] = data.map((item: any) => {
-                let country = item.country || '';
-                const parts = (item.location || item.city_country || '').split(',');
-                if (!country && parts.length > 1) {
-                    country = parts[parts.length - 1].trim();
-                } else if (!country) {
-                    country = 'Indonesia';
-                }
-
-                let region = item.region || '';
-                if (!region) {
-                    const countryLower = country.toLowerCase();
-                    if (countryLower.includes('bahrain') || countryLower.includes('uae') || countryLower.includes('kuwait') || countryLower.includes('saudi') || countryLower.includes('qatar') || countryLower.includes('oman') || countryLower.includes('middle east')) {
-                        region = 'Middle East';
-                    } else if (countryLower.includes('indonesia') || countryLower.includes('malaysia') || countryLower.includes('philippines') || countryLower.includes('vietnam') || countryLower.includes('thailand') || countryLower.includes('asia')) {
-                        region = 'Asia Pacific';
-                    } else if (countryLower.includes('australia') || countryLower.includes('zealand') || countryLower.includes('oceania')) {
-                        region = 'Oceania';
-                    } else {
-                        region = 'Asia Pacific';
+            const finalHotels = await apiCache.getOrFetch<Hotel[]>('hotels_master', async () => {
+                const response = await fetch(`${HOTELS_URL}hotels?select=*`, {
+                    headers: {
+                        'apikey': HOTELS_KEY,
+                        'Authorization': `Bearer ${HOTELS_KEY}`
                     }
-                }
-
-                let stars = item.stars || item.star_rating || item.star_class || item.rating;
-                if (!stars) {
-                    const nameLower = (item.name || item.hotel_name || '').toLowerCase();
-                    if (nameLower.includes('grand') || nameLower.includes('resort') || nameLower.includes('suites') || nameLower.includes('boutique') || nameLower.includes('seef')) {
-                        stars = 5;
-                    } else if (nameLower.includes('inn') || nameLower.includes('express')) {
-                        stars = 3;
-                    } else {
-                        stars = 4;
-                    }
-                }
-
-                const rawId = item.id !== undefined && item.id !== null ? String(item.id) : '';
-                const fallbackId = item.hotel_id !== undefined && item.hotel_id !== null ? String(item.hotel_id) : '';
-                const finalId = rawId || fallbackId || item.code || String(item.name || '').replace(/\s+/g, '-').toLowerCase();
-
-                return {
-                    id: finalId,
-                    name: item.name || item.hotel_name || '',
-                    location: item.location || item.city_country || '',
-                    code: item.code || '',
-                    brandClass: item.brandClass || item.brand_class || item.brand || 'Swiss-Belhotel',
-                    region: region,
-                    country: country,
-                    stars: Number(stars) || 4
-                };
-            });
-
-            // Ensure Swiss-Belhotel International is always at the very top
-            const sbiIndex = mapped.findIndex(h => h.name.toLowerCase() === 'swiss-belhotel international');
-            if (sbiIndex > -1) {
-                const [sbi] = mapped.splice(sbiIndex, 1);
-                mapped.unshift(sbi);
-            } else {
-                mapped.unshift({
-                    id: 'sbi-ho',
-                    name: 'Swiss-Belhotel International',
-                    location: 'Corporate Headquarters',
-                    code: 'SBI',
-                    brandClass: 'Corporate',
-                    region: 'Global',
-                    country: 'International',
-                    stars: 5
                 });
-            }
+                if (!response.ok) {
+                    throw new Error(`Failed to fetch database: HTTP ${response.status} - ${response.statusText}`);
+                }
+                const data = await response.json();
+                
+                // Map Supabase layout to local structure
+                const mapped: Hotel[] = data.map((item: any) => {
+                    let country = item.country || '';
+                    const parts = (item.location || item.city_country || '').split(',');
+                    if (!country && parts.length > 1) {
+                        country = parts[parts.length - 1].trim();
+                    } else if (!country) {
+                        country = 'Indonesia';
+                    }
 
-            const filteredMapped = mapped.filter(h => h.id !== 'sbi-test' && h.id !== 'sbi-dummy');
-            const finalHotels = [...filteredMapped, ...HARDCODED_TEST_HOTELS];
+                    let region = item.region || '';
+                    if (!region) {
+                        const countryLower = country.toLowerCase();
+                        if (countryLower.includes('bahrain') || countryLower.includes('uae') || countryLower.includes('kuwait') || countryLower.includes('saudi') || countryLower.includes('qatar') || countryLower.includes('oman') || countryLower.includes('middle east')) {
+                            region = 'Middle East';
+                        } else if (countryLower.includes('indonesia') || countryLower.includes('malaysia') || countryLower.includes('philippines') || countryLower.includes('vietnam') || countryLower.includes('thailand') || countryLower.includes('asia')) {
+                            region = 'Asia Pacific';
+                        } else if (countryLower.includes('australia') || countryLower.includes('zealand') || countryLower.includes('oceania')) {
+                            region = 'Oceania';
+                        } else {
+                            region = 'Asia Pacific';
+                        }
+                    }
+
+                    let stars = item.stars || item.star_rating || item.star_class || item.rating;
+                    if (!stars) {
+                        const nameLower = (item.name || item.hotel_name || '').toLowerCase();
+                        if (nameLower.includes('grand') || nameLower.includes('resort') || nameLower.includes('suites') || nameLower.includes('boutique') || nameLower.includes('seef')) {
+                            stars = 5;
+                        } else if (nameLower.includes('inn') || nameLower.includes('express')) {
+                            stars = 3;
+                        } else {
+                            stars = 4;
+                        }
+                    }
+
+                    const rawId = item.id !== undefined && item.id !== null ? String(item.id) : '';
+                    const fallbackId = item.hotel_id !== undefined && item.hotel_id !== null ? String(item.hotel_id) : '';
+                    const finalId = rawId || fallbackId || item.code || String(item.name || '').replace(/\s+/g, '-').toLowerCase();
+
+                    return {
+                        id: finalId,
+                        name: item.name || item.hotel_name || '',
+                        location: item.location || item.city_country || '',
+                        code: item.code || '',
+                        brandClass: item.brandClass || item.brand_class || item.brand || 'Swiss-Belhotel',
+                        region: region,
+                        country: country,
+                        stars: Number(stars) || 4
+                    };
+                });
+
+                // Ensure Swiss-Belhotel International is always at the very top
+                const sbiIndex = mapped.findIndex(h => h.name.toLowerCase() === 'swiss-belhotel international');
+                if (sbiIndex > -1) {
+                    const [sbi] = mapped.splice(sbiIndex, 1);
+                    mapped.unshift(sbi);
+                } else {
+                    mapped.unshift({
+                        id: 'sbi-ho',
+                        name: 'Swiss-Belhotel International',
+                        location: 'Corporate Headquarters',
+                        code: 'SBI',
+                        brandClass: 'Corporate',
+                        region: 'Global',
+                        country: 'International',
+                        stars: 5
+                    });
+                }
+
+                const filteredMapped = mapped.filter(h => h.id !== 'sbi-test' && h.id !== 'sbi-dummy');
+                return [...filteredMapped, ...HARDCODED_TEST_HOTELS];
+            }, { forceRefresh });
+
             setHotels(finalHotels);
             localStorage.setItem('sbi_audit_hotels_v2', JSON.stringify(finalHotels));
             setSupabaseConnected(true);
@@ -1745,7 +1762,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             setSupabaseConnected(false);
             setSupabaseErrorMsg(null);
             
-            const saved = localStorage.getItem('sbi_audit_hotels_v2');
+            const saved = localStorage.setItem ? localStorage.getItem('sbi_audit_hotels_v2') : null;
             let parsed: Hotel[] = [];
             if (saved) {
                 try {
@@ -1764,49 +1781,51 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     };
 
     // Fetch batches function
-    const fetchBatchesFromSupabase = async () => {
+    const fetchBatchesFromSupabase = async (forceRefresh = false) => {
         setIsSupabaseLoading(true);
         setSupabaseErrorMsg(null);
         try {
-            // Fetch batches from Supabase "audit_batches" table
-            const responseB = await fetch(`${MAIN_URL}audit_batches?select=*&order=name.asc`, {
-                headers: {
-                    'apikey': MAIN_KEY,
-                    'Authorization': `Bearer ${MAIN_KEY}`
+            const mappedBatches = await apiCache.getOrFetch<AuditBatch[]>('audit_batches', async () => {
+                // Fetch batches from Supabase "audit_batches" table
+                const responseB = await fetch(`${MAIN_URL}audit_batches?select=*&order=name.asc`, {
+                    headers: {
+                        'apikey': MAIN_KEY,
+                        'Authorization': `Bearer ${MAIN_KEY}`
+                    }
+                });
+                if (!responseB.ok && responseB.status !== 404) {
+                    throw new Error(`Failed to fetch audit batches: HTTP ${responseB.status}`);
                 }
-            });
-            if (!responseB.ok && responseB.status !== 404) {
-                throw new Error(`Failed to fetch audit batches: HTTP ${responseB.status}`);
-            }
-            let batchesData = [];
-            if (responseB.ok) {
-                batchesData = await responseB.json();
-            }
-
-            // Fetch junction Mapping from "audit_batch_hotels" table
-            const responseJ = await fetch(`${MAIN_URL}audit_batch_hotels?select=*`, {
-                headers: {
-                    'apikey': MAIN_KEY,
-                    'Authorization': `Bearer ${MAIN_KEY}`
+                let batchesData = [];
+                if (responseB.ok) {
+                    batchesData = await responseB.json();
                 }
-            });
-            let mappings: any[] = [];
-            if (responseJ.ok) {
-                mappings = await responseJ.json();
-            }
 
-            // Map standard entries
-            const mappedBatches: AuditBatch[] = batchesData.map((b: any) => {
-                const linked = mappings
-                    .filter((m: any) => String(m.batch_id) === String(b.id))
-                    .map((m: any) => String(m.hotel_id));
-                return {
-                    id: String(b.id),
-                    name: b.name || '',
-                    status: b.status || 'Upcoming',
-                    hotelIds: linked
-                };
-            });
+                // Fetch junction Mapping from "audit_batch_hotels" table
+                const responseJ = await fetch(`${MAIN_URL}audit_batch_hotels?select=*`, {
+                    headers: {
+                        'apikey': MAIN_KEY,
+                        'Authorization': `Bearer ${MAIN_KEY}`
+                    }
+                });
+                let mappings: any[] = [];
+                if (responseJ.ok) {
+                    mappings = await responseJ.json();
+                }
+
+                // Map standard entries
+                return batchesData.map((b: any) => {
+                    const linked = mappings
+                        .filter((m: any) => String(m.batch_id) === String(b.id))
+                        .map((m: any) => String(m.hotel_id));
+                    return {
+                        id: String(b.id),
+                        name: b.name || '',
+                        status: b.status || 'Upcoming',
+                        hotelIds: linked
+                    };
+                });
+            }, { forceRefresh });
 
             if (mappedBatches.length > 0) {
                 setBatches(mappedBatches);
@@ -7290,11 +7309,38 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                 return { completed: completedT, total: totalT, percentage, isFinalized: finalInfo.is_finalized };
                             };
 
+                            // Memoized Map cache per render for O(1) repeated lookups
+                            const hotelProgressMap = new Map<string, { completed: number; total: number; percentage: number; isFinalized: boolean; statusText: string; statusOrder: number }>();
+                            const getHotelProgressCached = (hotelId: string) => {
+                                const hKey = String(hotelId).toLowerCase();
+                                if (hotelProgressMap.has(hKey)) {
+                                    return hotelProgressMap.get(hKey)!;
+                                }
+                                const res = getHotelProgress(hotelId);
+                                const finInfo = getHotelFinalizedInfo(hotelId);
+                                const isFin = res.isFinalized || finInfo.is_finalized;
+
+                                let statusText = "Not Started";
+                                let statusOrder = 4;
+                                if (isFin) {
+                                    statusText = "Finalized";
+                                    statusOrder = 1;
+                                } else if (res.percentage === 100) {
+                                    statusText = "Completed";
+                                    statusOrder = 2;
+                                } else if (res.percentage > 0) {
+                                    statusText = "In Progress";
+                                    statusOrder = 3;
+                                }
+                                const fullResult = { ...res, isFinalized: isFin, statusText, statusOrder };
+                                hotelProgressMap.set(hKey, fullResult);
+                                return fullResult;
+                            };
+
                             // Helper to check if a hotel is completed
                             const isHotelCompleted = (hotelId: string) => {
-                                const { percentage, isFinalized } = getHotelProgress(hotelId);
-                                const finInfo = getHotelFinalizedInfo(hotelId);
-                                return isFinalized || finInfo.is_finalized || percentage === 100;
+                                const { percentage, isFinalized } = getHotelProgressCached(hotelId);
+                                return isFinalized || percentage === 100;
                             };
 
                             // 2. Helper to calculate combined average progress across a group of hotels
@@ -7309,13 +7355,11 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                 let sumPercentage = 0;
 
                                 hotelList.forEach(h => {
-                                    const { percentage, isFinalized } = getHotelProgress(h.id);
-                                    const finInfo = getHotelFinalizedInfo(h);
-                                    const isFin = isFinalized || finInfo.is_finalized;
-                                    const effPct = isFin ? 100 : percentage;
+                                    const { percentage, isFinalized } = getHotelProgressCached(h.id);
+                                    const effPct = isFinalized ? 100 : percentage;
                                     
                                     sumPercentage += effPct;
-                                    if (isFin || effPct === 100) {
+                                    if (isFinalized || effPct === 100) {
                                         completedHotels++;
                                     } else if (effPct > 0) {
                                         inProgressHotels++;
@@ -7349,9 +7393,14 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                             });
 
                             // Helper to find Brand Leads for a hotel
+                            const brandLeadsMap = new Map<string, any[]>();
                             const getBrandLeadsForHotel = (hotel: any) => {
+                                const hKey = String(hotel.id).toLowerCase();
+                                if (brandLeadsMap.has(hKey)) {
+                                    return brandLeadsMap.get(hKey)!;
+                                }
                                 if (!profilesList || !Array.isArray(profilesList)) return [];
-                                return profilesList.filter(p => {
+                                const res = profilesList.filter(p => {
                                     if (!p.is_brand_audit_lead) return false;
                                     if (!p.hotel_id) return false;
                                     const ids = String(p.hotel_id).split(',').map(id => id.trim());
@@ -7362,6 +7411,8 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                            (hotel.code && codes.includes(String(hotel.code).toLowerCase())) || 
                                            (hotel.name && names.includes(String(hotel.name).toLowerCase()));
                                 });
+                                brandLeadsMap.set(hKey, res);
+                                return res;
                             };
 
                             // Filtered Hotels
@@ -7382,6 +7433,59 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
 
                                 return matchesRegion && matchesCountry && matchesBrand && matchesBrandLead && matchesSearch;
                             });
+
+                            // Sorting logic optimized for audit report
+                            const sortedHotels = [...filteredHotels].sort((a, b) => {
+                                let comparison = 0;
+                                if (progressSortField === 'name') {
+                                    const nameA = (a.name || '').toLowerCase();
+                                    const nameB = (b.name || '').toLowerCase();
+                                    comparison = nameA.localeCompare(nameB);
+                                } else if (progressSortField === 'brand') {
+                                    const brandA = (a.brandClass || '').toLowerCase();
+                                    const brandB = (b.brandClass || '').toLowerCase();
+                                    comparison = brandA.localeCompare(brandB);
+                                } else if (progressSortField === 'location') {
+                                    const locA = `${a.country || ''} ${a.region || ''}`.toLowerCase();
+                                    const locB = `${b.country || ''} ${b.region || ''}`.toLowerCase();
+                                    comparison = locA.localeCompare(locB);
+                                } else if (progressSortField === 'progress') {
+                                    const progA = getHotelProgressCached(a.id);
+                                    const progB = getHotelProgressCached(b.id);
+                                    comparison = progA.percentage - progB.percentage;
+                                    if (comparison === 0) {
+                                        comparison = progA.completed - progB.completed;
+                                    }
+                                } else if (progressSortField === 'status') {
+                                    const progA = getHotelProgressCached(a.id);
+                                    const progB = getHotelProgressCached(b.id);
+                                    comparison = progA.statusOrder - progB.statusOrder;
+                                }
+
+                                if (comparison === 0) {
+                                    comparison = (a.name || '').localeCompare(b.name || '');
+                                }
+
+                                return progressSortDirection === 'asc' ? comparison : -comparison;
+                            });
+
+                            // Pagination calculations
+                            const totalHotelsCount = sortedHotels.length;
+                            const totalPages = Math.max(1, Math.ceil(totalHotelsCount / progressPageSize));
+                            const safePage = Math.min(Math.max(1, progressPage), totalPages);
+                            const startIndex = (safePage - 1) * progressPageSize;
+                            const endIndex = Math.min(startIndex + progressPageSize, totalHotelsCount);
+                            const paginatedHotels = sortedHotels.slice(startIndex, endIndex);
+
+                            const handleSortToggle = (field: 'name' | 'brand' | 'location' | 'progress' | 'status') => {
+                                if (progressSortField === field) {
+                                    setProgressSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+                                } else {
+                                    setProgressSortField(field);
+                                    setProgressSortDirection('asc');
+                                }
+                                setProgressPage(1);
+                            };
 
                             return (
                                 <div className="space-y-6">
@@ -7529,12 +7633,14 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                     value={progressSearchQuery}
                                                     onChange={(e) => {
                                                         setProgressSearchQuery(e.target.value);
+                                                        setProgressPage(1);
                                                     }}
                                                 />
                                                 {progressSearchQuery && (
                                                     <button 
                                                         onClick={() => {
                                                             setProgressSearchQuery('');
+                                                            setProgressPage(1);
                                                         }}
                                                         className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-600"
                                                     >
@@ -7550,7 +7656,10 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                     <select
                                                         className="w-full px-3 py-2.5 text-xs border border-slate-200 rounded-xl bg-slate-50/50 focus:bg-white focus:outline-none focus:border-indigo-500 font-bold transition-all text-slate-700"
                                                         value={progressRegionFilter}
-                                                        onChange={(e) => setProgressRegionFilter(e.target.value)}
+                                                        onChange={(e) => {
+                                                            setProgressRegionFilter(e.target.value);
+                                                            setProgressPage(1);
+                                                        }}
                                                     >
                                                         <option value="">All Regions</option>
                                                         {uniqueRegions.map(r => (
@@ -7564,7 +7673,10 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                     <select
                                                         className="w-full px-3 py-2.5 text-xs border border-slate-200 rounded-xl bg-slate-50/50 focus:bg-white focus:outline-none focus:border-indigo-500 font-bold transition-all text-slate-700"
                                                         value={progressCountryFilter}
-                                                        onChange={(e) => setProgressCountryFilter(e.target.value)}
+                                                        onChange={(e) => {
+                                                            setProgressCountryFilter(e.target.value);
+                                                            setProgressPage(1);
+                                                        }}
                                                     >
                                                         <option value="">All Countries</option>
                                                         {uniqueCountries.map(c => (
@@ -7578,7 +7690,10 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                     <select
                                                         className="w-full px-3 py-2.5 text-xs border border-slate-200 rounded-xl bg-slate-50/50 focus:bg-white focus:outline-none focus:border-indigo-500 font-bold transition-all text-slate-700"
                                                         value={progressBrandFilter}
-                                                        onChange={(e) => setProgressBrandFilter(e.target.value)}
+                                                        onChange={(e) => {
+                                                            setProgressBrandFilter(e.target.value);
+                                                            setProgressPage(1);
+                                                        }}
                                                     >
                                                         <option value="">All Brands</option>
                                                         {uniqueBrands.map(b => (
@@ -7592,7 +7707,10 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                     <select
                                                         className="w-full px-3 py-2.5 text-xs border border-slate-200 rounded-xl bg-slate-50/50 focus:bg-white focus:outline-none focus:border-indigo-500 font-bold transition-all text-slate-700"
                                                         value={progressBrandLeadFilter}
-                                                        onChange={(e) => setProgressBrandLeadFilter(e.target.value as any)}
+                                                        onChange={(e) => {
+                                                            setProgressBrandLeadFilter(e.target.value as any);
+                                                            setProgressPage(1);
+                                                        }}
                                                     >
                                                         <option value="all">All Representation</option>
                                                         <option value="has_lead">Has Brand Lead</option>
@@ -7609,6 +7727,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                             setProgressBrandFilter('');
                                                             setProgressSearchQuery('');
                                                             setProgressBrandLeadFilter('all');
+                                                            setProgressPage(1);
                                                         }}
                                                         className="text-xs text-indigo-600 hover:text-indigo-800 font-black uppercase tracking-wider flex items-center gap-1.5 px-3 py-2.5 hover:bg-indigo-50 rounded-xl transition-all"
                                                     >
@@ -7624,32 +7743,93 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                         <div className="overflow-x-auto">
                                             <table className="w-full text-left border-collapse">
                                                 <thead>
-                                                    <tr className="bg-slate-50/70 border-b border-slate-150/50 text-[10px] font-black uppercase text-slate-500 tracking-widest">
-                                                        <th className="px-6 py-4.5">Hotel Property</th>
-                                                        <th className="px-6 py-4.5">Brand</th>
-                                                        <th className="px-6 py-4.5">Location</th>
-                                                        <th className="px-6 py-4.5">Audit Progress</th>
-                                                        <th className="px-6 py-4.5">Status</th>
+                                                    <tr className="bg-slate-50/70 border-b border-slate-150/50 text-[10px] font-black uppercase text-slate-500 tracking-widest select-none">
+                                                        <th 
+                                                            onClick={() => handleSortToggle('name')}
+                                                            className="px-6 py-4.5 cursor-pointer hover:bg-slate-100/80 transition-colors"
+                                                            title="Click to sort by Hotel Name"
+                                                        >
+                                                            <div className="inline-flex items-center gap-1.5">
+                                                                <span>Hotel Property</span>
+                                                                {progressSortField === 'name' ? (
+                                                                    progressSortDirection === 'asc' ? <ChevronUp size={13} className="text-indigo-600 shrink-0" /> : <ChevronDown size={13} className="text-indigo-600 shrink-0" />
+                                                                ) : (
+                                                                    <ArrowUpDown size={12} className="text-slate-300 opacity-60 shrink-0" />
+                                                                )}
+                                                            </div>
+                                                        </th>
+                                                        <th 
+                                                            onClick={() => handleSortToggle('brand')}
+                                                            className="px-6 py-4.5 cursor-pointer hover:bg-slate-100/80 transition-colors"
+                                                            title="Click to sort by Brand"
+                                                        >
+                                                            <div className="inline-flex items-center gap-1.5">
+                                                                <span>Brand</span>
+                                                                {progressSortField === 'brand' ? (
+                                                                    progressSortDirection === 'asc' ? <ChevronUp size={13} className="text-indigo-600 shrink-0" /> : <ChevronDown size={13} className="text-indigo-600 shrink-0" />
+                                                                ) : (
+                                                                    <ArrowUpDown size={12} className="text-slate-300 opacity-60 shrink-0" />
+                                                                )}
+                                                            </div>
+                                                        </th>
+                                                        <th 
+                                                            onClick={() => handleSortToggle('location')}
+                                                            className="px-6 py-4.5 cursor-pointer hover:bg-slate-100/80 transition-colors"
+                                                            title="Click to sort by Location"
+                                                        >
+                                                            <div className="inline-flex items-center gap-1.5">
+                                                                <span>Location</span>
+                                                                {progressSortField === 'location' ? (
+                                                                    progressSortDirection === 'asc' ? <ChevronUp size={13} className="text-indigo-600 shrink-0" /> : <ChevronDown size={13} className="text-indigo-600 shrink-0" />
+                                                                ) : (
+                                                                    <ArrowUpDown size={12} className="text-slate-300 opacity-60 shrink-0" />
+                                                                )}
+                                                            </div>
+                                                        </th>
+                                                        <th 
+                                                            onClick={() => handleSortToggle('progress')}
+                                                            className="px-6 py-4.5 cursor-pointer hover:bg-slate-100/80 transition-colors"
+                                                            title="Click to sort by Audit Progress"
+                                                        >
+                                                            <div className="inline-flex items-center gap-1.5">
+                                                                <span>Audit Progress</span>
+                                                                {progressSortField === 'progress' ? (
+                                                                    progressSortDirection === 'asc' ? <ChevronUp size={13} className="text-indigo-600 shrink-0" /> : <ChevronDown size={13} className="text-indigo-600 shrink-0" />
+                                                                ) : (
+                                                                    <ArrowUpDown size={12} className="text-slate-300 opacity-60 shrink-0" />
+                                                                )}
+                                                            </div>
+                                                        </th>
+                                                        <th 
+                                                            onClick={() => handleSortToggle('status')}
+                                                            className="px-6 py-4.5 cursor-pointer hover:bg-slate-100/80 transition-colors"
+                                                            title="Click to sort by Status"
+                                                        >
+                                                            <div className="inline-flex items-center gap-1.5">
+                                                                <span>Status</span>
+                                                                {progressSortField === 'status' ? (
+                                                                    progressSortDirection === 'asc' ? <ChevronUp size={13} className="text-indigo-600 shrink-0" /> : <ChevronDown size={13} className="text-indigo-600 shrink-0" />
+                                                                ) : (
+                                                                    <ArrowUpDown size={12} className="text-slate-300 opacity-60 shrink-0" />
+                                                                )}
+                                                            </div>
+                                                        </th>
                                                         <th className="px-6 py-4.5 text-right">Actions</th>
                                                     </tr>
                                                 </thead>
                                                 <tbody className="divide-y divide-slate-100 text-xs text-slate-700">
-                                                    {filteredHotels.length > 0 ? (
-                                                        filteredHotels.map((h, i) => {
-                                                            const { completed, total, percentage } = getHotelProgress(h.id);
+                                                    {paginatedHotels.length > 0 ? (
+                                                        paginatedHotels.map((h, i) => {
+                                                            const { completed, total, percentage, statusText } = getHotelProgressCached(h.id);
                                                             const finalInfo = getHotelFinalizedInfo(h);
                                                             
-                                                            let statusText = "Not Started";
                                                             let statusStyle = "bg-slate-50 text-slate-600 border-slate-200/50";
                                                             
-                                                            if (finalInfo.is_finalized) {
-                                                                statusText = "Finalized";
+                                                            if (statusText === 'Finalized') {
                                                                 statusStyle = "bg-emerald-50 text-emerald-700 border-emerald-200/60";
-                                                            } else if (percentage === 100) {
-                                                                statusText = "Completed";
+                                                            } else if (statusText === 'Completed') {
                                                                 statusStyle = "bg-indigo-50 text-indigo-700 border-indigo-200/60";
-                                                            } else if (percentage > 0) {
-                                                                statusText = "In Progress";
+                                                            } else if (statusText === 'In Progress') {
                                                                 statusStyle = "bg-amber-50 text-amber-700 border-amber-200/60";
                                                             }
 
@@ -7767,6 +7947,98 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                     )}
                                                 </tbody>
                                             </table>
+                                        </div>
+
+                                        {/* PAGINATION FOOTER BAR */}
+                                        <div className="px-6 py-4 bg-slate-50/70 border-t border-slate-150/60 flex flex-col sm:flex-row items-center justify-between gap-4">
+                                            <div className="flex flex-wrap items-center gap-4 text-xs font-medium text-slate-500">
+                                                <span>
+                                                    Showing <strong className="text-slate-800 font-bold">{totalHotelsCount === 0 ? 0 : startIndex + 1}</strong> to <strong className="text-slate-800 font-bold">{endIndex}</strong> of <strong className="text-slate-800 font-bold">{totalHotelsCount}</strong> properties
+                                                </span>
+                                                <div className="flex items-center gap-2 pl-3 border-l border-slate-200">
+                                                    <span className="text-[11px] font-bold text-slate-400">Rows per page:</span>
+                                                    <select
+                                                        value={progressPageSize}
+                                                        onChange={(e) => {
+                                                            setProgressPageSize(Number(e.target.value));
+                                                            setProgressPage(1);
+                                                        }}
+                                                        className="px-2 py-1 text-xs border border-slate-200 rounded-lg bg-white font-bold text-slate-700 focus:outline-none focus:border-indigo-500 cursor-pointer shadow-2xs"
+                                                    >
+                                                        <option value={10}>10</option>
+                                                        <option value={25}>25</option>
+                                                        <option value={50}>50</option>
+                                                        <option value={100}>100</option>
+                                                    </select>
+                                                </div>
+                                            </div>
+
+                                            {/* Navigation buttons */}
+                                            {totalPages > 1 && (
+                                                <div className="flex items-center gap-1.5">
+                                                    <button
+                                                        onClick={() => setProgressPage(1)}
+                                                        disabled={safePage === 1}
+                                                        className="p-1.5 text-xs font-bold rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-2xs"
+                                                        title="First Page"
+                                                    >
+                                                        <ChevronsLeft size={14} />
+                                                    </button>
+                                                    <button
+                                                        onClick={() => setProgressPage(p => Math.max(1, p - 1))}
+                                                        disabled={safePage === 1}
+                                                        className="p-1.5 text-xs font-bold rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-2xs"
+                                                        title="Previous Page"
+                                                    >
+                                                        <ChevronLeft size={14} />
+                                                    </button>
+
+                                                    {/* Numeric page buttons */}
+                                                    {(() => {
+                                                        const pages: number[] = [];
+                                                        const maxButtons = 5;
+                                                        let startP = Math.max(1, safePage - 2);
+                                                        let endP = Math.min(totalPages, startP + maxButtons - 1);
+                                                        if (endP - startP + 1 < maxButtons) {
+                                                            startP = Math.max(1, endP - maxButtons + 1);
+                                                        }
+                                                        for (let p = startP; p <= endP; p++) {
+                                                            pages.push(p);
+                                                        }
+
+                                                        return pages.map(pageNum => (
+                                                            <button
+                                                                key={pageNum}
+                                                                onClick={() => setProgressPage(pageNum)}
+                                                                className={`px-3 py-1 text-xs font-extrabold rounded-lg border transition-all ${
+                                                                    pageNum === safePage
+                                                                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
+                                                                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50 shadow-2xs'
+                                                                }`}
+                                                            >
+                                                                {pageNum}
+                                                            </button>
+                                                        ));
+                                                    })()}
+
+                                                    <button
+                                                        onClick={() => setProgressPage(p => Math.min(totalPages, p + 1))}
+                                                        disabled={safePage === totalPages}
+                                                        className="p-1.5 text-xs font-bold rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-2xs"
+                                                        title="Next Page"
+                                                    >
+                                                        <ChevronRight size={14} />
+                                                    </button>
+                                                    <button
+                                                        onClick={() => setProgressPage(totalPages)}
+                                                        disabled={safePage === totalPages}
+                                                        className="p-1.5 text-xs font-bold rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-2xs"
+                                                        title="Last Page"
+                                                    >
+                                                        <ChevronsRight size={14} />
+                                                    </button>
+                                                </div>
+                                            )}
                                         </div>
                                     </div>
                                 </div>

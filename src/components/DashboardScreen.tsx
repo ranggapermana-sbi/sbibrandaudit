@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Menu, CheckCircle, Clock, Edit3, Building, ChevronRight, ChevronDown, PlusCircle, LayoutDashboard, History, User, LogOut, FileText, Folder, Layers, Maximize2, Minimize2, RefreshCw } from 'lucide-react';
 import { supabase, HOTELS_URL, HOTELS_KEY } from '../lib/supabase';
+import { apiCache } from '../lib/cache';
 
 interface DashboardProps {
   onViewPending: () => void;
@@ -111,39 +112,48 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
       // 1. Fetch hotels
       let hotels: any[] = [];
       try {
-        const response = await fetch(`${HOTELS_URL}hotels?select=*`, {
-          headers: {
-            'apikey': HOTELS_KEY,
-            'Authorization': `Bearer ${HOTELS_KEY}`
+        hotels = await apiCache.getOrFetch<any[]>('dashboard_hotels', async () => {
+          const response = await fetch(`${HOTELS_URL}hotels?select=*`, {
+            headers: {
+              'apikey': HOTELS_KEY,
+              'Authorization': `Bearer ${HOTELS_KEY}`
+            }
+          });
+          if (response.ok) {
+            const data = await response.json();
+            if (Array.isArray(data)) {
+              return data.map((item: any) => ({
+                id: item.id !== undefined && item.id !== null ? String(item.id) : '',
+                name: item.name || item.hotel_name || '',
+                location: item.location || item.city_country || '',
+                code: item.code || ''
+              }));
+            }
           }
+          return [];
         });
-        if (response.ok) {
-          const data = await response.json();
-          if (Array.isArray(data)) {
-            hotels = data.map((item: any) => ({
-              id: item.id !== undefined && item.id !== null ? String(item.id) : '',
-              name: item.name || item.hotel_name || '',
-              location: item.location || item.city_country || '',
-              code: item.code || ''
-            }));
-          }
-        }
       } catch (err) {
         console.warn("Could not fetch hotels in dashboard:", err);
       }
 
       // 2. Fetch categories
-      const { data: catsData, error: catsError } = await supabase
-        .from('audit_categories')
-        .select('*')
-        .order('sort_order', { ascending: true });
-      if (catsError) throw catsError;
+      const catsData = await apiCache.getOrFetch<any[]>('dashboard_categories', async () => {
+        const { data, error } = await supabase
+          .from('audit_categories')
+          .select('*')
+          .order('sort_order', { ascending: true });
+        if (error) throw error;
+        return data || [];
+      });
 
       // 3. Fetch items
-      const { data: itemsData, error: itemsError } = await supabase
-        .from('audit_items')
-        .select('*, audit_departments(name), audit_categories(name)');
-      if (itemsError) throw itemsError;
+      const itemsData = await apiCache.getOrFetch<any[]>('dashboard_items', async () => {
+        const { data, error } = await supabase
+          .from('audit_items')
+          .select('*, audit_departments(name), audit_categories(name)');
+        if (error) throw error;
+        return data || [];
+      });
 
       // 4. Determine target hotel identifiers
       const isAuditee = !!userProfile && userProfile.access_level !== 'admin' && userProfile.access_level !== 'auditor';
@@ -170,8 +180,14 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
       let assignedItemIds: string[] | null = null;
 
       try {
-        const { data: groupsData } = await supabase.from('audit_checklist_groups').select('*');
-        const { data: groupHotelsData } = await supabase.from('audit_group_hotels').select('*');
+        const groupsResult = await apiCache.getOrFetch<any>('dashboard_groups', async () => {
+          const { data: gData } = await supabase.from('audit_checklist_groups').select('*');
+          const { data: ghData } = await supabase.from('audit_group_hotels').select('*');
+          return { groupsData: gData || [], groupHotelsData: ghData || [] };
+        });
+
+        const groupsData = groupsResult.groupsData;
+        const groupHotelsData = groupsResult.groupHotelsData;
 
         if (groupsData && groupHotelsData) {
           const assignedGroupHotels = groupHotelsData.filter((gh: any) => 
