@@ -1984,6 +1984,20 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     const [searchQuery, setSearchQuery] = useState('');
     const [hotelFilterBrand, setHotelFilterBrand] = useState('All');
     const [hotelFilterStars, setHotelFilterStars] = useState('All');
+    const [hotelPage, setHotelPage] = useState<number>(1);
+    const [hotelPageSize, setHotelPageSize] = useState<number>(10);
+    const [inspectionPage, setInspectionPage] = useState<number>(1);
+    const [inspectionPageSize, setInspectionPageSize] = useState<number>(10);
+
+    // Reset hotel pagination when search or filters change
+    useEffect(() => {
+        setHotelPage(1);
+    }, [searchQuery, hotelFilterBrand, hotelFilterStars]);
+
+    // Reset inspection pagination when search query or subview changes
+    useEffect(() => {
+        setInspectionPage(1);
+    }, [searchQuery, subView]);
 
     // Department Dialog states
     const [isDeptFormOpen, setIsDeptFormOpen] = useState(false);
@@ -3973,6 +3987,13 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
 
     const uniqueBrands = (Array.from(new Set(hotels.map(h => h.brandClass).filter(Boolean))) as string[]).sort();
     const uniqueStars = (Array.from(new Set(hotels.map(h => Number(h.stars) || 4))) as number[]).sort((a, b) => b - a);
+
+    const totalMasterHotelsCount = filteredHotels.length;
+    const totalMasterHotelPages = Math.max(1, Math.ceil(totalMasterHotelsCount / hotelPageSize));
+    const safeMasterHotelPage = Math.min(Math.max(1, hotelPage), totalMasterHotelPages);
+    const masterHotelStartIndex = (safeMasterHotelPage - 1) * hotelPageSize;
+    const masterHotelEndIndex = Math.min(masterHotelStartIndex + hotelPageSize, totalMasterHotelsCount);
+    const paginatedHotels = filteredHotels.slice(masterHotelStartIndex, masterHotelEndIndex);
 
     const filteredBatches = batches.filter(b => 
         b.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
@@ -6458,142 +6479,242 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                     </div>
 
                                     {/* Hotels List */}
-                                    <div className="overflow-x-auto bg-white rounded-3xl border border-slate-200 shadow-sm">
-                                        <table className="w-full text-left text-sm text-slate-700">
-                                            <thead className="bg-slate-50 text-slate-500 font-bold uppercase text-[10px] tracking-wider">
-                                                <tr>
-                                                    <th className="px-6 py-4">Property</th>
-                                                    <th className="px-6 py-4">Brand</th>
-                                                    <th className="px-6 py-4">Region</th>
-                                                    <th className="px-6 py-4">Assigned Group</th>
-                                                    <th className="px-6 py-4">Hotel Audit Progress</th>
-                                                    <th className="px-6 py-4">Auditor Review</th>
-                                                    <th className="px-6 py-4">Evidence Received</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody className="divide-y divide-slate-100">
-                                                {hotels
-                                                    .filter(h => {
-                                                        const isMatchSearch = !searchQuery || h.name.toLowerCase().includes(searchQuery.toLowerCase()) || (h.code && h.code.toLowerCase().includes(searchQuery.toLowerCase()));
-                                                        if (userProfile?.access_level === 'auditor') {
-                                                            const isAssigned = auditorAssignments.some(a => a.user_id === userProfile.id && a.hotel_id === h.id);
-                                                            return isMatchSearch && isAssigned;
-                                                        }
-                                                        return isMatchSearch;
-                                                    })
-                                                    .map(hotel => {
-                                                        const possibleIds = [
-                                                            String(hotel.id).toLowerCase(),
-                                                            hotel.code ? String(hotel.code).toLowerCase() : null,
-                                                            hotel.name ? String(hotel.name).toLowerCase() : null
-                                                        ].filter(Boolean) as string[];
+                                    {(() => {
+                                        const inspectionHotelsFiltered = hotels.filter(h => {
+                                            const isMatchSearch = !searchQuery || h.name.toLowerCase().includes(searchQuery.toLowerCase()) || (h.code && h.code.toLowerCase().includes(searchQuery.toLowerCase()));
+                                            if (userProfile?.access_level === 'auditor') {
+                                                const isAssigned = auditorAssignments.some(a => a.user_id === userProfile.id && a.hotel_id === h.id);
+                                                return isMatchSearch && isAssigned;
+                                            }
+                                            return isMatchSearch;
+                                        });
 
-                                                        const hotelGroups = groups.filter(g => 
-                                                            g.hotelIds && g.hotelIds.some(hId => 
-                                                                possibleIds.some(phId => String(hId).toLowerCase() === phId)
-                                                            )
-                                                        );
+                                        const totalInspectionHotelsCount = inspectionHotelsFiltered.length;
+                                        const totalInspectionPages = Math.max(1, Math.ceil(totalInspectionHotelsCount / inspectionPageSize));
+                                        const safeInspectionPage = Math.min(Math.max(1, inspectionPage), totalInspectionPages);
+                                        const inspectionStartIndex = (safeInspectionPage - 1) * inspectionPageSize;
+                                        const inspectionEndIndex = Math.min(inspectionStartIndex + inspectionPageSize, totalInspectionHotelsCount);
+                                        const paginatedInspectionHotels = inspectionHotelsFiltered.slice(inspectionStartIndex, inspectionEndIndex);
 
-                                                        let assignedItemIds: string[] | null = null;
-                                                        if (hotelGroups.length > 0) {
-                                                            const allItemIds = new Set<string>();
-                                                            hotelGroups.forEach(g => {
-                                                                if (g.itemIds) {
-                                                                    g.itemIds.forEach(id => allItemIds.add(String(id)));
-                                                                }
-                                                            });
-                                                            assignedItemIds = Array.from(allItemIds);
-                                                        }
+                                        return (
+                                            <div className="overflow-x-auto bg-white rounded-3xl border border-slate-200 shadow-sm">
+                                                <table className="w-full text-left text-sm text-slate-700">
+                                                    <thead className="bg-slate-50 text-slate-500 font-bold uppercase text-[10px] tracking-wider">
+                                                        <tr>
+                                                            <th className="px-6 py-4">Property</th>
+                                                            <th className="px-6 py-4">Brand</th>
+                                                            <th className="px-6 py-4">Region</th>
+                                                            <th className="px-6 py-4">Hotel Audit Progress</th>
+                                                            <th className="px-6 py-4">Auditor Review</th>
+                                                            <th className="px-6 py-4">Evidence Received</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody className="divide-y divide-slate-100">
+                                                        {paginatedInspectionHotels.map(hotel => {
+                                                            const possibleIds = [
+                                                                String(hotel.id).toLowerCase(),
+                                                                hotel.code ? String(hotel.code).toLowerCase() : null,
+                                                                hotel.name ? String(hotel.name).toLowerCase() : null
+                                                            ].filter(Boolean) as string[];
 
-                                                        const allHotelItems = items.filter(item => 
-                                                            (!assignedItemIds || assignedItemIds.length === 0 || assignedItemIds.includes(String(item.id)))
-                                                        );
-                                                        const totalItems = allHotelItems.length;
+                                                            const hotelGroups = groups.filter(g => 
+                                                                g.hotelIds && g.hotelIds.some(hId => 
+                                                                    possibleIds.some(phId => String(hId).toLowerCase() === phId)
+                                                                )
+                                                            );
 
-                                                        // Hotel's actual filled items & progress (including draft submissions before finalising)
-                                                        const hotelSubs = allSubmissions.filter(s => isSubmissionForHotel(s.hotel_id, hotel));
-                                                        const submittedItemIdsSet = new Set(hotelSubs.map(s => String(s.item_id)));
-                                                        const hotelFilledCount = allHotelItems.filter(item => submittedItemIdsSet.has(String(item.id))).length;
-                                                        const isFinalized = getHotelFinalizedInfo(hotel).is_finalized;
-                                                        const hotelProgressPct = isFinalized ? 100 : (totalItems > 0 ? Math.round((hotelFilledCount / totalItems) * 100) : 0);
+                                                            let assignedItemIds: string[] | null = null;
+                                                            if (hotelGroups.length > 0) {
+                                                                const allItemIds = new Set<string>();
+                                                                hotelGroups.forEach(g => {
+                                                                    if (g.itemIds) {
+                                                                        g.itemIds.forEach(id => allItemIds.add(String(id)));
+                                                                    }
+                                                                });
+                                                                assignedItemIds = Array.from(allItemIds);
+                                                            }
 
-                                                        // Auditor scoring progress
-                                                        const scoredItems = allHotelItems.filter(i => inspectionScores[`${hotel.id}_${i.id}`] !== undefined).length;
-                                                        const auditorScoringPercent = totalItems > 0 ? Math.round((scoredItems / totalItems) * 100) : 0;
+                                                            const allHotelItems = items.filter(item => 
+                                                                (!assignedItemIds || assignedItemIds.length === 0 || assignedItemIds.includes(String(item.id)))
+                                                            );
+                                                            const totalItems = allHotelItems.length;
 
-                                                        return (
-                                                            <tr 
-                                                                key={hotel.id}
-                                                                onClick={() => { setSelectedInspectionHotelId(hotel.id); setSearchQuery(''); }}
-                                                                className="hover:bg-indigo-50/30 cursor-pointer transition-colors duration-200"
-                                                            >
-                                                                <td className="px-6 py-4">
-                                                                    <div className="font-bold text-slate-900">{hotel.name}</div>
-                                                                    <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">{hotel.code || 'NO-CODE'}</div>
-                                                                </td>
-                                                                <td className="px-6 py-4 text-slate-600 font-medium">{hotel.brandClass}</td>
-                                                                <td className="px-6 py-4 text-slate-600 font-medium">{hotel.region || 'N/A'}</td>
-                                                                <td className="px-6 py-4 text-slate-600 font-medium">{hotelGroups.map(g => g.name).join(', ') || 'Unassigned'}</td>
-                                                                <td className="px-6 py-4">
-                                                                    <div className="flex flex-col gap-1.5 w-44">
-                                                                        <div className="flex items-center justify-between text-[11px] font-extrabold">
-                                                                            <span className="text-slate-700">{hotelFilledCount}/{totalItems} items</span>
-                                                                            <span className={hotelProgressPct === 100 ? 'text-emerald-600' : 'text-amber-600'}>
-                                                                                {hotelProgressPct}%
+                                                            // Hotel's actual filled items & progress (including draft submissions before finalising)
+                                                            const hotelSubs = allSubmissions.filter(s => isSubmissionForHotel(s.hotel_id, hotel));
+                                                            const submittedItemIdsSet = new Set(hotelSubs.map(s => String(s.item_id)));
+                                                            const hotelFilledCount = allHotelItems.filter(item => submittedItemIdsSet.has(String(item.id))).length;
+                                                            const isFinalized = getHotelFinalizedInfo(hotel).is_finalized;
+                                                            const hotelProgressPct = isFinalized ? 100 : (totalItems > 0 ? Math.round((hotelFilledCount / totalItems) * 100) : 0);
+
+                                                            // Auditor scoring progress
+                                                            const scoredItems = allHotelItems.filter(i => inspectionScores[`${hotel.id}_${i.id}`] !== undefined).length;
+                                                            const auditorScoringPercent = totalItems > 0 ? Math.round((scoredItems / totalItems) * 100) : 0;
+
+                                                            return (
+                                                                <tr 
+                                                                    key={hotel.id}
+                                                                    onClick={() => { setSelectedInspectionHotelId(hotel.id); setSearchQuery(''); }}
+                                                                    className="hover:bg-indigo-50/30 cursor-pointer transition-colors duration-200"
+                                                                >
+                                                                    <td className="px-6 py-4">
+                                                                        <div className="font-bold text-slate-900">{hotel.name}</div>
+                                                                        <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">{hotel.code || 'NO-CODE'}</div>
+                                                                    </td>
+                                                                    <td className="px-6 py-4 text-slate-600 font-medium">{hotel.brandClass}</td>
+                                                                    <td className="px-6 py-4 text-slate-600 font-medium">{hotel.region || 'N/A'}</td>
+                                                                    <td className="px-6 py-4">
+                                                                        <div className="flex flex-col gap-1.5 w-44">
+                                                                            <div className="flex items-center justify-between text-[11px] font-extrabold">
+                                                                                <span className="text-slate-700">{hotelFilledCount}/{totalItems} items</span>
+                                                                                <span className={hotelProgressPct === 100 ? 'text-emerald-600' : 'text-amber-600'}>
+                                                                                    {hotelProgressPct}%
+                                                                                </span>
+                                                                            </div>
+                                                                            <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                                                                                <div 
+                                                                                    className={`h-full transition-all duration-300 ${isFinalized ? 'bg-emerald-500' : hotelProgressPct > 0 ? 'bg-amber-500' : 'bg-slate-300'}`} 
+                                                                                    style={{ width: `${hotelProgressPct}%` }}
+                                                                                />
+                                                                            </div>
+                                                                            <div>
+                                                                                {isFinalized ? (
+                                                                                    <span className="inline-flex items-center gap-1 text-[9px] font-extrabold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full uppercase tracking-wider">
+                                                                                        Finalized & Submitted
+                                                                                    </span>
+                                                                                ) : hotelProgressPct === 100 ? (
+                                                                                    <span className="inline-flex items-center gap-1 text-[9px] font-extrabold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-full uppercase tracking-wider">
+                                                                                        100% Filled (Draft)
+                                                                                    </span>
+                                                                                ) : hotelProgressPct > 0 ? (
+                                                                                    <span className="inline-flex items-center gap-1 text-[9px] font-extrabold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full uppercase tracking-wider">
+                                                                                        In Progress
+                                                                                    </span>
+                                                                                ) : (
+                                                                                    <span className="inline-flex items-center gap-1 text-[9px] font-extrabold text-slate-500 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-full uppercase tracking-wider">
+                                                                                        Not Started
+                                                                                    </span>
+                                                                                )}
+                                                                            </div>
+                                                                        </div>
+                                                                    </td>
+                                                                    <td className="px-6 py-4">
+                                                                        <div className="flex items-center gap-2 font-bold text-[11px]">
+                                                                            <div className="w-16 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                                                                                <div className="h-full bg-indigo-500" style={{ width: `${auditorScoringPercent}%` }}></div>
+                                                                            </div>
+                                                                            <span className={auditorScoringPercent === 100 ? 'text-emerald-600' : 'text-slate-700'}>
+                                                                                {scoredItems}/{totalItems} ({auditorScoringPercent}%)
                                                                             </span>
                                                                         </div>
-                                                                        <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                                                                            <div 
-                                                                                className={`h-full transition-all duration-300 ${isFinalized ? 'bg-emerald-500' : hotelProgressPct > 0 ? 'bg-amber-500' : 'bg-slate-300'}`} 
-                                                                                style={{ width: `${hotelProgressPct}%` }}
-                                                                            />
-                                                                        </div>
-                                                                        <div>
-                                                                            {isFinalized ? (
-                                                                                <span className="inline-flex items-center gap-1 text-[9px] font-extrabold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full uppercase tracking-wider">
-                                                                                    Finalized & Submitted
-                                                                                </span>
-                                                                            ) : hotelProgressPct === 100 ? (
-                                                                                <span className="inline-flex items-center gap-1 text-[9px] font-extrabold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-full uppercase tracking-wider">
-                                                                                    100% Filled (Draft)
-                                                                                </span>
-                                                                            ) : hotelProgressPct > 0 ? (
-                                                                                <span className="inline-flex items-center gap-1 text-[9px] font-extrabold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full uppercase tracking-wider">
-                                                                                    In Progress
-                                                                                </span>
-                                                                            ) : (
-                                                                                <span className="inline-flex items-center gap-1 text-[9px] font-extrabold text-slate-500 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-full uppercase tracking-wider">
-                                                                                    Not Started
-                                                                                </span>
-                                                                            )}
-                                                                        </div>
-                                                                    </div>
-                                                                </td>
-                                                                <td className="px-6 py-4">
-                                                                    <div className="flex items-center gap-2 font-bold text-[11px]">
-                                                                        <div className="w-16 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                                                                            <div className="h-full bg-indigo-500" style={{ width: `${auditorScoringPercent}%` }}></div>
-                                                                        </div>
-                                                                        <span className={auditorScoringPercent === 100 ? 'text-emerald-600' : 'text-slate-700'}>
-                                                                            {scoredItems}/{totalItems} ({auditorScoringPercent}%)
-                                                                        </span>
-                                                                    </div>
-                                                                </td>
-                                                                <td className="px-6 py-4 font-bold text-indigo-700">
-                                                                    {hotelSubs.length} items
-                                                                </td>
-                                                            </tr>
-                                                        );
-                                                    })
-                                                }
-                                            </tbody>
-                                        </table>
-                                        {hotels.filter(h => !searchQuery || h.name.toLowerCase().includes(searchQuery.toLowerCase()) || (h.code && h.code.toLowerCase().includes(searchQuery.toLowerCase()))).length === 0 && (
-                                            <div className="py-8 text-center text-slate-400 font-bold text-xs">
-                                                No properties matched your search.
+                                                                    </td>
+                                                                    <td className="px-6 py-4 font-bold text-indigo-700">
+                                                                        {hotelSubs.length} items
+                                                                    </td>
+                                                                </tr>
+                                                            );
+                                                        })}
+                                                    </tbody>
+                                                </table>
+                                                {totalInspectionHotelsCount === 0 && (
+                                                    <div className="py-8 text-center text-slate-400 font-bold text-xs">
+                                                        No properties matched your search.
+                                                    </div>
+                                                )}
+
+                                                {/* PAGINATION FOOTER BAR */}
+                                                <div className="px-6 py-4 bg-slate-50/70 border-t border-slate-150/60 flex flex-col sm:flex-row items-center justify-between gap-4">
+                                                    <div className="flex flex-wrap items-center gap-4 text-xs font-medium text-slate-500">
+                                                        <span>
+                                                            Showing <strong className="text-slate-800 font-bold">{totalInspectionHotelsCount === 0 ? 0 : inspectionStartIndex + 1}</strong> to <strong className="text-slate-800 font-bold">{inspectionEndIndex}</strong> of <strong className="text-slate-800 font-bold">{totalInspectionHotelsCount}</strong> properties
+                                                        </span>
+                                                        <div className="flex items-center gap-2 pl-3 border-l border-slate-200">
+                                                            <span className="text-[11px] font-bold text-slate-400">Rows per page:</span>
+                                                            <select
+                                                                value={inspectionPageSize}
+                                                                onChange={(e) => {
+                                                                    setInspectionPageSize(Number(e.target.value));
+                                                                    setInspectionPage(1);
+                                                                }}
+                                                                className="px-2 py-1 text-xs border border-slate-200 rounded-lg bg-white font-bold text-slate-700 focus:outline-none focus:border-indigo-500 cursor-pointer shadow-2xs"
+                                                            >
+                                                                <option value={10}>10</option>
+                                                                <option value={25}>25</option>
+                                                                <option value={50}>50</option>
+                                                                <option value={100}>100</option>
+                                                            </select>
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Navigation buttons */}
+                                                    {totalInspectionPages > 1 && (
+                                                        <div className="flex items-center gap-1.5">
+                                                            <button
+                                                                onClick={() => setInspectionPage(1)}
+                                                                disabled={safeInspectionPage === 1}
+                                                                className="p-1.5 text-xs font-bold rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-2xs"
+                                                                title="First Page"
+                                                            >
+                                                                <ChevronsLeft size={14} />
+                                                            </button>
+                                                            <button
+                                                                onClick={() => setInspectionPage(p => Math.max(1, p - 1))}
+                                                                disabled={safeInspectionPage === 1}
+                                                                className="p-1.5 text-xs font-bold rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-2xs"
+                                                                title="Previous Page"
+                                                            >
+                                                                <ChevronLeft size={14} />
+                                                            </button>
+
+                                                            {/* Numeric page buttons */}
+                                                            {(() => {
+                                                                const pages: number[] = [];
+                                                                const maxButtons = 5;
+                                                                let startP = Math.max(1, safeInspectionPage - 2);
+                                                                let endP = Math.min(totalInspectionPages, startP + maxButtons - 1);
+                                                                if (endP - startP + 1 < maxButtons) {
+                                                                    startP = Math.max(1, endP - maxButtons + 1);
+                                                                }
+                                                                for (let p = startP; p <= endP; p++) {
+                                                                    pages.push(p);
+                                                                }
+
+                                                                return pages.map(pageNum => (
+                                                                    <button
+                                                                        key={pageNum}
+                                                                        onClick={() => setInspectionPage(pageNum)}
+                                                                        className={`px-3 py-1.5 text-xs font-bold rounded-lg border transition-all ${
+                                                                            safeInspectionPage === pageNum
+                                                                                ? 'bg-indigo-600 border-indigo-600 text-white shadow-xs'
+                                                                                : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 shadow-2xs'
+                                                                        }`}
+                                                                    >
+                                                                        {pageNum}
+                                                                    </button>
+                                                                ));
+                                                            })()}
+
+                                                            <button
+                                                                onClick={() => setInspectionPage(p => Math.min(totalInspectionPages, p + 1))}
+                                                                disabled={safeInspectionPage === totalInspectionPages}
+                                                                className="p-1.5 text-xs font-bold rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-2xs"
+                                                                title="Next Page"
+                                                            >
+                                                                <ChevronRight size={14} />
+                                                            </button>
+                                                            <button
+                                                                onClick={() => setInspectionPage(totalInspectionPages)}
+                                                                disabled={safeInspectionPage === totalInspectionPages}
+                                                                className="p-1.5 text-xs font-bold rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-2xs"
+                                                                title="Last Page"
+                                                            >
+                                                                <ChevronsRight size={14} />
+                                                            </button>
+                                                        </div>
+                                                    )}
+                                                </div>
                                             </div>
-                                        )}
-                                    </div>
+                                        );
+                                    })()}
                                 </div>
                             </div>
                         ) : (
@@ -8208,12 +8329,11 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                 <th className="px-6 py-4.5">Country</th>
                                                 <th className="px-6 py-4.5">Brand</th>
                                                 <th className="px-6 py-4.5">Star Rating</th>
-                                                <th className="px-6 py-4.5">Self-Audit Status</th>
                                                 <th className="px-6 py-4.5 text-right">Actions</th>
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-slate-100">
-                                            {filteredHotels.map((hotel) => (
+                                            {paginatedHotels.map((hotel) => (
                                                 <tr key={hotel.id} className="hover:bg-slate-50/20 transition-colors">
                                                     <td className="px-6 py-4 whitespace-nowrap">
                                                         <div className="flex items-center gap-3">
@@ -8249,27 +8369,6 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                 <Star key={i} size={14} fill="currentColor" className="shrink-0" />
                                                             ))}
                                                         </div>
-                                                    </td>
-                                                    <td className="px-6 py-4 whitespace-nowrap">
-                                                        {getHotelFinalizedInfo(hotel).is_finalized ? (
-                                                            <div className="flex items-center gap-2">
-                                                                <span className="inline-flex items-center gap-1.5 px-2 py-1 text-[10px] font-black text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-md">
-                                                                    <Lock size={10} />
-                                                                    Finalised
-                                                                </span>
-                                                                <button
-                                                                    onClick={() => handleUnlockHotel(hotel.id)}
-                                                                    title={`Finalised by ${getHotelFinalizedInfo(hotel).finalized_by || 'Representative'} on ${getHotelFinalizedInfo(hotel).finalized_at ? new Date(getHotelFinalizedInfo(hotel).finalized_at!).toLocaleDateString() : ''}. Click to unlock.`}
-                                                                    className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-slate-100 rounded-md transition-all active:scale-95 flex items-center justify-center"
-                                                                >
-                                                                    <Unlock size={13} />
-                                                                </button>
-                                                            </div>
-                                                        ) : (
-                                                            <span className="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-bold text-slate-500 bg-slate-50 border border-slate-200 rounded-md">
-                                                                In Progress
-                                                            </span>
-                                                        )}
                                                     </td>
                                                     <td className="px-6 py-4 whitespace-nowrap text-right text-xs">
                                                         {confirmHotelDeleteId === hotel.id ? (
@@ -8311,6 +8410,98 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                             ))}
                                         </tbody>
                                     </table>
+                                </div>
+
+                                {/* PAGINATION FOOTER BAR */}
+                                <div className="px-6 py-4 bg-slate-50/70 border-t border-slate-150/60 flex flex-col sm:flex-row items-center justify-between gap-4">
+                                    <div className="flex flex-wrap items-center gap-4 text-xs font-medium text-slate-500">
+                                        <span>
+                                            Showing <strong className="text-slate-800 font-bold">{totalMasterHotelsCount === 0 ? 0 : masterHotelStartIndex + 1}</strong> to <strong className="text-slate-800 font-bold">{masterHotelEndIndex}</strong> of <strong className="text-slate-800 font-bold">{totalMasterHotelsCount}</strong> properties
+                                        </span>
+                                        <div className="flex items-center gap-2 pl-3 border-l border-slate-200">
+                                            <span className="text-[11px] font-bold text-slate-400">Rows per page:</span>
+                                            <select
+                                                value={hotelPageSize}
+                                                onChange={(e) => {
+                                                    setHotelPageSize(Number(e.target.value));
+                                                    setHotelPage(1);
+                                                }}
+                                                className="px-2 py-1 text-xs border border-slate-200 rounded-lg bg-white font-bold text-slate-700 focus:outline-none focus:border-indigo-500 cursor-pointer shadow-2xs"
+                                            >
+                                                <option value={10}>10</option>
+                                                <option value={25}>25</option>
+                                                <option value={50}>50</option>
+                                                <option value={100}>100</option>
+                                            </select>
+                                        </div>
+                                    </div>
+
+                                    {/* Navigation buttons */}
+                                    {totalMasterHotelPages > 1 && (
+                                        <div className="flex items-center gap-1.5">
+                                            <button
+                                                onClick={() => setHotelPage(1)}
+                                                disabled={safeMasterHotelPage === 1}
+                                                className="p-1.5 text-xs font-bold rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-2xs"
+                                                title="First Page"
+                                            >
+                                                <ChevronsLeft size={14} />
+                                            </button>
+                                            <button
+                                                onClick={() => setHotelPage(p => Math.max(1, p - 1))}
+                                                disabled={safeMasterHotelPage === 1}
+                                                className="p-1.5 text-xs font-bold rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-2xs"
+                                                title="Previous Page"
+                                            >
+                                                <ChevronLeft size={14} />
+                                            </button>
+
+                                            {/* Numeric page buttons */}
+                                            {(() => {
+                                                const pages: number[] = [];
+                                                const maxButtons = 5;
+                                                let startP = Math.max(1, safeMasterHotelPage - 2);
+                                                let endP = Math.min(totalMasterHotelPages, startP + maxButtons - 1);
+                                                if (endP - startP + 1 < maxButtons) {
+                                                    startP = Math.max(1, endP - maxButtons + 1);
+                                                }
+                                                for (let p = startP; p <= endP; p++) {
+                                                    pages.push(p);
+                                                }
+
+                                                return pages.map(pageNum => (
+                                                    <button
+                                                        key={pageNum}
+                                                        onClick={() => setHotelPage(pageNum)}
+                                                        className={`px-3 py-1.5 text-xs font-bold rounded-lg border transition-all ${
+                                                            safeMasterHotelPage === pageNum
+                                                                ? 'bg-indigo-600 border-indigo-600 text-white shadow-xs'
+                                                                : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 shadow-2xs'
+                                                        }`}
+                                                    >
+                                                        {pageNum}
+                                                    </button>
+                                                ));
+                                            })()}
+
+                                            <button
+                                                onClick={() => setHotelPage(p => Math.min(totalMasterHotelPages, p + 1))}
+                                                disabled={safeMasterHotelPage === totalMasterHotelPages}
+                                                className="p-1.5 text-xs font-bold rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-2xs"
+                                                title="Next Page"
+                                            >
+                                                <ChevronRight size={14} />
+                                            </button>
+                                            <button
+                                                onClick={() => setHotelPage(totalMasterHotelPages)}
+                                                disabled={safeMasterHotelPage === totalMasterHotelPages}
+                                                className="p-1.5 text-xs font-bold rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-2xs"
+                                                title="Last Page"
+                                            >
+                                                <ChevronsRight size={14} />
+                                            </button>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         )}
