@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Menu, CheckCircle, Clock, Edit3, Building, ChevronRight, ChevronDown, PlusCircle, LayoutDashboard, History, User, LogOut, FileText, Folder, Layers, Maximize2, Minimize2, RefreshCw } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Menu, CheckCircle, Clock, Edit3, Building, ChevronRight, ChevronDown, PlusCircle, LayoutDashboard, History, User, LogOut, FileText, Folder, Layers, Maximize2, Minimize2, RefreshCw, Search, X, ChevronLeft, ChevronsLeft, ChevronsRight } from 'lucide-react';
 import { supabase, HOTELS_URL, HOTELS_KEY } from '../lib/supabase';
 import { apiCache } from '../lib/cache';
 
@@ -19,6 +19,16 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
   const [isFetchingBatches, setIsFetchingBatches] = useState(false);
   const [expandedDepts, setExpandedDepts] = useState<Record<string, boolean>>({});
   const [expandedCats, setExpandedCats] = useState<Record<string, boolean>>({});
+
+  // Directory search & pagination state
+  const [directorySearchQuery, setDirectorySearchQuery] = useState('');
+  const [directoryPage, setDirectoryPage] = useState<number>(1);
+  const [directoryPageSize, setDirectoryPageSize] = useState<number>(10);
+
+  // Reset directory pagination when search changes
+  useEffect(() => {
+    setDirectoryPage(1);
+  }, [directorySearchQuery]);
 
   // Self-audit tasks statistics
   const [totalTasks, setTotalTasks] = useState(0);
@@ -140,7 +150,7 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
       const catsData = await apiCache.getOrFetch<any[]>('dashboard_categories', async () => {
         const { data, error } = await supabase
           .from('audit_categories')
-          .select('*')
+          .select('id, name, sort_order')
           .order('sort_order', { ascending: true });
         if (error) throw error;
         return data || [];
@@ -150,7 +160,7 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
       const itemsData = await apiCache.getOrFetch<any[]>('dashboard_items', async () => {
         const { data, error } = await supabase
           .from('audit_items')
-          .select('*, audit_departments(name), audit_categories(name)');
+          .select('id, name, points, category_id, department_id, sort_order, filled_by_hotel, audit_departments(name), audit_categories(name, sort_order)');
         if (error) throw error;
         return data || [];
       });
@@ -445,8 +455,8 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
     fetchAssignedBatches();
   }, [userProfile?.hotel_id]);
 
-  // Grouping auditItems by department, then category
-  const getGroupedData = () => {
+  // Grouping auditItems by department, then category using useMemo
+  const groupedData = useMemo(() => {
     const departmentsMap: Record<string, {
       id: string;
       name: string;
@@ -487,7 +497,7 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
     });
 
     // Convert map to sorted arrays
-    const sortedDepartments = Object.values(departmentsMap).map(dept => {
+    return Object.values(departmentsMap).map(dept => {
       const sortedCategories = Object.values(dept.categoriesMap).map(cat => {
         // Sort items by sort_order, then name
         const sortedItems = [...cat.items].sort((a, b) => {
@@ -517,9 +527,41 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
         categories: sortedCategories
       };
     }).sort((a, b) => a.name.localeCompare(b.name));
+  }, [auditItems]);
 
-    return sortedDepartments;
-  };
+  const filteredGroupedData = useMemo(() => {
+    if (!directorySearchQuery.trim()) return groupedData;
+    const q = directorySearchQuery.toLowerCase();
+    
+    return groupedData.map(dept => {
+      const matchDept = dept.name.toLowerCase().includes(q);
+      const filteredCategories = dept.categories.map(cat => {
+        const matchCat = cat.name.toLowerCase().includes(q);
+        const filteredItems = cat.items.filter(item => 
+          matchDept || matchCat || (item.name && item.name.toLowerCase().includes(q))
+        );
+        if (matchDept || matchCat || filteredItems.length > 0) {
+          return { ...cat, items: matchDept || matchCat ? cat.items : filteredItems };
+        }
+        return null;
+      }).filter(Boolean) as any[];
+
+      if (matchDept || filteredCategories.length > 0) {
+        return {
+          ...dept,
+          categories: matchDept ? dept.categories : filteredCategories
+        };
+      }
+      return null;
+    }).filter(Boolean) as any[];
+  }, [groupedData, directorySearchQuery]);
+
+  const totalDirectoryDepts = filteredGroupedData.length;
+  const totalDirectoryPages = Math.max(1, Math.ceil(totalDirectoryDepts / directoryPageSize));
+  const safeDirectoryPage = Math.min(Math.max(1, directoryPage), totalDirectoryPages);
+  const directoryStartIndex = (safeDirectoryPage - 1) * directoryPageSize;
+  const directoryEndIndex = Math.min(directoryStartIndex + directoryPageSize, totalDirectoryDepts);
+  const paginatedDepts = filteredGroupedData.slice(directoryStartIndex, directoryEndIndex);
 
   const toggleDept = (deptId: string) => {
     setExpandedDepts(prev => ({ ...prev, [deptId]: !prev[deptId] }));
@@ -546,8 +588,6 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
     setExpandedDepts({});
     setExpandedCats({});
   };
-
-  const groupedData = getGroupedData();
 
   // Stats calculation
   const totalDepts = groupedData.length;
@@ -735,7 +775,7 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
         </section>
 
         <section>
-            <div className="flex flex-col gap-2.5 sm:gap-4 mb-3 sm:mb-5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3 sm:mb-5">
                 <div className="flex flex-col gap-0.5 sm:gap-1">
                     <h3 className="text-lg sm:text-2xl font-extrabold text-slate-950 tracking-tight flex items-center gap-2">
                         <span className="w-1.5 sm:w-2 h-5 sm:h-6 bg-indigo-600 rounded-full" />
@@ -747,7 +787,7 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
                 {!isLoading && groupedData.length > 0 && (
                     <div className="flex items-center gap-2 flex-wrap">
                         <button 
-                            onClick={() => expandAll(groupedData)}
+                            onClick={() => expandAll(filteredGroupedData)}
                             className="p-1 sm:p-1.5 px-2.5 sm:px-3 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-full text-[10px] sm:text-[11px] font-bold transition-all flex items-center gap-1 sm:gap-1.5 outline-none active:scale-95 border border-indigo-100/30"
                         >
                             <Maximize2 size={11} />
@@ -764,7 +804,49 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
                 )}
             </div>
 
+            {/* Search Filter Bar */}
+            {!isLoading && groupedData.length > 0 && (
+                <div className="mb-4 flex flex-col sm:flex-row items-center justify-between gap-3 bg-white p-2.5 sm:p-3 rounded-2xl border border-slate-200/80 shadow-xs">
+                    <div className="relative w-full sm:w-80">
+                        <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                        <input
+                            type="text"
+                            value={directorySearchQuery}
+                            onChange={(e) => setDirectorySearchQuery(e.target.value)}
+                            placeholder="Search departments, categories, or items..."
+                            className="w-full pl-9 pr-8 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all placeholder:text-slate-400"
+                        />
+                        {directorySearchQuery && (
+                            <button
+                                onClick={() => setDirectorySearchQuery('')}
+                                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 rounded-full"
+                            >
+                                <X size={14} />
+                            </button>
+                        )}
+                    </div>
 
+                    <div className="flex items-center justify-between w-full sm:w-auto gap-3 text-xs font-bold text-slate-500">
+                        <span>Showing <strong className="text-slate-800">{totalDirectoryDepts}</strong> department{totalDirectoryDepts === 1 ? '' : 's'}</span>
+                        <div className="flex items-center gap-1.5">
+                            <span className="text-[11px] text-slate-400 font-semibold hidden sm:inline">Per page:</span>
+                            <select
+                                value={directoryPageSize}
+                                onChange={(e) => {
+                                    setDirectoryPageSize(Number(e.target.value));
+                                    setDirectoryPage(1);
+                                }}
+                                className="bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-xs font-extrabold text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                            >
+                                <option value={5}>5</option>
+                                <option value={10}>10</option>
+                                <option value={20}>20</option>
+                                <option value={50}>50</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             <div className="space-y-3 sm:space-y-4">
                 {isLoading ? (
@@ -772,10 +854,12 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
                         <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full border-2 border-indigo-600 border-t-transparent animate-spin" />
                         Loading audit directory...
                     </div>
-                ) : groupedData.length === 0 ? (
-                    <div className="text-center py-10 sm:py-12 text-slate-400 font-bold text-xs sm:text-sm bg-white rounded-xl sm:rounded-2xl border border-slate-200">No audit items found.</div>
+                ) : filteredGroupedData.length === 0 ? (
+                    <div className="text-center py-10 sm:py-12 text-slate-400 font-bold text-xs sm:text-sm bg-white rounded-xl sm:rounded-2xl border border-slate-200">
+                        {directorySearchQuery ? 'No matching audit items found for your search query.' : 'No audit items found.'}
+                    </div>
                 ) : (
-                    groupedData.map(dept => {
+                    paginatedDepts.map(dept => {
                         const isDeptExpanded = !!expandedDepts[dept.id];
                         const deptItemCount = dept.categories.reduce((acc: number, c: any) => acc + c.items.length, 0);
                         const deptPoints = dept.categories.reduce((acc: number, c: any) => acc + c.items.reduce((sum: number, i: any) => sum + (i.points || 0), 0), 0);
@@ -822,7 +906,7 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
                                 {/* Department Accordion Body (Contains Categories) */}
                                 {isDeptExpanded && (
                                     <div className="p-4 bg-slate-50/30 border-t-0 space-y-3">
-                                        {dept.categories.map(cat => {
+                                        {dept.categories.map((cat: any) => {
                                             const isCatExpanded = !!expandedCats[cat.id];
                                             const catPoints = cat.items.reduce((sum: number, i: any) => sum + (i.points || 0), 0);
 
@@ -868,7 +952,7 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
                                                                     No checklist items in this category.
                                                                 </p>
                                                             ) : (
-                                                                cat.items.map(item => (
+                                                                cat.items.map((item: any) => (
                                                                     <div 
                                                                         key={item.id} 
                                                                         className="p-3 pl-6 pr-4 flex items-start justify-between gap-3 bg-white hover:bg-indigo-50/10 transition-colors"
@@ -906,6 +990,75 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
                     })
                 )}
             </div>
+
+            {/* Pagination Controls Footer */}
+            {!isLoading && totalDirectoryDepts > 0 && totalDirectoryPages > 1 && (
+                <div className="mt-5 flex flex-col sm:flex-row items-center justify-between gap-3 bg-white p-3 rounded-2xl border border-slate-200/80 shadow-xs">
+                    <p className="text-xs font-semibold text-slate-500">
+                        Showing <strong className="text-slate-800">{directoryStartIndex + 1}</strong> to <strong className="text-slate-800">{directoryEndIndex}</strong> of <strong className="text-slate-800">{totalDirectoryDepts}</strong> departments
+                    </p>
+
+                    <div className="flex items-center gap-1">
+                        <button
+                            onClick={() => setDirectoryPage(1)}
+                            disabled={safeDirectoryPage === 1}
+                            className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-30 disabled:hover:bg-transparent transition-all"
+                            title="First Page"
+                        >
+                            <ChevronsLeft size={16} />
+                        </button>
+                        <button
+                            onClick={() => setDirectoryPage(prev => Math.max(1, prev - 1))}
+                            disabled={safeDirectoryPage === 1}
+                            className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-30 disabled:hover:bg-transparent transition-all"
+                            title="Previous Page"
+                        >
+                            <ChevronLeft size={16} />
+                        </button>
+
+                        <div className="flex items-center gap-1 px-2">
+                            {Array.from({ length: totalDirectoryPages }, (_, idx) => idx + 1)
+                                .filter(p => p === 1 || p === totalDirectoryPages || Math.abs(p - safeDirectoryPage) <= 1)
+                                .map((p, idx, arr) => {
+                                    const prevPage = arr[idx - 1];
+                                    const showEllipsis = prevPage && p - prevPage > 1;
+                                    return (
+                                        <React.Fragment key={p}>
+                                            {showEllipsis && <span className="text-slate-400 text-xs px-1">...</span>}
+                                            <button
+                                                onClick={() => setDirectoryPage(p)}
+                                                className={`min-w-[28px] h-7 px-2 text-xs font-extrabold rounded-lg transition-all ${
+                                                    safeDirectoryPage === p
+                                                        ? 'bg-indigo-600 text-white shadow-xs'
+                                                        : 'text-slate-600 hover:bg-slate-100'
+                                                }`}
+                                            >
+                                                {p}
+                                            </button>
+                                        </React.Fragment>
+                                    );
+                                })}
+                        </div>
+
+                        <button
+                            onClick={() => setDirectoryPage(prev => Math.min(totalDirectoryPages, prev + 1))}
+                            disabled={safeDirectoryPage === totalDirectoryPages}
+                            className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-30 disabled:hover:bg-transparent transition-all"
+                            title="Next Page"
+                        >
+                            <ChevronRight size={16} />
+                        </button>
+                        <button
+                            onClick={() => setDirectoryPage(totalDirectoryPages)}
+                            disabled={safeDirectoryPage === totalDirectoryPages}
+                            className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-30 disabled:hover:bg-transparent transition-all"
+                            title="Last Page"
+                        >
+                            <ChevronsRight size={16} />
+                        </button>
+                    </div>
+                </div>
+            )}
         </section>
       </main>
 
