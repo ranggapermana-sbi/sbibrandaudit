@@ -249,6 +249,9 @@ export default function PendingCategoriesScreen({ onBack, onNavigate, userProfil
             }
 
             // 5. Map categories and calculate completed vs total items for each category
+            const storedScoresRaw = localStorage.getItem('sbi_inspection_scores');
+            const inspectionScores = storedScoresRaw ? JSON.parse(storedScoresRaw) : {};
+
             const mapped = filteredCats.map((cat: any) => {
                 const catItems = (itemsData || []).filter((item: any) => 
                     String(item.category_id || '') === String(cat.id || '') && 
@@ -284,10 +287,20 @@ export default function PendingCategoriesScreen({ onBack, onNavigate, userProfil
                         }
                     }
 
+                    // Determine if auditor approved N/A or made it N/A themselves
+                    let isAuditorNa = false;
+                    for (const hId of targetHotelIds) {
+                        if (inspectionScores[`${hId}_${item.id}`] === 'N/A') {
+                            isAuditorNa = true;
+                            break;
+                        }
+                    }
+
                     const itemPoints = item.points !== undefined && item.points !== null ? Number(item.points) : 5;
 
-                    // If item is N/A (exempted), do NOT include it in total points or total task count
-                    if (!isNa) {
+                    // If item is N/A (exempted by auditor), do NOT include it in total points or total task count
+                    // Otherwise, if auditee marked N/A but auditor has not approved, it does not reduce total possible score
+                    if (!isAuditorNa) {
                         catPointsTotal += itemPoints;
                         validItemsCount++;
                         if (isCompleted) {

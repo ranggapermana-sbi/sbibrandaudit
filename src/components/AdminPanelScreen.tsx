@@ -7458,9 +7458,20 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                 hotelItems.forEach((item: any) => {
                                     const itemIdStr = String(item.id);
                                     const isSubmitted = submittedItemIdsForHotel.has(itemIdStr);
-                                    const isNa = naItemIdsForHotel.has(itemIdStr);
 
-                                    if (!isNa) {
+                                    // Determine if auditor approved N/A or made it N/A themselves
+                                    let isAuditorNa = false;
+                                    for (const pid of possibleIds) {
+                                        if (inspectionScores[`${pid}_${item.id}`] === 'N/A') {
+                                            isAuditorNa = true;
+                                            break;
+                                        }
+                                    }
+                                    if (currentHotel?.id && inspectionScores[`${currentHotel.id}_${item.id}`] === 'N/A') {
+                                        isAuditorNa = true;
+                                    }
+
+                                    if (!isAuditorNa) {
                                         totalT++;
                                         if (isSubmitted) {
                                             completedT++;

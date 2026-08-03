@@ -330,6 +330,9 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
       let totalP = 0;
       let completedP = 0;
 
+      const storedScoresRaw = localStorage.getItem('sbi_inspection_scores');
+      const inspectionScores = storedScoresRaw ? JSON.parse(storedScoresRaw) : {};
+
       selfAuditItems.forEach((item: any) => {
         const itemIdStr = String(item.id);
         let isNa = naItemIds.has(itemIdStr);
@@ -348,8 +351,20 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
           }
         }
 
+        // Determine if auditor approved N/A or made it N/A themselves
+        let isAuditorNa = false;
+        for (const hId of possibleHotelIds) {
+          if (inspectionScores[`${hId}_${item.id}`] === 'N/A') {
+            isAuditorNa = true;
+            break;
+          }
+        }
+
         const pts = item.points !== undefined && item.points !== null ? Number(item.points) : 5;
-        if (!isNa) {
+        
+        // If item is N/A (exempted by auditor), do NOT include it in total points or total task count
+        // Otherwise, if auditee marked N/A but auditor has not approved, it does not reduce total possible score
+        if (!isAuditorNa) {
           totalT++;
           totalP += pts;
           if (submittedItemIds.has(itemIdStr)) {
