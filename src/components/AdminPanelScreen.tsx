@@ -6591,9 +6591,18 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                 assignedItemIds = Array.from(allItemIds);
                                                             }
 
-                                                            const allHotelItems = items.filter(item => 
-                                                                (!assignedItemIds || assignedItemIds.length === 0 || assignedItemIds.includes(String(item.id)))
-                                                            );
+                                                            const isUserAuditor = userProfile?.access_level === 'auditor';
+                                                            const auditorAssignedCatIds = isUserAuditor
+                                                                ? auditorCategoryAssignments
+                                                                    .filter(a => a.user_id === userProfile.id)
+                                                                    .map(a => String(a.category_id))
+                                                                : null;
+
+                                                            const allHotelItems = items.filter(item => {
+                                                                const matchesGroup = !assignedItemIds || assignedItemIds.length === 0 || assignedItemIds.includes(String(item.id));
+                                                                const matchesAuditor = !auditorAssignedCatIds || auditorAssignedCatIds.includes(String(item.categoryId));
+                                                                return matchesGroup && matchesAuditor;
+                                                            });
                                                             const totalItems = allHotelItems.length;
 
                                                             // Hotel's actual filled items & progress (including draft submissions before finalising)
@@ -6818,9 +6827,18 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                     assignedItemIds = Array.from(allItemIds);
                                 }
 
-                                const allHotelItems = items.filter(item => 
-                                    (!assignedItemIds || assignedItemIds.length === 0 || assignedItemIds.includes(String(item.id)))
-                                );
+                                const isUserAuditor = userProfile?.access_level === 'auditor';
+                                const auditorAssignedCatIds = isUserAuditor
+                                    ? auditorCategoryAssignments
+                                        .filter(a => a.user_id === userProfile.id)
+                                        .map(a => String(a.category_id))
+                                    : null;
+
+                                const allHotelItems = items.filter(item => {
+                                    const matchesGroup = !assignedItemIds || assignedItemIds.length === 0 || assignedItemIds.includes(String(item.id));
+                                    const matchesAuditor = !auditorAssignedCatIds || auditorAssignedCatIds.includes(String(item.categoryId));
+                                    return matchesGroup && matchesAuditor;
+                                });
 
                                 const scoredItems = allHotelItems.filter(i => inspectionScores[`${hotel.id}_${i.id}`] !== undefined);
                                 const totalPointsScored = scoredItems.reduce((sum, i) => {
@@ -6847,6 +6865,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
 
                                 const categoriesWithItems = catList.filter(cat => 
                                     (!assignedCategoryIds || assignedCategoryIds.length === 0 || assignedCategoryIds.includes(String(cat.id))) &&
+                                    (!auditorAssignedCatIds || auditorAssignedCatIds.includes(String(cat.id))) &&
                                     allHotelItems.some(item => item.categoryId === cat.id)
                                 );
 
