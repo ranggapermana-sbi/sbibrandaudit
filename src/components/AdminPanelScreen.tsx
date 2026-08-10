@@ -96,6 +96,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     const [progressCountryFilter, setProgressCountryFilter] = useState<string>('');
     const [progressBrandFilter, setProgressBrandFilter] = useState<string>('');
     const [progressBrandLeadFilter, setProgressBrandLeadFilter] = useState<'all' | 'has_lead' | 'no_lead'>('all');
+    const [progressStatusFilter, setProgressStatusFilter] = useState<'all' | 'finalized' | 'in_progress' | 'not_started'>('all');
     const [progressSearchQuery, setProgressSearchQuery] = useState<string>('');
     const [progressSortField, setProgressSortField] = useState<'name' | 'brand' | 'location' | 'progress' | 'status'>('name');
     const [progressSortDirection, setProgressSortDirection] = useState<'asc' | 'desc'>('asc');
@@ -2014,16 +2015,17 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     const [hotelPageSize, setHotelPageSize] = useState<number>(10);
     const [inspectionPage, setInspectionPage] = useState<number>(1);
     const [inspectionPageSize, setInspectionPageSize] = useState<number>(10);
+    const [inspectionStatusFilter, setInspectionStatusFilter] = useState<'all' | 'finalized' | 'in_progress' | 'not_started'>('all');
 
     // Reset hotel pagination when search or filters change
     useEffect(() => {
         setHotelPage(1);
     }, [searchQuery, hotelFilterBrand, hotelFilterStars]);
 
-    // Reset inspection pagination when search query or subview changes
+    // Reset inspection pagination when search query, status filter or subview changes
     useEffect(() => {
         setInspectionPage(1);
-    }, [searchQuery, subView]);
+    }, [searchQuery, inspectionStatusFilter, subView]);
 
     // Department Dialog states
     const [isDeptFormOpen, setIsDeptFormOpen] = useState(false);
@@ -6537,24 +6539,51 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                         Select a Property to Begin Inspection
                                     </h3>
                                     
-                                    {/* Search Bar for Inspection */}
-                                    <div className="relative mb-6">
-                                        <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-                                            <Search size={18} />
+                                    {/* Search Bar & Filters for Inspection */}
+                                    <div className="flex flex-col sm:flex-row items-center gap-3 mb-6">
+                                        <div className="relative flex-1 w-full">
+                                            <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                                                <Search size={18} />
+                                            </div>
+                                            <input
+                                                type="text"
+                                                placeholder="Search registered hotel properties by name or code..."
+                                                value={searchQuery}
+                                                onChange={(e) => setSearchQuery(e.target.value)}
+                                                className="w-full pl-10 pr-10 py-3 bg-slate-50/50 hover:bg-slate-50 focus:bg-white border border-slate-200 focus:border-indigo-350 rounded-2xl text-slate-800 text-sm outline-none transition-all placeholder:text-slate-400 font-medium"
+                                            />
+                                            {searchQuery && (
+                                                <button 
+                                                    onClick={() => setSearchQuery('')}
+                                                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600"
+                                                >
+                                                    <X size={16} />
+                                                </button>
+                                            )}
                                         </div>
-                                        <input
-                                            type="text"
-                                            placeholder="Search registered hotel properties by name or code..."
-                                            value={searchQuery}
-                                            onChange={(e) => setSearchQuery(e.target.value)}
-                                            className="w-full pl-10 pr-4 py-3 bg-slate-50/50 hover:bg-slate-50 focus:bg-white border border-slate-200 focus:border-indigo-350 rounded-2xl text-slate-800 text-sm outline-none transition-all placeholder:text-slate-400"
-                                        />
-                                        {searchQuery && (
-                                            <button 
-                                                onClick={() => setSearchQuery('')}
-                                                className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600"
+
+                                        <div className="w-full sm:w-[220px]">
+                                            <select
+                                                value={inspectionStatusFilter}
+                                                onChange={(e) => setInspectionStatusFilter(e.target.value as any)}
+                                                className="w-full px-3.5 py-3 text-xs border border-slate-200 rounded-2xl bg-slate-50/50 hover:bg-slate-50 focus:bg-white focus:outline-none focus:border-indigo-500 font-bold transition-all text-slate-700 shadow-2xs"
                                             >
-                                                <X size={16} />
+                                                <option value="all">All Audit Statuses</option>
+                                                <option value="finalized">Finalised & Submitted</option>
+                                                <option value="in_progress">In Progress / Draft</option>
+                                                <option value="not_started">Not Started</option>
+                                            </select>
+                                        </div>
+
+                                        {(searchQuery || inspectionStatusFilter !== 'all') && (
+                                            <button
+                                                onClick={() => {
+                                                    setSearchQuery('');
+                                                    setInspectionStatusFilter('all');
+                                                }}
+                                                className="whitespace-nowrap text-xs text-indigo-600 hover:text-indigo-800 font-black uppercase tracking-wider flex items-center gap-1.5 px-3 py-3 hover:bg-indigo-50 rounded-2xl transition-all"
+                                            >
+                                                <X size={14} /> Reset Filters
                                             </button>
                                         )}
                                     </div>
@@ -6563,11 +6592,34 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                     {(() => {
                                         const inspectionHotelsFiltered = hotels.filter(h => {
                                             const isMatchSearch = !searchQuery || h.name.toLowerCase().includes(searchQuery.toLowerCase()) || (h.code && h.code.toLowerCase().includes(searchQuery.toLowerCase()));
+                                            
+                                            let isMatchStatus = true;
+                                            if (inspectionStatusFilter !== 'all') {
+                                                const isFin = getHotelFinalizedInfo(h).is_finalized;
+                                                if (inspectionStatusFilter === 'finalized') {
+                                                    isMatchStatus = isFin;
+                                                } else if (inspectionStatusFilter === 'in_progress') {
+                                                    if (isFin) {
+                                                        isMatchStatus = false;
+                                                    } else {
+                                                        const hotelSubs = allSubmissions.filter(s => isSubmissionForHotel(s.hotel_id, h));
+                                                        isMatchStatus = hotelSubs.length > 0;
+                                                    }
+                                                } else if (inspectionStatusFilter === 'not_started') {
+                                                    if (isFin) {
+                                                        isMatchStatus = false;
+                                                    } else {
+                                                        const hotelSubs = allSubmissions.filter(s => isSubmissionForHotel(s.hotel_id, h));
+                                                        isMatchStatus = hotelSubs.length === 0;
+                                                    }
+                                                }
+                                            }
+
                                             if (userProfile?.access_level === 'auditor') {
                                                 const isAssigned = auditorAssignments.some(a => a.user_id === userProfile.id && a.hotel_id === h.id);
-                                                return isMatchSearch && isAssigned;
+                                                return isMatchSearch && isMatchStatus && isAssigned;
                                             }
-                                            return isMatchSearch;
+                                            return isMatchSearch && isMatchStatus;
                                         });
 
                                         const totalInspectionHotelsCount = inspectionHotelsFiltered.length;
@@ -7663,7 +7715,19 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                     (h.name || '').toLowerCase().includes(q) || 
                                     (h.code || '').toLowerCase().includes(q);
 
-                                return matchesRegion && matchesCountry && matchesBrand && matchesBrandLead && matchesSearch;
+                                let matchesStatus = true;
+                                if (progressStatusFilter !== 'all') {
+                                    const progInfo = getHotelProgressCached(h.id);
+                                    if (progressStatusFilter === 'finalized') {
+                                        matchesStatus = progInfo.isFinalized;
+                                    } else if (progressStatusFilter === 'in_progress') {
+                                        matchesStatus = !progInfo.isFinalized && progInfo.percentage > 0;
+                                    } else if (progressStatusFilter === 'not_started') {
+                                        matchesStatus = !progInfo.isFinalized && progInfo.percentage === 0;
+                                    }
+                                }
+
+                                return matchesRegion && matchesCountry && matchesBrand && matchesBrandLead && matchesSearch && matchesStatus;
                             });
 
                             // Sorting logic optimized for audit report
@@ -7950,8 +8014,25 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                     </select>
                                                 </div>
 
+                                                {/* Audit Status Filter */}
+                                                <div className="w-full sm:w-[180px]">
+                                                    <select
+                                                        className="w-full px-3 py-2.5 text-xs border border-slate-200 rounded-xl bg-slate-50/50 focus:bg-white focus:outline-none focus:border-indigo-500 font-bold transition-all text-slate-700"
+                                                        value={progressStatusFilter}
+                                                        onChange={(e) => {
+                                                            setProgressStatusFilter(e.target.value as any);
+                                                            setProgressPage(1);
+                                                        }}
+                                                    >
+                                                        <option value="all">All Audit Statuses</option>
+                                                        <option value="finalized">Finalised & Submitted</option>
+                                                        <option value="in_progress">In Progress</option>
+                                                        <option value="not_started">Not Started</option>
+                                                    </select>
+                                                </div>
+
                                                 {/* Clear filters trigger */}
-                                                {(progressRegionFilter || progressCountryFilter || progressBrandFilter || progressSearchQuery || progressBrandLeadFilter !== 'all') && (
+                                                {(progressRegionFilter || progressCountryFilter || progressBrandFilter || progressSearchQuery || progressBrandLeadFilter !== 'all' || progressStatusFilter !== 'all') && (
                                                     <button
                                                         onClick={() => {
                                                             setProgressRegionFilter('');
@@ -7959,6 +8040,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                             setProgressBrandFilter('');
                                                             setProgressSearchQuery('');
                                                             setProgressBrandLeadFilter('all');
+                                                            setProgressStatusFilter('all');
                                                             setProgressPage(1);
                                                         }}
                                                         className="text-xs text-indigo-600 hover:text-indigo-800 font-black uppercase tracking-wider flex items-center gap-1.5 px-3 py-2.5 hover:bg-indigo-50 rounded-xl transition-all"
