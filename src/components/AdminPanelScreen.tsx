@@ -327,25 +327,43 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
 
             // Category assignments
             try {
-                const { data: catData, error: catErr } = await supabase
+                const { data: catData } = await supabase
                     .from('auditor_category_assignments')
                     .select('*');
-                if (catData && catData.length >= 0) {
-                    setAuditorCategoryAssignments(catData);
-                    localStorage.setItem('sbi_auditor_category_assignments', JSON.stringify(catData));
-                } else if (catErr) {
-                    // Fallback to auditor_assignments if category_id exists there
-                    const { data: altData } = await supabase
-                        .from('auditor_assignments')
-                        .select('*');
-                    if (altData) {
-                        const catOnly = altData.filter((a: any) => a.category_id);
-                        if (catOnly.length > 0) {
-                            setAuditorCategoryAssignments(catOnly);
-                            localStorage.setItem('sbi_auditor_category_assignments', JSON.stringify(catOnly));
-                        }
-                    }
+                
+                const { data: altData } = await supabase
+                    .from('auditor_assignments')
+                    .select('*');
+
+                const combinedCatMap = new Map<string, any>();
+                if (catData && Array.isArray(catData)) {
+                    catData.forEach((item: any) => combinedCatMap.set(`${item.user_id}_${item.category_id}`, item));
                 }
+                if (altData && Array.isArray(altData)) {
+                    altData.filter((a: any) => a.category_id).forEach((item: any) => {
+                        const key = `${item.user_id}_${item.category_id}`;
+                        if (!combinedCatMap.has(key)) combinedCatMap.set(key, item);
+                    });
+                }
+
+                const localCatSaved = localStorage.getItem('sbi_auditor_category_assignments');
+                if (localCatSaved) {
+                    try {
+                        const localCatList = JSON.parse(localCatSaved);
+                        if (Array.isArray(localCatList)) {
+                            localCatList.forEach((item: any) => {
+                                if (item.user_id && item.category_id) {
+                                    const key = `${item.user_id}_${item.category_id}`;
+                                    if (!combinedCatMap.has(key)) combinedCatMap.set(key, item);
+                                }
+                            });
+                        }
+                    } catch (e) {}
+                }
+
+                const mergedCatList = Array.from(combinedCatMap.values());
+                setAuditorCategoryAssignments(mergedCatList);
+                localStorage.setItem('sbi_auditor_category_assignments', JSON.stringify(mergedCatList));
             } catch (e) {
                 console.warn('Auditor category assignment fetch warning:', e);
             }
@@ -6667,16 +6685,17 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                 assignedItemIds = Array.from(allItemIds);
                                                             }
 
-                                                            const isUserAuditor = userProfile?.access_level === 'auditor';
+                                                            const isUserAuditor = userProfile?.access_level === 'auditor' || userProfile?.role === 'auditor';
                                                             const auditorAssignedCatIds = isUserAuditor
                                                                 ? auditorCategoryAssignments
-                                                                    .filter(a => a.user_id === userProfile.id)
+                                                                    .filter(a => String(a.user_id).trim().toLowerCase() === String(userProfile?.id || '').trim().toLowerCase())
                                                                     .map(a => String(a.category_id))
                                                                 : null;
 
                                                             const allHotelItems = items.filter(item => {
+                                                                const itemCatId = String(item.categoryId || item.category_id || '');
                                                                 const matchesGroup = !assignedItemIds || assignedItemIds.length === 0 || assignedItemIds.includes(String(item.id));
-                                                                const matchesAuditor = !auditorAssignedCatIds || auditorAssignedCatIds.includes(String(item.categoryId));
+                                                                const matchesAuditor = !auditorAssignedCatIds || auditorAssignedCatIds.includes(itemCatId);
                                                                 return matchesGroup && matchesAuditor;
                                                             });
                                                             const totalItems = allHotelItems.length;
@@ -6903,16 +6922,17 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                     assignedItemIds = Array.from(allItemIds);
                                 }
 
-                                const isUserAuditor = userProfile?.access_level === 'auditor';
+                                const isUserAuditor = userProfile?.access_level === 'auditor' || userProfile?.role === 'auditor';
                                 const auditorAssignedCatIds = isUserAuditor
                                     ? auditorCategoryAssignments
-                                        .filter(a => a.user_id === userProfile.id)
+                                        .filter(a => String(a.user_id).trim().toLowerCase() === String(userProfile?.id || '').trim().toLowerCase())
                                         .map(a => String(a.category_id))
                                     : null;
 
                                 const allHotelItems = items.filter(item => {
+                                    const itemCatId = String(item.categoryId || item.category_id || '');
                                     const matchesGroup = !assignedItemIds || assignedItemIds.length === 0 || assignedItemIds.includes(String(item.id));
-                                    const matchesAuditor = !auditorAssignedCatIds || auditorAssignedCatIds.includes(String(item.categoryId));
+                                    const matchesAuditor = !auditorAssignedCatIds || auditorAssignedCatIds.includes(itemCatId);
                                     return matchesGroup && matchesAuditor;
                                 });
 
@@ -6939,10 +6959,16 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                 );
                                 const subCount = hotelSubs.length;
 
-                                const categoriesWithItems = catList.filter(cat => 
-                                    (!assignedCategoryIds || assignedCategoryIds.length === 0 || assignedCategoryIds.includes(String(cat.id))) &&
-                                    (!auditorAssignedCatIds || auditorAssignedCatIds.includes(String(cat.id))) &&
-                                    allHotelItems.some(item => item.categoryId === cat.id)
+                                const categoriesWithItems = catList.filter(cat => {
+                                    const catIdStr = String(cat.id);
+                                    const matchesGroupCat = !assignedCategoryIds || assignedCategoryIds.length === 0 || assignedCategoryIds.includes(catIdStr);
+                                    const matchesAuditorCat = !auditorAssignedCatIds || auditorAssignedCatIds.includes(catIdStr);
+                                    const hasItems = allHotelItems.some(item => String(item.categoryId || item.category_id || '') === catIdStr);
+                                    return matchesGroupCat && matchesAuditorCat && hasItems;
+                                });
+
+                                const displayedCategories = categoriesWithItems.filter(cat => 
+                                    !selectedInspectionCategoryId || String(cat.id) === String(selectedInspectionCategoryId)
                                 );
 
                                 return (
@@ -6979,6 +7005,21 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                 </div>
 
                                                 <div className="flex flex-wrap gap-3">
+                                                    {categoriesWithItems.length > 0 && (
+                                                        <div className="h-11 px-4 bg-white/5 border border-white/10 rounded-2xl flex items-center gap-2 text-xs font-bold transition-all">
+                                                            <Layers size={14} className="text-emerald-400 shrink-0" />
+                                                            <select
+                                                                value={selectedInspectionCategoryId}
+                                                                onChange={(e) => setSelectedInspectionCategoryId(e.target.value)}
+                                                                className="bg-transparent text-xs font-black text-white focus:outline-none cursor-pointer"
+                                                            >
+                                                                <option value="" className="bg-slate-900 text-white">All Assigned Categories ({categoriesWithItems.length})</option>
+                                                                {categoriesWithItems.map(c => (
+                                                                    <option key={c.id} value={c.id} className="bg-slate-900 text-white">{c.name}</option>
+                                                                ))}
+                                                            </select>
+                                                        </div>
+                                                    )}
                                                     {getHotelFinalizedInfo(hotel).is_finalized && (
                                                         <button 
                                                             onClick={() => handleUnlockHotel(hotel.id)}
@@ -7050,8 +7091,18 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
 
                                         {/* AUDIT WORKSPACE: CATEGORIES & CRITERIA */}
                                         <div className="space-y-6">
-                                            {categoriesWithItems.map((cat, catIdx) => {
-                                                const catItems = allHotelItems.filter(i => i.categoryId === cat.id);
+                                            {isUserAuditor && auditorAssignedCatIds && auditorAssignedCatIds.length === 0 && (
+                                                <div className="bg-amber-500/10 border border-amber-500/20 rounded-2xl p-6 text-amber-200 text-xs font-semibold flex items-center gap-3">
+                                                    <AlertCircle size={20} className="text-amber-400 shrink-0" />
+                                                    <div>
+                                                        <strong className="block text-amber-100 font-bold mb-0.5 text-sm">No Audit Categories Assigned</strong>
+                                                        Your account is configured as an Auditor, but you have no checklist categories assigned for inspection yet. Please ask an Administrator to assign audit categories to your account in User Management.
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {displayedCategories.map((cat, catIdx) => {
+                                                const catItems = allHotelItems.filter(i => String(i.categoryId || i.category_id || '') === String(cat.id));
                                                 const scoredInCat = catItems.filter(i => inspectionScores[`${hotel.id}_${i.id}`] !== undefined).length;
                                                 const isCatComplete = scoredInCat === catItems.length;
 
