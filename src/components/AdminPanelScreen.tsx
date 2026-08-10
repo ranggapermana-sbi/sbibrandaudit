@@ -3409,11 +3409,35 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
 
                 if (missingHotelIds.length > 0) {
                     const rowsToInsert = missingHotelIds.map(hId => ({ user_id: auditorId, hotel_id: hId }));
-                    const { error: insErr } = await supabase.from('auditor_assignments').insert(rowsToInsert);
-                    if (insErr) {
-                        console.warn('Supabase insert warning, retrying individual rows:', insErr);
-                        for (const row of rowsToInsert) {
-                            await supabase.from('auditor_assignments').insert(row);
+                    
+                    // Attempt upsert first using hotel_id onConflict to gracefully update/insert without duplicate key errors
+                    let { error: upsertErr } = await supabase
+                        .from('auditor_assignments')
+                        .upsert(rowsToInsert, { onConflict: 'hotel_id' });
+
+                    if (upsertErr) {
+                        // Fallback: try upsert on user_id,hotel_id composite key
+                        const { error: compositeErr } = await supabase
+                            .from('auditor_assignments')
+                            .upsert(rowsToInsert, { onConflict: 'user_id,hotel_id' });
+
+                        if (compositeErr) {
+                            // Secondary fallback: delete existing hotel_id records first to avoid unique constraint 23505 errors, then insert
+                            await supabase
+                                .from('auditor_assignments')
+                                .delete()
+                                .in('hotel_id', missingHotelIds);
+
+                            const { error: insErr } = await supabase
+                                .from('auditor_assignments')
+                                .insert(rowsToInsert);
+
+                            if (insErr) {
+                                for (const row of rowsToInsert) {
+                                    await supabase.from('auditor_assignments').delete().eq('hotel_id', row.hotel_id);
+                                    await supabase.from('auditor_assignments').insert(row);
+                                }
+                            }
                         }
                     }
                 }
