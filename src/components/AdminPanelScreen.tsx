@@ -7216,6 +7216,25 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                     !selectedInspectionCategoryId || String(cat.id) === String(selectedInspectionCategoryId)
                                 );
 
+                                // Calculate assigned auditors for this hotel
+                                const hotelAssignedAuditors = (auditorAssignments || [])
+                                    .filter(a => String(a.hotel_id).trim() === String(hotel.id).trim())
+                                    .map(a => {
+                                        const uIdStr = String(a.user_id).trim().toLowerCase();
+                                        if (userProfile && String(userProfile.id).trim().toLowerCase() === uIdStr) return userProfile;
+                                        return (profilesList || []).find(p => String(p.id).trim().toLowerCase() === uIdStr);
+                                    })
+                                    .filter(Boolean);
+
+                                const uniqueHotelAuditorsMap = new Map();
+                                hotelAssignedAuditors.forEach(u => {
+                                    if (u && u.id) uniqueHotelAuditorsMap.set(String(u.id).toLowerCase(), u);
+                                });
+                                const uniqueHotelAuditors = Array.from(uniqueHotelAuditorsMap.values());
+                                const hotelAuditorDisplayNames = uniqueHotelAuditors.length > 0
+                                    ? uniqueHotelAuditors.map(u => u.display_name || `${u.first_name || ''} ${u.last_name || ''}`.trim() || u.email || 'Auditor').join(', ')
+                                    : (userProfile ? `${userProfile.first_name || ''} ${userProfile.last_name || ''}`.trim() || userProfile.display_name || userProfile.email : 'System Auditor');
+
                                 return (
                                     <div className="flex flex-col gap-6 animate-fadeIn pb-24">
                                         {/* INSPECTION HEADER: PROPERTY & CONTEXT */}
@@ -7243,7 +7262,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                             <span className="text-slate-600 font-normal select-none">|</span>
                                                             <span className="flex items-center gap-1.5 text-indigo-300">
                                                                 <User size={12} className="text-indigo-400" />
-                                                                Auditor: <strong className="font-extrabold text-white">{userProfile ? `${userProfile.first_name || ''} ${userProfile.last_name || ''}`.trim() || userProfile.display_name || userProfile.email : 'System Auditor'}</strong>
+                                                                Assigned Auditor: <strong className="font-extrabold text-white">{hotelAuditorDisplayNames}</strong>
                                                             </span>
                                                         </p>
                                                     </div>
@@ -7351,6 +7370,26 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                 const scoredInCat = catItems.filter(i => inspectionScores[`${hotel.id}_${i.id}`] !== undefined).length;
                                                 const isCatComplete = scoredInCat === catItems.length;
 
+                                                const catIdStr = String(cat.id).trim();
+                                                const catAssignedAuditors = (auditorCategoryAssignments || [])
+                                                    .filter(a => String(a.category_id).trim() === catIdStr)
+                                                    .map(a => {
+                                                        const uIdStr = String(a.user_id).trim().toLowerCase();
+                                                        if (userProfile && String(userProfile.id).trim().toLowerCase() === uIdStr) return userProfile;
+                                                        return (profilesList || []).find(p => String(p.id).trim().toLowerCase() === uIdStr);
+                                                    })
+                                                    .filter(Boolean);
+
+                                                const catAuditorMap = new Map();
+                                                catAssignedAuditors.forEach(u => {
+                                                    if (u && u.id) catAuditorMap.set(String(u.id).toLowerCase(), u);
+                                                });
+                                                const uniqueCatAuditors = Array.from(catAuditorMap.values());
+                                                const effectiveAuditors = uniqueCatAuditors.length > 0 ? uniqueCatAuditors : uniqueHotelAuditors;
+                                                const assignedAuditorName = effectiveAuditors.length > 0
+                                                    ? effectiveAuditors.map(u => u.display_name || `${u.first_name || ''} ${u.last_name || ''}`.trim() || u.email || 'Auditor').join(', ')
+                                                    : 'Unassigned';
+
                                                 return (
                                                     <div key={cat.id} className="space-y-3">
                                                         {/* CATEGORY BAR */}
@@ -7360,8 +7399,14 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                     {catIdx + 1}
                                                                 </div>
                                                                 <div>
-                                                                    <h3 className="text-sm font-black text-slate-800 tracking-tight leading-none">{cat.name}</h3>
-                                                                    <p className="text-[9px] font-bold text-slate-400 mt-0.5 uppercase tracking-widest">{catItems.length} Inspection Points</p>
+                                                                    <div className="flex items-center gap-2 flex-wrap">
+                                                                        <h3 className="text-sm font-black text-slate-800 tracking-tight leading-none">{cat.name}</h3>
+                                                                        <span className="px-2 py-0.5 bg-indigo-50/80 text-indigo-700 border border-indigo-200/90 text-[9px] font-black rounded-md flex items-center gap-1 uppercase tracking-wider">
+                                                                            <User size={10} className="text-indigo-600 shrink-0" />
+                                                                            <span>Auditor: {assignedAuditorName}</span>
+                                                                        </span>
+                                                                    </div>
+                                                                    <p className="text-[9px] font-bold text-slate-400 mt-1 uppercase tracking-widest">{catItems.length} Inspection Points</p>
                                                                 </div>
                                                             </div>
                                                             <div className="flex items-center gap-3">
@@ -7415,7 +7460,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                             {/* LEFT SIDE: CRITERIA & HOTEL DATA */}
                                                                             <div className="flex-1 p-4 sm:p-5 space-y-3">
                                                                                 <div className="space-y-1.5">
-                                                                                    <div className="flex items-center gap-2">
+                                                                                    <div className="flex flex-wrap items-center gap-2">
                                                                                         <span className="px-2 py-0.5 bg-slate-900 text-white text-[9px] font-black rounded-md uppercase tracking-wider">
                                                                                             {item.points ?? 5} Points Max
                                                                                         </span>
@@ -7428,6 +7473,10 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                                 {hasSubmission ? 'Auditor Evidence Filled' : 'Required Auditor-Filled Item'}
                                                                                             </span>
                                                                                         )}
+                                                                                        <span className="px-2 py-0.5 bg-indigo-50/90 text-indigo-800 border border-indigo-200/90 text-[9px] font-black rounded-md uppercase tracking-wider flex items-center gap-1 shadow-2xs">
+                                                                                            <User size={10} className="text-indigo-600 shrink-0" />
+                                                                                            <span>Auditor: {assignedAuditorName}</span>
+                                                                                        </span>
                                                                                     </div>
                                                                                     <h4 className="text-base font-black text-slate-800 leading-tight tracking-tight group-hover:text-indigo-600 transition-colors">
                                                                                         {item.name}
