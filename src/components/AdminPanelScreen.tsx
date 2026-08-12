@@ -2014,7 +2014,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     const [hotelPageSize, setHotelPageSize] = useState<number>(10);
     const [inspectionPage, setInspectionPage] = useState<number>(1);
     const [inspectionPageSize, setInspectionPageSize] = useState<number>(10);
-    const [inspectionStatusFilter, setInspectionStatusFilter] = useState<'all' | 'finalized' | 'in_progress' | 'not_started'>('all');
+    const [inspectionStatusFilter, setInspectionStatusFilter] = useState<'all' | 'finalized' | 'in_progress' | 'not_started'>('finalized');
 
     // Reset hotel pagination when search or filters change
     useEffect(() => {
@@ -6837,25 +6837,25 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                         const inspectionHotelsFiltered = hotels.filter(h => {
                                             const isMatchSearch = !searchQuery || h.name.toLowerCase().includes(searchQuery.toLowerCase()) || (h.code && h.code.toLowerCase().includes(searchQuery.toLowerCase()));
                                             
+                                            // Check if finalized & submitted
+                                            const isFin = getHotelFinalizedInfo(h).is_finalized;
+
                                             let isMatchStatus = true;
-                                            if (inspectionStatusFilter !== 'all') {
-                                                const isFin = getHotelFinalizedInfo(h).is_finalized;
-                                                if (inspectionStatusFilter === 'finalized') {
-                                                    isMatchStatus = isFin;
-                                                } else if (inspectionStatusFilter === 'in_progress') {
-                                                    if (isFin) {
-                                                        isMatchStatus = false;
-                                                    } else {
-                                                        const hotelSubs = allSubmissions.filter(s => isSubmissionForHotel(s.hotel_id, h));
-                                                        isMatchStatus = hotelSubs.length > 0;
-                                                    }
-                                                } else if (inspectionStatusFilter === 'not_started') {
-                                                    if (isFin) {
-                                                        isMatchStatus = false;
-                                                    } else {
-                                                        const hotelSubs = allSubmissions.filter(s => isSubmissionForHotel(s.hotel_id, h));
-                                                        isMatchStatus = hotelSubs.length === 0;
-                                                    }
+                                            if (inspectionStatusFilter === 'finalized') {
+                                                isMatchStatus = isFin;
+                                            } else if (inspectionStatusFilter === 'in_progress') {
+                                                if (isFin) {
+                                                    isMatchStatus = false;
+                                                } else {
+                                                    const hotelSubs = allSubmissions.filter(s => isSubmissionForHotel(s.hotel_id, h));
+                                                    isMatchStatus = hotelSubs.length > 0;
+                                                }
+                                            } else if (inspectionStatusFilter === 'not_started') {
+                                                if (isFin) {
+                                                    isMatchStatus = false;
+                                                } else {
+                                                    const hotelSubs = allSubmissions.filter(s => isSubmissionForHotel(s.hotel_id, h));
+                                                    isMatchStatus = hotelSubs.length === 0;
                                                 }
                                             }
 
@@ -6882,7 +6882,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                             <th className="px-6 py-4">Brand</th>
                                                             <th className="px-6 py-4">Region</th>
                                                             <th className="px-6 py-4">Hotel Audit Progress</th>
-                                                            <th className="px-6 py-4">Auditor Review</th>
+                                                            <th className="px-6 py-4">Scoring Progress</th>
                                                             <th className="px-6 py-4">Evidence Received</th>
                                                         </tr>
                                                     </thead>
@@ -6926,16 +6926,65 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                             });
                                                             const totalItems = allHotelItems.length;
 
-                                                            // Hotel's actual filled items & progress (including draft submissions before finalising)
+                                                            // Hotel's actual filled items & progress
                                                             const hotelSubs = allSubmissions.filter(s => isSubmissionForHotel(s.hotel_id, hotel));
                                                             const submittedItemIdsSet = new Set(hotelSubs.map(s => String(s.item_id)));
                                                             const hotelFilledCount = allHotelItems.filter(item => submittedItemIdsSet.has(String(item.id))).length;
                                                             const isFinalized = getHotelFinalizedInfo(hotel).is_finalized;
                                                             const hotelProgressPct = isFinalized ? 100 : (totalItems > 0 ? Math.round((hotelFilledCount / totalItems) * 100) : 0);
 
-                                                            // Auditor scoring progress
+                                                            // Global auditor scoring progress for this hotel
                                                             const scoredItems = allHotelItems.filter(i => inspectionScores[`${hotel.id}_${i.id}`] !== undefined).length;
                                                             const auditorScoringPercent = totalItems > 0 ? Math.round((scoredItems / totalItems) * 100) : 0;
+
+                                                            // Individual assigned auditor progress calculation
+                                                            const hIdStr = String(hotel.id).trim().toLowerCase();
+                                                            const hAssignedAuditorIds = (auditorAssignments || [])
+                                                                .filter(a => String(a.hotel_id).trim().toLowerCase() === hIdStr)
+                                                                .map(a => String(a.user_id).trim().toLowerCase());
+                                                            const catAssignedAuditorIds = (auditorCategoryAssignments || [])
+                                                                .map(a => String(a.user_id).trim().toLowerCase());
+                                                            const uniqueAssignedUserIds = Array.from(new Set([...hAssignedAuditorIds, ...catAssignedAuditorIds]));
+
+                                                            const assignedAuditorProfiles = uniqueAssignedUserIds.map(uId => {
+                                                                if (userProfile && String(userProfile.id).trim().toLowerCase() === uId) return userProfile;
+                                                                return (profilesList || []).find(p => String(p.id).trim().toLowerCase() === uId);
+                                                            }).filter(Boolean);
+
+                                                            const assignedAuditorProgresses = assignedAuditorProfiles.map(u => {
+                                                                const uIdLower = String(u.id).trim().toLowerCase();
+                                                                const uName = u.display_name || `${u.first_name || ''} ${u.last_name || ''}`.trim() || u.email || 'Auditor';
+                                                                
+                                                                const uCatIds = (auditorCategoryAssignments || [])
+                                                                    .filter(a => String(a.user_id).trim().toLowerCase() === uIdLower)
+                                                                    .map(a => String(a.category_id).trim());
+                                                                
+                                                                let uItems = allHotelItems;
+                                                                let categoriesStr = '';
+                                                                
+                                                                if (uCatIds.length > 0) {
+                                                                    uItems = allHotelItems.filter(item => {
+                                                                        const itemCatId = String(item.categoryId || item.category_id || '').trim();
+                                                                        return uCatIds.includes(itemCatId);
+                                                                    });
+                                                                    
+                                                                    const assignedCats = (catList || []).filter(c => uCatIds.includes(String(c.id).trim()));
+                                                                    categoriesStr = assignedCats.map(c => c.name).join(', ');
+                                                                }
+                                                                
+                                                                const uScoredCount = uItems.filter(i => inspectionScores[`${hotel.id}_${i.id}`] !== undefined).length;
+                                                                const uTotalCount = uItems.length;
+                                                                const uPercent = uTotalCount > 0 ? Math.round((uScoredCount / uTotalCount) * 100) : 0;
+                                                                
+                                                                return {
+                                                                    user: u,
+                                                                    name: uName,
+                                                                    scored: uScoredCount,
+                                                                    total: uTotalCount,
+                                                                    percent: uPercent,
+                                                                    categoriesStr
+                                                                };
+                                                            });
 
                                                             return (
                                                                 <tr 
@@ -6985,13 +7034,34 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                         </div>
                                                                     </td>
                                                                     <td className="px-6 py-4">
-                                                                        <div className="flex items-center gap-2 font-bold text-[11px]">
-                                                                            <div className="w-16 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                                                                                <div className="h-full bg-indigo-500" style={{ width: `${auditorScoringPercent}%` }}></div>
+                                                                        <div className="flex flex-col gap-1.5 w-44">
+                                                                            <div className="flex items-center justify-between text-[11px] font-extrabold">
+                                                                                <span className="text-slate-700">{scoredItems}/{totalItems} scored</span>
+                                                                                <span className={auditorScoringPercent === 100 ? 'text-emerald-600' : 'text-indigo-600'}>
+                                                                                    {auditorScoringPercent}%
+                                                                                </span>
                                                                             </div>
-                                                                            <span className={auditorScoringPercent === 100 ? 'text-emerald-600' : 'text-slate-700'}>
-                                                                                {scoredItems}/{totalItems} ({auditorScoringPercent}%)
-                                                                            </span>
+                                                                            <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                                                                                <div 
+                                                                                    className={`h-full transition-all duration-300 ${auditorScoringPercent === 100 ? 'bg-emerald-500' : auditorScoringPercent > 0 ? 'bg-indigo-500' : 'bg-slate-300'}`} 
+                                                                                    style={{ width: `${auditorScoringPercent}%` }}
+                                                                                />
+                                                                            </div>
+                                                                            <div>
+                                                                                {auditorScoringPercent === 100 ? (
+                                                                                    <span className="inline-flex items-center gap-1 text-[9px] font-extrabold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full uppercase tracking-wider">
+                                                                                        Completed (100%)
+                                                                                    </span>
+                                                                                ) : auditorScoringPercent > 0 ? (
+                                                                                    <span className="inline-flex items-center gap-1 text-[9px] font-extrabold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-full uppercase tracking-wider">
+                                                                                        In Progress ({auditorScoringPercent}%)
+                                                                                    </span>
+                                                                                ) : (
+                                                                                    <span className="inline-flex items-center gap-1 text-[9px] font-extrabold text-slate-500 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-full uppercase tracking-wider">
+                                                                                        Not Started
+                                                                                    </span>
+                                                                                )}
+                                                                            </div>
                                                                         </div>
                                                                     </td>
                                                                     <td className="px-6 py-4 font-bold text-indigo-700">
@@ -7712,19 +7782,40 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                 </div>
                                             </div>
 
-                                            <div className="flex items-center gap-4">
-                                                <button 
-                                                    onClick={() => {
-                                                        setToastMessage("Audit Finalized Successfully!");
-                                                        setTimeout(() => setToastMessage(null), 3000);
-                                                        setSelectedInspectionHotelId('');
-                                                        setSelectedInspectionCategoryId('');
-                                                    }}
-                                                    className="h-16 px-10 bg-indigo-600 hover:bg-indigo-500 text-white rounded-[22px] font-black text-sm uppercase tracking-widest transition-all shadow-xl shadow-indigo-600/20 active:scale-95 outline-none flex items-center gap-3 group"
-                                                >
-                                                    <FileCheck size={20} className="group-hover:scale-110 transition-transform" />
-                                                    Submit Full Report
-                                                </button>
+                                            <div className="flex flex-col sm:flex-row items-center gap-4">
+                                                {(() => {
+                                                    const isFullyScored = allHotelItems.length > 0 && scoredItems.length === allHotelItems.length;
+                                                    const scoringProgressPct = allHotelItems.length > 0 ? Math.round((scoredItems.length / allHotelItems.length) * 100) : 0;
+                                                    return (
+                                                        <React.Fragment>
+                                                            {!isFullyScored && (
+                                                                <div className="text-xs font-bold text-amber-300 bg-amber-500/10 border border-amber-500/20 px-4 py-2.5 rounded-2xl flex items-center gap-2">
+                                                                    <AlertCircle size={15} className="shrink-0 text-amber-400" />
+                                                                    <span>Scoring progress must be 100% to submit ({scoredItems.length}/{allHotelItems.length} scored)</span>
+                                                                </div>
+                                                            )}
+                                                            <button 
+                                                                disabled={!isFullyScored}
+                                                                onClick={() => {
+                                                                    if (!isFullyScored) return;
+                                                                    setToastMessage("Audit Finalized Successfully!");
+                                                                    setTimeout(() => setToastMessage(null), 3000);
+                                                                    setSelectedInspectionHotelId('');
+                                                                    setSelectedInspectionCategoryId('');
+                                                                }}
+                                                                className={`h-16 px-10 rounded-[22px] font-black text-sm uppercase tracking-widest transition-all outline-none flex items-center gap-3 group ${
+                                                                    isFullyScored
+                                                                        ? 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-xl shadow-indigo-600/20 active:scale-95 cursor-pointer'
+                                                                        : 'bg-slate-800 text-slate-500 border border-slate-700/60 cursor-not-allowed opacity-60 shadow-none'
+                                                                }`}
+                                                                title={!isFullyScored ? `Scoring progress is ${scoringProgressPct}%. All items must be scored to submit full report.` : "Submit Full Report"}
+                                                            >
+                                                                <FileCheck size={20} className={isFullyScored ? "group-hover:scale-110 transition-transform text-white" : "text-slate-500"} />
+                                                                Submit Full Report
+                                                            </button>
+                                                        </React.Fragment>
+                                                    );
+                                                })()}
                                             </div>
                                         </div>
                                     </div>
