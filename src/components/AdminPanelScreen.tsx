@@ -331,39 +331,20 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                     .from('auditor_category_assignments')
                     .select('*');
                 
-                const { data: altData } = await supabase
-                    .from('auditor_assignments')
-                    .select('*');
-
-                const combinedCatMap = new Map<string, any>();
                 if (catData && Array.isArray(catData)) {
-                    catData.forEach((item: any) => combinedCatMap.set(`${item.user_id}_${item.category_id}`, item));
+                    setAuditorCategoryAssignments(catData);
+                    localStorage.setItem('sbi_auditor_category_assignments', JSON.stringify(catData));
+                } else {
+                    const localCatSaved = localStorage.getItem('sbi_auditor_category_assignments');
+                    if (localCatSaved) {
+                        try {
+                            const localCatList = JSON.parse(localCatSaved);
+                            if (Array.isArray(localCatList)) {
+                                setAuditorCategoryAssignments(localCatList);
+                            }
+                        } catch (e) {}
+                    }
                 }
-                if (altData && Array.isArray(altData)) {
-                    altData.filter((a: any) => a.category_id).forEach((item: any) => {
-                        const key = `${item.user_id}_${item.category_id}`;
-                        if (!combinedCatMap.has(key)) combinedCatMap.set(key, item);
-                    });
-                }
-
-                const localCatSaved = localStorage.getItem('sbi_auditor_category_assignments');
-                if (localCatSaved) {
-                    try {
-                        const localCatList = JSON.parse(localCatSaved);
-                        if (Array.isArray(localCatList)) {
-                            localCatList.forEach((item: any) => {
-                                if (item.user_id && item.category_id) {
-                                    const key = `${item.user_id}_${item.category_id}`;
-                                    if (!combinedCatMap.has(key)) combinedCatMap.set(key, item);
-                                }
-                            });
-                        }
-                    } catch (e) {}
-                }
-
-                const mergedCatList = Array.from(combinedCatMap.values());
-                setAuditorCategoryAssignments(mergedCatList);
-                localStorage.setItem('sbi_auditor_category_assignments', JSON.stringify(mergedCatList));
             } catch (e) {
                 console.warn('Auditor category assignment fetch warning:', e);
             }
@@ -7385,10 +7366,13 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                     if (u && u.id) catAuditorMap.set(String(u.id).toLowerCase(), u);
                                                 });
                                                 const uniqueCatAuditors = Array.from(catAuditorMap.values());
-                                                const effectiveAuditors = uniqueCatAuditors.length > 0 ? uniqueCatAuditors : uniqueHotelAuditors;
+                                                const hasGlobalCatAssignments = (auditorCategoryAssignments || []).length > 0;
+                                                const effectiveAuditors = uniqueCatAuditors.length > 0
+                                                    ? uniqueCatAuditors
+                                                    : (hasGlobalCatAssignments ? [] : uniqueHotelAuditors);
                                                 const assignedAuditorName = effectiveAuditors.length > 0
                                                     ? effectiveAuditors.map(u => u.display_name || `${u.first_name || ''} ${u.last_name || ''}`.trim() || u.email || 'Auditor').join(', ')
-                                                    : 'Unassigned';
+                                                    : (hasGlobalCatAssignments ? 'Unassigned' : 'All Hotel Auditors');
 
                                                 return (
                                                     <div key={cat.id} className="space-y-3">
