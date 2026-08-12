@@ -7509,6 +7509,13 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                 const isNA = currentScore !== undefined && currentScore === 'N/A';
                                                                 const isSelfAudit = item.filled_by_hotel !== false && item.filled_by_hotel !== 'false';
 
+                                                                const rawAuditor = submission?.submitted_by_name || submission?.submitted_by || '';
+                                                                const cleanAuditorName = rawAuditor.replace(/^Auditor:\s*/i, '').trim();
+                                                                const auditAuthor = (cleanAuditorName && cleanAuditorName.toLowerCase() !== 'auditor')
+                                                                    ? cleanAuditorName
+                                                                    : (assignedAuditorName !== 'Unassigned' && assignedAuditorName !== 'All Hotel Auditors' ? assignedAuditorName : (userProfile ? `${userProfile.first_name || ''} ${userProfile.last_name || ''}`.trim() || userProfile.email : 'Auditor'));
+                                                                const auditTimestamp = safeFormatDateTime(submission?.updated_at || submission?.created_at);
+
                                                                 return (
                                                                     <div 
                                                                         key={item.id} 
@@ -7532,7 +7539,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                             </span>
                                                                                         ) : (
                                                                                             <span className={`px-2 py-0.5 text-[9px] font-black rounded-md uppercase tracking-wider border ${hasSubmission ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-indigo-50 text-indigo-700 border-indigo-200'}`}>
-                                                                                                {hasSubmission ? 'Auditor Evidence Filled' : 'Required Auditor-Filled Item'}
+                                                                                                {hasSubmission ? `Audited by ${auditAuthor} - ${auditTimestamp}` : 'Required Auditor-Filled Item'}
                                                                                             </span>
                                                                                         )}
                                                                                         <span className="px-2 py-0.5 bg-indigo-50/90 text-indigo-800 border border-indigo-200/90 text-[9px] font-black rounded-md uppercase tracking-wider flex items-center gap-1 shadow-2xs">
