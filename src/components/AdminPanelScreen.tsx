@@ -7496,8 +7496,16 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                 const currentComment = inspectionComments[scoreKey] || '';
                                                                 const submission = hotelSubmissions[item.id];
                                                                 const hasSubmission = !!submission;
-                                                                const isPass = currentScore !== undefined && currentScore === (item.points ?? 5);
-                                                                const isFail = currentScore !== undefined && currentScore === 0;
+                                                                const itemMaxPoints = item.points ?? 5;
+                                                                const isPass = currentScore !== undefined && (
+                                                                    currentScore === 'PASS' ||
+                                                                    (itemMaxPoints > 0 && currentScore === itemMaxPoints) ||
+                                                                    (itemMaxPoints === 0 && currentScore === 'PASS')
+                                                                );
+                                                                const isFail = currentScore !== undefined && (
+                                                                    currentScore === 'FAIL' ||
+                                                                    (itemMaxPoints > 0 && currentScore === 0)
+                                                                );
                                                                 const isNA = currentScore !== undefined && currentScore === 'N/A';
                                                                 const isSelfAudit = item.filled_by_hotel !== false && item.filled_by_hotel !== 'false';
 
@@ -7686,7 +7694,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                                     if (isPass) {
                                                                                                         saveInspectionScore(hotel.id, item.id, undefined);
                                                                                                     } else {
-                                                                                                        saveInspectionScore(hotel.id, item.id, item.points ?? 5);
+                                                                                                        saveInspectionScore(hotel.id, item.id, itemMaxPoints > 0 ? itemMaxPoints : 'PASS');
                                                                                                     }
                                                                                                 }}
                                                                                                 className={`py-2.5 px-1.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all duration-150 cursor-pointer flex flex-col items-center justify-center gap-0.5 border ${
@@ -7697,7 +7705,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                             >
                                                                                                 <span className="text-xs">Pass</span>
                                                                                                 <span className={`text-[9px] font-bold ${isPass ? 'text-emerald-100' : 'text-emerald-600'}`}>
-                                                                                                    +{item.points ?? 5} pts
+                                                                                                    +{itemMaxPoints} pts
                                                                                                 </span>
                                                                                             </button>
                                                                                             <button
@@ -7707,7 +7715,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                                     if (isFail) {
                                                                                                         saveInspectionScore(hotel.id, item.id, undefined);
                                                                                                     } else {
-                                                                                                        saveInspectionScore(hotel.id, item.id, 0);
+                                                                                                        saveInspectionScore(hotel.id, item.id, itemMaxPoints > 0 ? 0 : 'FAIL');
                                                                                                     }
                                                                                                 }}
                                                                                                 className={`py-2.5 px-1.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all duration-150 cursor-pointer flex flex-col items-center justify-center gap-0.5 border ${
