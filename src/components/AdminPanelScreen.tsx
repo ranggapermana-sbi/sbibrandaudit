@@ -2674,12 +2674,25 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 .eq('item_id', itemId)
                 .maybeSingle();
 
-            const scoreStr = score !== undefined ? String(score) : null;
+            let dbScore: any = null;
+            let dbIsNa = false;
+
+            if (score === 'N/A') {
+                dbIsNa = true;
+                dbScore = null;
+            } else if (score === 'PASS') {
+                dbScore = 1;
+            } else if (score === 'FAIL') {
+                dbScore = 0;
+            } else if (score !== undefined && score !== null) {
+                dbScore = !isNaN(Number(score)) ? Number(score) : null;
+            }
+
             const payload: any = {
                 hotel_id: hotelId,
                 item_id: itemId,
-                score: scoreStr,
-                is_na: score === 'N/A',
+                score: dbScore,
+                is_na: dbIsNa,
                 updated_at: new Date().toISOString()
             };
 
@@ -2692,7 +2705,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 if (existing.notes) payload.notes = existing.notes;
             } else {
                 // Default value column if there is no evidence column yet
-                payload.value = scoreStr;
+                payload.value = dbScore !== null ? String(dbScore) : '';
             }
 
             const { error } = await supabase.from('audit_submissions').upsert(payload, { onConflict: 'hotel_id,item_id' });
@@ -7653,12 +7666,15 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                 const itemMaxPoints = item.points ?? 5;
                                                                 const isPass = currentScore !== undefined && (
                                                                     currentScore === 'PASS' ||
-                                                                    (itemMaxPoints > 0 && currentScore === itemMaxPoints) ||
-                                                                    (itemMaxPoints === 0 && currentScore === 'PASS')
+                                                                    currentScore === 1 ||
+                                                                    (itemMaxPoints > 0 && Number(currentScore) === itemMaxPoints) ||
+                                                                    (itemMaxPoints === 0 && (currentScore === 'PASS' || Number(currentScore) === 1))
                                                                 );
                                                                 const isFail = currentScore !== undefined && (
                                                                     currentScore === 'FAIL' ||
-                                                                    (itemMaxPoints > 0 && currentScore === 0)
+                                                                    currentScore === 0 ||
+                                                                    (itemMaxPoints > 0 && Number(currentScore) === 0) ||
+                                                                    (itemMaxPoints === 0 && (currentScore === 'FAIL' || Number(currentScore) === 0))
                                                                 );
                                                                 const isNA = currentScore !== undefined && currentScore === 'N/A';
                                                                 const isSelfAudit = item.filled_by_hotel !== false && item.filled_by_hotel !== 'false';

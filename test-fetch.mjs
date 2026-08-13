@@ -1,6 +1,6 @@
 import https from 'https';
 
-const url = 'https://gvnwxrejgdkixbszhxkw.supabase.co/rest/v1/audit_submissions?limit=5';
+const url = 'https://gvnwxrejgdkixbszhxkw.supabase.co/rest/v1/hotel_audit_status?limit=5';
 const key = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd2bnd4cmVqZ2RraXhic3poeGt3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkxNTE2ODcsImV4cCI6MjA5NDcyNzY4N30.Pvv9rgR_Vr9McwxLrYfELeSpWYLNH2NPw0nkeGD6ZXo';
 
 const options = {

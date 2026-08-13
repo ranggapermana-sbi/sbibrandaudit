@@ -370,6 +370,17 @@ export default function AuditorEvidenceForm({ item, hotel, submission, onSaved, 
         const finalScore = existingRecord?.score !== undefined ? existingRecord.score : (submission?.score !== undefined ? submission.score : null);
         const finalId = existingRecord?.id || submission?.id || null;
 
+        let cleanScore: any = null;
+        if (finalScore === 'N/A') {
+            cleanScore = null;
+        } else if (finalScore === 'PASS') {
+            cleanScore = 1;
+        } else if (finalScore === 'FAIL') {
+            cleanScore = 0;
+        } else if (finalScore !== undefined && finalScore !== null) {
+            cleanScore = !isNaN(Number(finalScore)) ? Number(finalScore) : null;
+        }
+
         const richPayload: any = {
             hotel_id: hotel.id,
             item_id: item.id,
@@ -383,7 +394,7 @@ export default function AuditorEvidenceForm({ item, hotel, submission, onSaved, 
             evidence_urls: (item.inputType === 'camera' || item.inputType === 'image') && finalValue 
                 ? finalValue.split(',').filter(Boolean) 
                 : [],
-            score: finalScore,
+            score: cleanScore,
             updated_at: new Date().toISOString()
         };
 
@@ -396,7 +407,7 @@ export default function AuditorEvidenceForm({ item, hotel, submission, onSaved, 
             item_id: item.id,
             value: finalValue,
             is_na: isNa,
-            score: finalScore,
+            score: cleanScore,
             updated_at: new Date().toISOString()
         };
 
@@ -624,7 +635,7 @@ export default function AuditorEvidenceForm({ item, hotel, submission, onSaved, 
                             </div>
                             <input
                                 type="number"
-                                value={value}
+                                value={!isNaN(Number(value)) && value !== '' ? value : ''}
                                 onChange={(e) => setValue(e.target.value)}
                                 placeholder="Enter measurement, count, or value..."
                                 className="w-full p-2.5 bg-white border border-slate-200 focus:border-indigo-350 focus:ring-1 focus:ring-indigo-350 rounded-lg text-xs outline-none text-slate-800"
