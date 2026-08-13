@@ -609,7 +609,23 @@ const AuditItemCard: React.FC<{
                 ? `${userProfile.first_name || ''} ${userProfile.last_name || ''}`.trim() || userProfile.full_name || userProfile.name || userProfile.email 
                 : (localStorage.getItem('sbi_user_name') || 'Property User');
 
-            const submissionPayload = {
+            const richPayload = {
+                hotel_id: hotelId,
+                item_id: item.id,
+                value: finalValue,
+                is_na: isNa,
+                input_type: item.input_type,
+                na_reason: isNa ? naReason : null,
+                notes: naReason,
+                submitted_by: submitterName,
+                submitted_by_name: submitterName,
+                evidence_urls: (item.input_type === 'camera' || item.input_type === 'image') && finalValue 
+                    ? finalValue.split(',').filter(Boolean) 
+                    : [],
+                updated_at: new Date().toISOString()
+            };
+
+            const corePayload = {
                 hotel_id: hotelId,
                 item_id: item.id,
                 value: finalValue,
@@ -618,17 +634,21 @@ const AuditItemCard: React.FC<{
             };
 
             try {
-                const { error } = await supabase.from('audit_submissions').upsert(submissionPayload, { onConflict: 'hotel_id,item_id' });
+                const { error } = await supabase.from('audit_submissions').upsert(richPayload, { onConflict: 'hotel_id,item_id' });
                 if (error) {
-                    console.warn("Supabase upsert error:", error);
+                    console.warn("Supabase rich upsert failed, attempting fallback to core schema fields:", error);
+                    const { error: coreError } = await supabase.from('audit_submissions').upsert(corePayload, { onConflict: 'hotel_id,item_id' });
+                    if (coreError) {
+                        console.error("Supabase core fallback error:", coreError);
+                    }
                 }
             } catch (err) {
-                console.warn("Failed to save to Supabase.", err);
+                console.warn("Failed to save to Supabase:", err);
             }
 
             try {
                 localStorage.setItem(`sbi_audit_${hotelId}_${item.id}`, JSON.stringify({
-                    ...fullSubmissionData,
+                    ...richPayload,
                     isSubmitted: true
                 }));
             } catch (lsErr) {
@@ -636,7 +656,7 @@ const AuditItemCard: React.FC<{
                 if (finalValue && finalValue.length > 500000) {
                     try {
                         localStorage.setItem(`sbi_audit_${hotelId}_${item.id}`, JSON.stringify({
-                            ...fullSubmissionData,
+                            ...richPayload,
                             value: 'base64_too_large_for_local_storage',
                             isSubmitted: true
                         }));

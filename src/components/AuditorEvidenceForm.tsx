@@ -359,7 +359,23 @@ export default function AuditorEvidenceForm({ item, hotel, submission, onSaved, 
             ? `Auditor: ${userProfile.first_name || ''} ${userProfile.last_name || ''}`.trim() || `Auditor: ${userProfile.email}`
             : 'Auditor';
 
-        const submissionPayload = {
+        const richPayload = {
+            hotel_id: hotel.id,
+            item_id: item.id,
+            value: finalValue,
+            is_na: isNa,
+            input_type: item.inputType,
+            na_reason: isNa ? naReason : null,
+            notes: isNa ? naReason : null,
+            submitted_by: submitterName,
+            submitted_by_name: submitterName,
+            evidence_urls: (item.inputType === 'camera' || item.inputType === 'image') && finalValue 
+                ? finalValue.split(',').filter(Boolean) 
+                : [],
+            updated_at: new Date().toISOString()
+        };
+
+        const corePayload = {
             hotel_id: hotel.id,
             item_id: item.id,
             value: finalValue,
@@ -368,15 +384,19 @@ export default function AuditorEvidenceForm({ item, hotel, submission, onSaved, 
         };
 
         try {
-            const { error } = await supabase.from('audit_submissions').upsert(submissionPayload, { onConflict: 'hotel_id,item_id' });
+            const { error } = await supabase.from('audit_submissions').upsert(richPayload, { onConflict: 'hotel_id,item_id' });
             if (error) {
-                console.warn("Supabase upsert warning:", error);
+                console.warn("Supabase rich upsert failed, falling back to core schema fields:", error);
+                const { error: coreError } = await supabase.from('audit_submissions').upsert(corePayload, { onConflict: 'hotel_id,item_id' });
+                if (coreError) {
+                    throw coreError;
+                }
             }
 
             // Sync with local storage
             try {
                 localStorage.setItem(`sbi_audit_${hotel.id}_${item.id}`, JSON.stringify({
-                    ...fullSubmissionData,
+                    ...richPayload,
                     isSubmitted: true
                 }));
             } catch (lsErr) {
@@ -384,7 +404,7 @@ export default function AuditorEvidenceForm({ item, hotel, submission, onSaved, 
                 if (finalValue && finalValue.length > 500000) {
                     try {
                         localStorage.setItem(`sbi_audit_${hotel.id}_${item.id}`, JSON.stringify({
-                            ...fullSubmissionData,
+                            ...richPayload,
                             value: 'base64_too_large_for_local_storage',
                             isSubmitted: true
                         }));

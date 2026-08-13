@@ -1081,8 +1081,6 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     const [allSubmissions, setAllSubmissions] = useState<any[]>([]);
 
     useEffect(() => {
-        if (subView !== 'inspection' && subView !== 'progress_report') return;
-
         let active = true;
         const fetchAllSubmissions = async () => {
             try {
@@ -1120,7 +1118,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             supabase.removeChannel(channel);
             clearInterval(interval);
         };
-    }, [subView]);
+    }, []);
 
     const fetchCategoriesFromSupabase = async (forceRefresh = false) => {
         setIsSupabaseLoading(true);
