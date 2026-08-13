@@ -323,14 +323,14 @@ const AuditItemCard: React.FC<{
             try {
                 const { data, error } = await supabase
                     .from('audit_submissions')
-                    .select('id, hotel_id, item_id, value, is_na, score, notes, submitted_by_name')
+                    .select('*')
                     .eq('hotel_id', hotelId)
                     .eq('item_id', item.id)
                     .maybeSingle();
                 
                 if (!error && data && active) {
                     const submission = data;
-                    const val = submission.value !== undefined && submission.value !== null ? String(submission.value) : '';
+                    const val = submission.value || '';
                     setValue(val);
                     setIsNa(submission.is_na || false);
                     setNaReason(submission.na_reason || submission.notes || submission.remark || '');
@@ -364,7 +364,7 @@ const AuditItemCard: React.FC<{
                     if (stored && active) {
                         try {
                             const localData = JSON.parse(stored);
-                            const val = localData.value !== undefined && localData.value !== null ? String(localData.value) : '';
+                            const val = localData.value || '';
                             setValue(val);
                             setIsNa(localData.is_na || false);
                             setNaReason(localData.na_reason || localData.notes || localData.remark || '');
@@ -459,7 +459,7 @@ const AuditItemCard: React.FC<{
             try {
                 const { data: subData, error: subErr } = await supabase
                     .from('audit_submissions')
-                    .select('id, hotel_id, item_id, value, is_na, score, notes, submitted_by_name')
+                    .select('*')
                     .eq('hotel_id', hotelId)
                     .eq('item_id', item.id)
                     .maybeSingle();
@@ -479,7 +479,7 @@ const AuditItemCard: React.FC<{
                         alert(`Submission aborted: This item has already been submitted by ${subData.submitted_by_name || subData.submitted_by || 'another user'}. Your local view will be updated.`);
                         
                         // Update our component's state to match the existing database record
-                        const val = subData.value !== undefined && subData.value !== null ? String(subData.value) : '';
+                        const val = subData.value || '';
                         setValue(val);
                         setIsNa(subData.is_na || false);
                         setNaReason(subData.na_reason || subData.notes || subData.remark || '');
@@ -507,7 +507,7 @@ const AuditItemCard: React.FC<{
             try {
                 const { data: lockData, error: lockErr } = await supabase
                     .from('audit_item_locks')
-                    .select('hotel_id, item_id, locked_by_name, locked_by_email, locked_at')
+                    .select('*')
                     .eq('hotel_id', hotelId)
                     .eq('item_id', item.id)
                     .maybeSingle();
@@ -609,84 +609,53 @@ const AuditItemCard: React.FC<{
                 ? `${userProfile.first_name || ''} ${userProfile.last_name || ''}`.trim() || userProfile.full_name || userProfile.name || userProfile.email 
                 : (localStorage.getItem('sbi_user_name') || 'Property User');
 
-            // Fetch any existing record to preserve the score column and id
-            const { data: existingRecord } = await supabase
-                .from('audit_submissions')
-                .select('id, hotel_id, item_id, score')
-                .eq('hotel_id', hotelId)
-                .eq('item_id', item.id)
-                .maybeSingle();
-
-            const finalScore = existingRecord?.score !== undefined ? existingRecord.score : null;
-            const finalId = existingRecord?.id || null;
-
-            const richPayload: any = {
+            const fullSubmissionData = {
                 hotel_id: hotelId,
                 item_id: item.id,
+                input_type: item.input_type,
                 value: finalValue,
                 is_na: isNa,
-                score: finalScore,
-                updated_at: new Date().toISOString()
-            };
-
-            const corePayload: any = {
-                hotel_id: hotelId,
-                item_id: item.id,
-                value: finalValue,
-                is_na: isNa,
-                score: finalScore,
+                na_reason: naReason,
+                notes: naReason,
+                submitted_by: submitterName,
+                submitted_by_name: submitterName,
+                created_at: new Date().toISOString(),
                 updated_at: new Date().toISOString()
             };
 
             try {
-                const { error } = await supabase.from('audit_submissions').upsert(richPayload, { onConflict: 'hotel_id,item_id' });
+                // Upsert with full schema (includes notes and submitted_by)
+                const { error } = await supabase.from('audit_submissions').upsert(fullSubmissionData, { onConflict: 'hotel_id,item_id' });
                 if (error) {
-                    console.warn("Standard rich upsert failed in BrandingProperty, executing select-then-insert-or-update fallback:", error);
-                    
-                    const { data: existing, error: fetchErr } = await supabase
-                        .from('audit_submissions')
-                        .select('id')
-                        .eq('hotel_id', hotelId)
-                        .eq('item_id', item.id)
-                        .maybeSingle();
-
-                    if (fetchErr) {
-                        console.error("Failed to query existing record in BrandingProperty, trying raw inserts:", fetchErr);
-                        const { error: insertRichErr } = await supabase.from('audit_submissions').insert(richPayload);
-                        if (insertRichErr) {
-                            const { error: insertCoreErr } = await supabase.from('audit_submissions').insert(corePayload);
-                            if (insertCoreErr) console.error("Fallback inserts failed:", insertCoreErr);
-                        }
-                    } else if (existing && existing.id) {
-                        const { error: updateRichErr } = await supabase
-                            .from('audit_submissions')
-                            .update(richPayload)
-                            .eq('id', existing.id);
-
-                        if (updateRichErr) {
-                            console.warn("Rich update failed, trying core payload update:", updateRichErr);
-                            const { error: updateCoreErr } = await supabase
-                                .from('audit_submissions')
-                                .update(corePayload)
-                                .eq('id', existing.id);
-                            if (updateCoreErr) console.error("Core fallback update failed:", updateCoreErr);
-                        }
-                    } else {
-                        const { error: insertRichErr } = await supabase.from('audit_submissions').insert(richPayload);
-                        if (insertRichErr) {
-                            console.warn("Rich insert failed, trying core payload insert:", insertRichErr);
-                            const { error: insertCoreErr } = await supabase.from('audit_submissions').insert(corePayload);
-                            if (insertCoreErr) console.error("Core fallback insert failed:", insertCoreErr);
+                    console.warn("Supabase upsert with full fields failed, attempting fallback to core schema fields:", error);
+                    // Fallback to core schema fields if additional columns don't exist in Supabase table
+                    const coreSubmissionData = {
+                        hotel_id: hotelId,
+                        item_id: item.id,
+                        input_type: item.input_type,
+                        value: finalValue,
+                        is_na: isNa,
+                        na_reason: naReason,
+                        created_at: new Date().toISOString(),
+                        updated_at: new Date().toISOString()
+                    };
+                    const { error: fallbackError } = await supabase.from('audit_submissions').upsert(coreSubmissionData, { onConflict: 'hotel_id,item_id' });
+                    if (fallbackError) {
+                        console.error("Supabase upsert fallback error:", fallbackError);
+                        if (fallbackError.code === '42P01') {
+                            alert("The audit_submissions table does not exist in Supabase. Please run the SQL script provided.");
+                        } else {
+                            alert("Failed to save to Supabase: " + fallbackError.message);
                         }
                     }
                 }
             } catch (err) {
-                console.warn("Failed to save to Supabase:", err);
+                console.warn("Failed to save to Supabase.", err);
             }
 
             try {
                 localStorage.setItem(`sbi_audit_${hotelId}_${item.id}`, JSON.stringify({
-                    ...richPayload,
+                    ...fullSubmissionData,
                     isSubmitted: true
                 }));
             } catch (lsErr) {
@@ -694,7 +663,7 @@ const AuditItemCard: React.FC<{
                 if (finalValue && finalValue.length > 500000) {
                     try {
                         localStorage.setItem(`sbi_audit_${hotelId}_${item.id}`, JSON.stringify({
-                            ...richPayload,
+                            ...fullSubmissionData,
                             value: 'base64_too_large_for_local_storage',
                             isSubmitted: true
                         }));
@@ -1236,7 +1205,7 @@ export default function BrandingPropertyIdentificationScreen({ selectedCategory,
             try {
                 const { data, error } = await supabase
                     .from('audit_item_locks')
-                    .select('hotel_id, item_id, locked_by_name, locked_by_email, locked_at')
+                    .select('*')
                     .eq('hotel_id', selectedHotelId);
                 
                 if (!error && data) {
@@ -1333,7 +1302,7 @@ export default function BrandingPropertyIdentificationScreen({ selectedCategory,
         try {
             const { data: existingLock, error } = await supabase
                 .from('audit_item_locks')
-                .select('hotel_id, item_id, locked_by_name, locked_by_email, locked_at')
+                .select('*')
                 .eq('hotel_id', selectedHotelId)
                 .eq('item_id', itemId)
                 .maybeSingle();
@@ -1424,7 +1393,7 @@ export default function BrandingPropertyIdentificationScreen({ selectedCategory,
     useEffect(() => {
         const loadHotels = async () => {
             try {
-                const response = await fetch(`${HOTELS_URL}hotels?select=id,code,name,brandClass,country,region`, {
+                const response = await fetch(`${HOTELS_URL}hotels?select=*`, {
                     headers: {
                         'apikey': HOTELS_KEY,
                         'Authorization': `Bearer ${HOTELS_KEY}`
@@ -1472,7 +1441,7 @@ export default function BrandingPropertyIdentificationScreen({ selectedCategory,
             try {
                 const { data, error } = await supabase
                     .from('audit_items')
-                    .select('id, name, points, category_id, department_id, sort_order, filled_by_hotel, input_type, options, min_value, max_value')
+                    .select('*')
                     .eq('category_id', selectedCategory.id);
                 
                 if (error) throw error;
@@ -1492,8 +1461,8 @@ export default function BrandingPropertyIdentificationScreen({ selectedCategory,
                 let assignedItemIds: string[] | null = null;
                 try {
                     // Try to fetch from database
-                    const { data: groupsData } = await supabase.from('audit_checklist_groups').select('id, name, description, category_ids, item_ids');
-                    const { data: groupHotelsData } = await supabase.from('audit_group_hotels').select('id, group_id, hotel_id');
+                    const { data: groupsData } = await supabase.from('audit_checklist_groups').select('*');
+                    const { data: groupHotelsData } = await supabase.from('audit_group_hotels').select('*');
 
                     if (groupsData && groupHotelsData) {
                         const currentHotel = hotels.find(h => 

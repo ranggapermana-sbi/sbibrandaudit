@@ -85,7 +85,7 @@ export default function SignupScreen({ onComplete, onLogout }: SignupScreenProps
         const loadHotels = async () => {
             setIsLoadingHotels(true);
             try {
-                const response = await fetch(`${HOTELS_URL}hotels?select=id,code,name,brandClass,country,region`, {
+                const response = await fetch(`${HOTELS_URL}hotels?select=*`, {
                     headers: {
                         'apikey': HOTELS_KEY,
                         'Authorization': `Bearer ${HOTELS_KEY}`
@@ -160,7 +160,7 @@ export default function SignupScreen({ onComplete, onLogout }: SignupScreenProps
                 const mainUrl = import.meta.env.MAIN_SUPABASE_URL || 'https://gvnwxrejgdkixbszhxkw.supabase.co/rest/v1/';
                 const cleanMainUrl = mainUrl.replace(/\/rest\/v1\/?$/, '').trim();
                 const mainAnonKey = import.meta.env.MAIN_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd2bnd4cmVqZ2RraXhic3poeGt3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkxNTE2ODcsImV4cCI6MjA5NDcyNzY4N30.Pvv9rgR_Vr9McwxLrYfELeSpWYLNH2NPw0nkeGD6ZXo';
-                const response = await fetch(`${cleanMainUrl}/rest/v1/audit_users?select=id,email,first_name,last_name,access_level,hotel_id`, {
+                const response = await fetch(`${cleanMainUrl}/rest/v1/audit_users?select=*`, {
                     headers: {
                         'apikey': mainAnonKey,
                         'Authorization': `Bearer ${mainAnonKey}`

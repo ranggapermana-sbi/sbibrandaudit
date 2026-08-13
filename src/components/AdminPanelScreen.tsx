@@ -131,7 +131,6 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     const [sqlModalTab, setSqlModalTab] = useState<'auditor' | 'checklist' | 'finalize' | 'photolock' | 'indexes'>('checklist');
     const [groupExpandedCats, setGroupExpandedCats] = useState<Record<string, boolean>>({});
     const [enlargedImage, setEnlargedImage] = useState<{ url: string; title?: string } | null>(null);
-    const [expandedItemId, setExpandedItemId] = useState<string | null>(null);
 
     const [copiedDocId, setCopiedDocId] = useState<string | null>(null);
 
@@ -305,7 +304,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             try {
                 const { data, error } = await supabase
                     .from('auditor_assignments')
-                    .select('id, user_id, hotel_id, created_at');
+                    .select('*');
                 if (data) {
                     const localSaved = localStorage.getItem('sbi_auditor_assignments');
                     let localList: any[] = [];
@@ -330,7 +329,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             try {
                 const { data: catData } = await supabase
                     .from('auditor_category_assignments')
-                    .select('id, user_id, category_id, created_at');
+                    .select('*');
                 
                 if (catData && Array.isArray(catData)) {
                     setAuditorCategoryAssignments(catData);
@@ -514,7 +513,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         setIsProfilesTableMissing(false);
         try {
             const data = await apiCache.getOrFetch<any[]>('audit_users_profiles', async () => {
-                const response = await fetch(`${MAIN_URL}audit_users?select=id,email,first_name,last_name,access_level,hotel_id,hotel_name,created_at&order=created_at.desc`, {
+                const response = await fetch(`${MAIN_URL}audit_users?select=*&order=created_at.desc`, {
                     headers: {
                         'apikey': MAIN_KEY,
                         'Authorization': `Bearer ${MAIN_KEY}`
@@ -1081,106 +1080,17 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     // Fetch categories function
     const [allSubmissions, setAllSubmissions] = useState<any[]>([]);
 
-    const syncLocalStorageToSupabase = async (dbSubmissions: any[]) => {
-        const stored = localStorage.getItem('sbi_inspection_scores');
-        if (!stored) return;
-        try {
-            const localScores = JSON.parse(stored);
-            const keys = Object.keys(localScores);
-            if (keys.length === 0) return;
-
-            let syncedAny = false;
-
-            for (const key of keys) {
-                const parts = key.split('_');
-                if (parts.length < 2) continue;
-                
-                const hotelId = parts[0];
-                const itemId = parts.slice(1).join('_');
-                
-                const localVal = localScores[key];
-                if (localVal === undefined || localVal === null) continue;
-
-                // Match against dbSubmissions flexibly using item_id and hotel_id
-                const existingDb = dbSubmissions.find(s => 
-                    String(s.item_id) === String(itemId) && 
-                    (String(s.hotel_id).trim().toLowerCase() === String(hotelId).trim().toLowerCase())
-                );
-
-                const isLocalValScore = localVal === 'PASS' || localVal === 'FAIL' || localVal === 'N/A' || !isNaN(Number(localVal));
-                
-                if (isLocalValScore) {
-                    const dbHasScore = existingDb && (existingDb.score !== null && existingDb.score !== undefined);
-                    const dbHasIsNa = existingDb && existingDb.is_na;
-
-                    if (!existingDb || (!dbHasScore && !dbHasIsNa)) {
-                        let dbScore: any = null;
-                        let dbIsNa = false;
-
-                        if (localVal === 'N/A') {
-                            dbIsNa = true;
-                            dbScore = null;
-                        } else if (localVal === 'PASS') {
-                            dbScore = 1;
-                        } else if (localVal === 'FAIL') {
-                            dbScore = 0;
-                        } else {
-                            const num = Number(localVal);
-                            dbScore = !isNaN(num) ? num : null;
-                        }
-
-                        if (existingDb && existingDb.id) {
-                            // Update score on existing record directly by ID without altering value column
-                            const { error } = await supabase
-                                .from('audit_submissions')
-                                .update({ score: dbScore, is_na: dbIsNa, updated_at: new Date().toISOString() })
-                                .eq('id', existingDb.id);
-                            if (!error) syncedAny = true;
-                        } else {
-                            // Check local storage for any existing evidence value before inserting new record
-                            let localValData = '';
-                            try {
-                                const lsParsed = JSON.parse(localStorage.getItem(`sbi_audit_${hotelId}_${itemId}`) || '{}');
-                                if (lsParsed && lsParsed.value) localValData = String(lsParsed.value);
-                            } catch (e) {}
-
-                            const payload: any = {
-                                hotel_id: hotelId,
-                                item_id: itemId,
-                                score: dbScore,
-                                is_na: dbIsNa,
-                                value: localValData || '',
-                                updated_at: new Date().toISOString()
-                            };
-
-                            const { error } = await supabase.from('audit_submissions').upsert(payload, { onConflict: 'hotel_id,item_id' });
-                            if (!error) syncedAny = true;
-                        }
-                    }
-                }
-            }
-
-            if (syncedAny) {
-                const { data } = await supabase.from('audit_submissions').select('id, hotel_id, item_id, is_na, score, updated_at');
-                if (data) {
-                    setAllSubmissions(data);
-                }
-            }
-        } catch (e) {
-            console.error("Error auto-syncing local scores:", e);
-        }
-    };
-
     useEffect(() => {
+        if (subView !== 'inspection' && subView !== 'progress_report') return;
+
         let active = true;
         const fetchAllSubmissions = async () => {
             try {
                 const { data, error } = await supabase
                     .from('audit_submissions')
-                    .select('id, hotel_id, item_id, is_na, score, updated_at');
+                    .select('hotel_id, item_id, is_na, value, evidence_urls');
                 if (!error && data && active) {
                     setAllSubmissions(data);
-                    syncLocalStorageToSupabase(data);
                 }
             } catch (e) {
                 console.error("Error fetching all submissions:", e);
@@ -1210,14 +1120,14 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             supabase.removeChannel(channel);
             clearInterval(interval);
         };
-    }, []);
+    }, [subView]);
 
     const fetchCategoriesFromSupabase = async (forceRefresh = false) => {
         setIsSupabaseLoading(true);
         setSupabaseErrorMsg(null);
         try {
             const mapped = await apiCache.getOrFetch<AuditCategory[]>('audit_categories', async () => {
-                const response = await fetch(`${MAIN_URL}audit_categories?select=id,name,total_tasks,completed,department_id,sort_order&order=name.asc`, {
+                const response = await fetch(`${MAIN_URL}audit_categories?select=*&order=name.asc`, {
                     headers: {
                         'apikey': MAIN_KEY,
                         'Authorization': `Bearer ${MAIN_KEY}`
@@ -1285,7 +1195,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 // Fetch checklist groups
                 const { data: groupsData, error: groupsError } = await supabase
                     .from('audit_checklist_groups')
-                    .select('id, name, description, category_ids, item_ids')
+                    .select('*')
                     .order('name', { ascending: true });
 
                 if (groupsError) {
@@ -1295,7 +1205,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 // Fetch join table associations
                 const { data: groupHotels } = await supabase
                     .from('audit_group_hotels')
-                    .select('id, group_id, hotel_id');
+                    .select('*');
 
                 return (groupsData || []).map((g: any) => {
                     const hotelIds = (groupHotels || [])
@@ -1521,7 +1431,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         setSupabaseErrorMsg(null);
         try {
             const mapped = await apiCache.getOrFetch<AuditItem[]>('audit_items', async () => {
-                const response = await fetch(`${MAIN_URL}audit_items?select=id,name,points,category_id,department_id,sort_order,filled_by_hotel&order=name.asc`, {
+                const response = await fetch(`${MAIN_URL}audit_items?select=*&order=name.asc`, {
                     headers: {
                         'apikey': MAIN_KEY,
                         'Authorization': `Bearer ${MAIN_KEY}`
@@ -1618,7 +1528,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         setSupabaseErrorMsg(null);
         try {
             const mapped = await apiCache.getOrFetch<Department[]>('audit_departments', async () => {
-                const response = await fetch(`${MAIN_URL}audit_departments?select=id,name,sort_order,head&order=name.asc`, {
+                const response = await fetch(`${MAIN_URL}audit_departments?select=*&order=name.asc`, {
                     headers: {
                         'apikey': MAIN_KEY,
                         'Authorization': `Bearer ${MAIN_KEY}`
@@ -1684,7 +1594,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         try {
             const { data, error } = await supabase
                 .from('hotel_audit_status')
-                .select('hotel_id, is_finalized, finalized_by, finalized_at, updated_at');
+                .select('*');
             
             if (error) {
                 console.warn("Could not fetch finalized statuses:", error);
@@ -1784,7 +1694,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         setSupabaseErrorMsg(null);
         try {
             const finalHotels = await apiCache.getOrFetch<Hotel[]>('hotels_master', async () => {
-                const response = await fetch(`${HOTELS_URL}hotels?select=id,code,name,brandClass,country,region`, {
+                const response = await fetch(`${HOTELS_URL}hotels?select=*`, {
                     headers: {
                         'apikey': HOTELS_KEY,
                         'Authorization': `Bearer ${HOTELS_KEY}`
@@ -1903,7 +1813,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         try {
             const mappedBatches = await apiCache.getOrFetch<AuditBatch[]>('audit_batches', async () => {
                 // Fetch batches from Supabase "audit_batches" table
-                const responseB = await fetch(`${MAIN_URL}audit_batches?select=id,name,created_at&order=name.asc`, {
+                const responseB = await fetch(`${MAIN_URL}audit_batches?select=*&order=name.asc`, {
                     headers: {
                         'apikey': MAIN_KEY,
                         'Authorization': `Bearer ${MAIN_KEY}`
@@ -1918,7 +1828,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 }
 
                 // Fetch junction Mapping from "audit_batch_hotels" table
-                const responseJ = await fetch(`${MAIN_URL}audit_batch_hotels?select=id,batch_id,hotel_id`, {
+                const responseJ = await fetch(`${MAIN_URL}audit_batch_hotels?select=*`, {
                     headers: {
                         'apikey': MAIN_KEY,
                         'Authorization': `Bearer ${MAIN_KEY}`
@@ -2284,107 +2194,10 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         const stored = localStorage.getItem('sbi_inspection_scores');
         return stored ? JSON.parse(stored) : {};
     });
-
-    useEffect(() => {
-        if (!allSubmissions || allSubmissions.length === 0) return;
-        setInspectionScores(prev => {
-            const updated = { ...prev };
-            let changed = false;
-            allSubmissions.forEach(sub => {
-                if (sub && sub.hotel_id && sub.item_id) {
-                    const subHotelId = String(sub.hotel_id).trim();
-                    const subItemId = String(sub.item_id).trim();
-                    let val: number | string | undefined = undefined;
-                    if (sub.is_na) {
-                        val = 'N/A';
-                    } else if (sub.score !== undefined && sub.score !== null && sub.score !== '') {
-                        if (!isNaN(Number(sub.score))) {
-                            val = Number(sub.score);
-                        } else {
-                            val = sub.score;
-                        }
-                    }
-                    if (val !== undefined) {
-                        // Populate for any hotel matching this submission
-                        (hotels || []).forEach(hotel => {
-                            if (hotel && isSubmissionForHotel(subHotelId, hotel)) {
-                                [hotel.id, hotel.code, hotel.name, subHotelId].filter(Boolean).forEach(hKey => {
-                                    const k = `${String(hKey).trim()}_${subItemId}`;
-                                    if (updated[k] !== val) {
-                                        updated[k] = val;
-                                        changed = true;
-                                    }
-                                });
-                            }
-                        });
-
-                        const defaultKey = `${subHotelId}_${subItemId}`;
-                        if (updated[defaultKey] !== val) {
-                            updated[defaultKey] = val;
-                            changed = true;
-                        }
-                    }
-                }
-            });
-            if (changed) {
-                localStorage.setItem('sbi_inspection_scores', JSON.stringify(updated));
-                return updated;
-            }
-            return prev;
-        });
-    }, [allSubmissions, hotels]);
     const [inspectionComments, setInspectionComments] = useState<Record<string, string>>(() => {
         const stored = localStorage.getItem('sbi_inspection_comments');
         return stored ? JSON.parse(stored) : {};
     });
-
-    const isItemScoredForHotel = (hotel: any, itemId: any) => {
-        if (!hotel || !itemId) return false;
-        const possibleIds = [
-            String(hotel.id),
-            hotel.code ? String(hotel.code) : null,
-            hotel.name ? String(hotel.name) : null
-        ].filter(Boolean) as string[];
-
-        for (const hId of possibleIds) {
-            if (inspectionScores[`${hId}_${itemId}`] !== undefined) return true;
-        }
-
-        const hasSub = allSubmissions.some(s => 
-            String(s.item_id) === String(itemId) && isSubmissionForHotel(s.hotel_id, hotel)
-        );
-        return hasSub;
-    };
-
-    const getItemScoreForHotel = (hotel: any, itemId: any) => {
-        if (!hotel || !itemId) return undefined;
-        const possibleIds = [
-            String(hotel.id),
-            hotel.code ? String(hotel.code) : null,
-            hotel.name ? String(hotel.name) : null
-        ].filter(Boolean) as string[];
-
-        for (const hId of possibleIds) {
-            if (inspectionScores[`${hId}_${itemId}`] !== undefined) {
-                return inspectionScores[`${hId}_${itemId}`];
-            }
-        }
-
-        const sub = allSubmissions.find(s => 
-            String(s.item_id) === String(itemId) && isSubmissionForHotel(s.hotel_id, hotel)
-        );
-        if (sub) {
-            if (sub.is_na) return 'N/A';
-            if (sub.score !== undefined && sub.score !== null && sub.score !== '') {
-                return !isNaN(Number(sub.score)) ? Number(sub.score) : sub.score;
-            }
-            if (sub.value !== undefined && sub.value !== null && sub.value !== '') {
-                return !isNaN(Number(sub.value)) ? Number(sub.value) : sub.value;
-            }
-        }
-
-        return undefined;
-    };
 
     const isSubmissionForHotel = (submissionHotelId: string, hotel: Hotel) => {
         if (!submissionHotelId || !hotel) return false;
@@ -2583,7 +2396,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             if (idList.length > 0) {
                 const { data, error } = await supabase
                     .from('audit_submissions')
-                    .select('id, hotel_id, item_id, value, is_na, score, submitted_by_name, created_at, updated_at')
+                    .select('*')
                     .in('hotel_id', idList);
                 if (!error && data && data.length > 0) {
                     subsData = data;
@@ -2596,7 +2409,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 for (const tid of targetIds) {
                     const { data, error } = await supabase
                         .from('audit_submissions')
-                        .select('id, hotel_id, item_id, value, is_na, score, submitted_by_name, created_at, updated_at')
+                        .select('*')
                         .eq('hotel_id', tid);
                     if (!error && data && data.length > 0) {
                         subsData = data;
@@ -2605,11 +2418,11 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 }
             }
 
-            // Fallback 2: Select submissions with targeted field list if hotel ID match needed
+            // Fallback 2: Select all submissions and filter using isSubmissionForHotel
             if (!subsData || subsData.length === 0) {
                 const { data, error } = await supabase
                     .from('audit_submissions')
-                    .select('id, hotel_id, item_id, value, is_na, score, submitted_by_name, created_at, updated_at');
+                    .select('*');
                 if (!error && data && data.length > 0) {
                     if (currentHotel) {
                         subsData = data.filter(s => isSubmissionForHotel(s.hotel_id, currentHotel));
@@ -2627,36 +2440,9 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             }
 
             const submissionsMap: Record<string, any> = {};
-
-            // Sort subsData by updated_at / created_at ascending so newer submissions overwrite older ones
-            const sortedSubs = [...(subsData || [])].sort((a, b) => {
-                const tA = new Date(a.updated_at || a.created_at || 0).getTime();
-                const tB = new Date(b.updated_at || b.created_at || 0).getTime();
-                return tA - tB;
-            });
-
-            sortedSubs.forEach(sub => {
+            (subsData || []).forEach(sub => {
                 if (sub && sub.item_id !== undefined && sub.item_id !== null) {
-                    const itemIdKey = String(sub.item_id);
-                    const existingInMap = submissionsMap[itemIdKey];
-                    if (!existingInMap) {
-                        submissionsMap[itemIdKey] = sub;
-                        submissionsMap[sub.item_id] = sub;
-                    } else {
-                        // Merge records intelligently: preserve non-empty value if available
-                        const hasVal = sub.value !== undefined && sub.value !== null && String(sub.value).trim() !== '';
-                        const existingHasVal = existingInMap.value !== undefined && existingInMap.value !== null && String(existingInMap.value).trim() !== '';
-                        const mergedVal = hasVal ? sub.value : (existingHasVal ? existingInMap.value : (sub.value || ''));
-                        const mergedRecord = {
-                            ...existingInMap,
-                            ...sub,
-                            value: mergedVal,
-                            score: sub.score !== null && sub.score !== undefined ? sub.score : existingInMap.score,
-                            is_na: sub.is_na !== undefined ? sub.is_na : existingInMap.is_na
-                        };
-                        submissionsMap[itemIdKey] = mergedRecord;
-                        submissionsMap[sub.item_id] = mergedRecord;
-                    }
+                    submissionsMap[sub.item_id] = sub;
                 }
             });
 
@@ -2670,27 +2456,22 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                             const item_id = parts.pop();
                             const hId = parts.join('_');
                             if (currentHotel && isSubmissionForHotel(hId, currentHotel) && item_id) {
-                                const existingInMap = submissionsMap[item_id] || submissionsMap[String(item_id)];
-                                try {
-                                    const parsed = JSON.parse(localStorage.getItem(key) || '{}');
-                                    const parsedVal = parsed.value !== undefined && parsed.value !== null ? String(parsed.value) : '';
-                                    if (parsed && (parsedVal !== '' || parsed.is_na || parsed.evidence_urls)) {
-                                        if (!existingInMap || (parsedVal !== '' && (!existingInMap.value || String(existingInMap.value).trim() === ''))) {
-                                            const localSub = {
-                                                ...(existingInMap || {}),
+                                if (!submissionsMap[item_id]) {
+                                    try {
+                                        const parsed = JSON.parse(localStorage.getItem(key) || '{}');
+                                        if (parsed && (parsed.value !== undefined || parsed.is_na || parsed.evidence_urls)) {
+                                            submissionsMap[item_id] = {
                                                 item_id,
                                                 hotel_id: hId,
-                                                value: parsedVal || existingInMap?.value || '',
-                                                is_na: !!parsed.is_na || existingInMap?.is_na,
-                                                evidence_urls: parsed.evidence_urls || existingInMap?.evidence_urls || [],
-                                                score: parsed.score !== undefined ? parsed.score : existingInMap?.score,
-                                                remarks: parsed.remarks || existingInMap?.remarks || ''
+                                                value: parsed.value || '',
+                                                is_na: !!parsed.is_na,
+                                                evidence_urls: parsed.evidence_urls || [],
+                                                score: parsed.score,
+                                                remarks: parsed.remarks || ''
                                             };
-                                            submissionsMap[item_id] = localSub;
-                                            submissionsMap[String(item_id)] = localSub;
                                         }
-                                    }
-                                } catch (e) {}
+                                    } catch (e) {}
+                                }
                             }
                         }
                     }
@@ -2773,7 +2554,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         }
     };
 
-    const saveInspectionScore = async (hotelId: string, itemId: string, score: number | string | undefined) => {
+    const saveInspectionScore = (hotelId: string, itemId: string, score: number | string | undefined) => {
         const updated = { ...inspectionScores };
         if (score === undefined) {
             delete updated[`${hotelId}_${itemId}`];
@@ -2782,156 +2563,15 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         }
         setInspectionScores(updated);
         localStorage.setItem('sbi_inspection_scores', JSON.stringify(updated));
-
-        // Find if this item is a self-audit item or an auditor-filled item
-        const itemObj = items.find(i => String(i.id) === String(itemId));
-        const isSelfAudit = itemObj ? (itemObj.filled_by_hotel !== false && itemObj.filled_by_hotel !== 'false') : true;
-
-        if (!isSelfAudit) {
-            // For auditor-filled items, DO NOT submit to Supabase immediately!
-            // It will be submitted only when clicking [Save Evidence]
-            return;
-        }
-
-        try {
-            // Fetch existing record or use cached hotelSubmissions to preserve value column
-            let existing: any = hotelSubmissions[itemId] || hotelSubmissions[String(itemId)];
-            if (!existing) {
-                const { data } = await supabase
-                    .from('audit_submissions')
-                    .select('id, hotel_id, item_id, value, is_na, score')
-                    .eq('hotel_id', hotelId)
-                    .eq('item_id', itemId)
-                    .maybeSingle();
-                existing = data;
-            }
-
-            let dbScore: any = null;
-            let dbIsNa = false;
-
-            if (score === 'N/A') {
-                dbIsNa = true;
-                dbScore = null;
-            } else if (score === 'PASS') {
-                dbScore = 1;
-            } else if (score === 'FAIL') {
-                dbScore = 0;
-            } else if (score !== undefined && score !== null) {
-                dbScore = !isNaN(Number(score)) ? Number(score) : null;
-            }
-
-            if (existing && existing.id) {
-                // Directly update score on existing row without overwriting value column
-                const { error: updateErr } = await supabase
-                    .from('audit_submissions')
-                    .update({
-                        score: dbScore,
-                        is_na: dbIsNa,
-                        updated_at: new Date().toISOString()
-                    })
-                    .eq('id', existing.id);
-
-                if (updateErr) {
-                    console.warn("Update by ID failed in saveInspectionScore, using upsert:", updateErr);
-                    const payload: any = {
-                        hotel_id: hotelId,
-                        item_id: itemId,
-                        score: dbScore,
-                        is_na: dbIsNa,
-                        value: existing.value !== undefined && existing.value !== null ? existing.value : '',
-                        updated_at: new Date().toISOString()
-                    };
-                    await supabase.from('audit_submissions').upsert(payload, { onConflict: 'hotel_id,item_id' });
-                }
-            } else {
-                // Check if local storage or state has a value
-                let localVal = '';
-                try {
-                    const lsParsed = JSON.parse(localStorage.getItem(`sbi_audit_${hotelId}_${itemId}`) || '{}');
-                    if (lsParsed && lsParsed.value) localVal = String(lsParsed.value);
-                } catch (e) {}
-
-                const payload: any = {
-                    hotel_id: hotelId,
-                    item_id: itemId,
-                    score: dbScore,
-                    is_na: dbIsNa,
-                    value: localVal || '',
-                    updated_at: new Date().toISOString()
-                };
-
-                const { error } = await supabase.from('audit_submissions').upsert(payload, { onConflict: 'hotel_id,item_id' });
-                if (error) {
-                    console.warn("Upsert failed in saveInspectionScore, trying insert:", error);
-                    await supabase.from('audit_submissions').insert(payload);
-                }
-            }
-        } catch (err) {
-            console.warn("Failed to sync inspection score to Supabase:", err);
-        }
     };
 
-    const saveInspectionComment = async (hotelId: string, itemId: string, comment: string) => {
+    const saveInspectionComment = (hotelId: string, itemId: string, comment: string) => {
         const updated = {
             ...inspectionComments,
             [`${hotelId}_${itemId}`]: comment
         };
         setInspectionComments(updated);
         localStorage.setItem('sbi_inspection_comments', JSON.stringify(updated));
-
-        // Find if this item is a self-audit item or an auditor-filled item
-        const itemObj = items.find(i => String(i.id) === String(itemId));
-        const isSelfAudit = itemObj ? (itemObj.filled_by_hotel !== false && itemObj.filled_by_hotel !== 'false') : true;
-
-        if (!isSelfAudit) {
-            // For auditor-filled items, DO NOT submit to Supabase immediately!
-            return;
-        }
-
-        // For self-audit items, sync the comment/notes to Supabase on change
-        try {
-            const { data: existing } = await supabase
-                .from('audit_submissions')
-                .select('id, hotel_id, item_id, value, is_na, score, notes')
-                .eq('hotel_id', hotelId)
-                .eq('item_id', itemId)
-                .maybeSingle();
-
-            const scoreKey = `${hotelId}_${itemId}`;
-            const scoreVal = inspectionScores[scoreKey];
-            let dbScore: any = null;
-            let dbIsNa = false;
-
-            if (scoreVal === 'N/A') {
-                dbIsNa = true;
-                dbScore = null;
-            } else if (scoreVal === 'PASS') {
-                dbScore = 1;
-            } else if (scoreVal === 'FAIL') {
-                dbScore = 0;
-            } else if (scoreVal !== undefined && scoreVal !== null) {
-                dbScore = !isNaN(Number(scoreVal)) ? Number(scoreVal) : null;
-            }
-
-            const payload: any = {
-                hotel_id: hotelId,
-                item_id: itemId,
-                score: dbScore,
-                is_na: dbIsNa,
-                updated_at: new Date().toISOString()
-            };
-
-            if (existing) {
-                payload.id = existing.id;
-                payload.value = existing.value;
-            } else {
-                payload.value = '';
-            }
-
-            await supabase.from('audit_submissions').upsert(payload, { onConflict: 'hotel_id,item_id' });
-        } catch (err) {
-            console.warn("Failed to sync comment to Supabase:", err);
-        }
     };
 
     // Category Drag-and-drop state parameters
@@ -3677,7 +3317,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 }
             }
 
-            const { data: refetchCat } = await supabase.from('auditor_category_assignments').select('id, user_id, category_id, created_at');
+            const { data: refetchCat } = await supabase.from('auditor_category_assignments').select('*');
             if (refetchCat && Array.isArray(refetchCat)) {
                 const catMap = new Map<string, any>();
                 refetchCat.forEach((item: any) => {
@@ -3734,7 +3374,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                     .in('category_id', categoryIds);
             }
 
-            const { data: refetchCat } = await supabase.from('auditor_category_assignments').select('id, user_id, category_id, created_at');
+            const { data: refetchCat } = await supabase.from('auditor_category_assignments').select('*');
             if (refetchCat && Array.isArray(refetchCat)) {
                 const catMap = new Map<string, any>();
                 refetchCat.forEach((item: any) => {
@@ -3843,7 +3483,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             }
 
             // Refetch from DB and safely MERGE with updated local state so other users' items are never dropped
-            const { data: refetch } = await supabase.from('auditor_assignments').select('id, user_id, hotel_id, created_at');
+            const { data: refetch } = await supabase.from('auditor_assignments').select('*');
             if (refetch && Array.isArray(refetch)) {
                 const map = new Map<string, any>();
                 refetch.forEach((item: any) => {
@@ -7855,22 +7495,16 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                 const currentScore = inspectionScores[scoreKey];
                                                                 const currentComment = inspectionComments[scoreKey] || '';
                                                                 const submission = hotelSubmissions[item.id];
-                                                                const hasSubmission = !!submission && (
-                                                                    (submission.value !== undefined && submission.value !== null && String(submission.value).trim() !== '') ||
-                                                                    submission.is_na
-                                                                );
+                                                                const hasSubmission = !!submission;
                                                                 const itemMaxPoints = item.points ?? 5;
                                                                 const isPass = currentScore !== undefined && (
                                                                     currentScore === 'PASS' ||
-                                                                    currentScore === 1 ||
-                                                                    (itemMaxPoints > 0 && Number(currentScore) === itemMaxPoints) ||
-                                                                    (itemMaxPoints === 0 && (currentScore === 'PASS' || Number(currentScore) === 1))
+                                                                    (itemMaxPoints > 0 && currentScore === itemMaxPoints) ||
+                                                                    (itemMaxPoints === 0 && currentScore === 'PASS')
                                                                 );
                                                                 const isFail = currentScore !== undefined && (
                                                                     currentScore === 'FAIL' ||
-                                                                    currentScore === 0 ||
-                                                                    (itemMaxPoints > 0 && Number(currentScore) === 0) ||
-                                                                    (itemMaxPoints === 0 && (currentScore === 'FAIL' || Number(currentScore) === 0))
+                                                                    (itemMaxPoints > 0 && currentScore === 0)
                                                                 );
                                                                 const isNA = currentScore !== undefined && currentScore === 'N/A';
                                                                 const isSelfAudit = item.filled_by_hotel !== false && item.filled_by_hotel !== 'false';
@@ -7882,94 +7516,46 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                     : (assignedAuditorName !== 'Unassigned' && assignedAuditorName !== 'All Hotel Auditors' ? assignedAuditorName : (userProfile ? `${userProfile.first_name || ''} ${userProfile.last_name || ''}`.trim() || userProfile.email : 'Auditor'));
                                                                 const auditTimestamp = safeFormatDateTime(submission?.updated_at || submission?.created_at);
 
-                                                                const isExpanded = expandedItemId === item.id;
-
                                                                 return (
                                                                     <div 
                                                                         key={item.id} 
-                                                                        className={`group bg-white rounded-xl border transition-all duration-300 overflow-hidden ${
-                                                                            isExpanded 
-                                                                                ? 'border-indigo-400 ring-4 ring-indigo-50/50 shadow-md scale-[1.002]' 
-                                                                                : (currentScore !== undefined 
-                                                                                    ? 'border-slate-200 shadow-2xs opacity-95 bg-slate-50/20 hover:border-slate-300' 
-                                                                                    : 'border-indigo-200/80 shadow-xs hover:border-indigo-300 hover:shadow-sm ring-2 ring-indigo-50/30')
+                                                                        className={`group bg-white rounded-xl border transition-all duration-200 overflow-hidden ${
+                                                                            currentScore !== undefined 
+                                                                                ? 'border-slate-200 shadow-2xs opacity-95 bg-slate-50/20' 
+                                                                                : 'border-indigo-200 shadow-xs hover:shadow-md ring-2 ring-indigo-50/60'
                                                                         }`}
                                                                     >
-                                                                        {/* CLICKABLE ACCORDION HEADER */}
-                                                                        <div 
-                                                                            onClick={() => setExpandedItemId(isExpanded ? null : item.id)}
-                                                                            className={`flex flex-col sm:flex-row sm:items-center justify-between p-4 sm:p-5 cursor-pointer select-none transition-all duration-150 gap-3 ${
-                                                                                isExpanded ? 'bg-indigo-50/30' : 'hover:bg-slate-50/40'
-                                                                            }`}
-                                                                        >
-                                                                            <div className="flex-1 min-w-0 space-y-1.5">
-                                                                                <div className="flex flex-wrap items-center gap-2">
-                                                                                    <span className="px-2 py-0.5 bg-slate-900 text-white text-[9px] font-black rounded-md uppercase tracking-wider">
-                                                                                        {item.points ?? 5} Points Max
-                                                                                    </span>
-                                                                                    {isSelfAudit ? (
-                                                                                        <span className={`px-2 py-0.5 text-[9px] font-black rounded-md uppercase tracking-wider border ${hasSubmission ? 'bg-blue-50 text-blue-700 border-blue-200' : (getHotelFinalizedInfo(hotel).is_finalized ? 'bg-rose-50 text-rose-700 border-rose-200' : 'bg-amber-50 text-amber-700 border-amber-200')}`}>
-                                                                                            {hasSubmission ? 'Submission Received' : (getHotelFinalizedInfo(hotel).is_finalized ? 'No Property Evidence' : 'Awaiting for Property Submission.')}
+                                                                        <div className="flex flex-col lg:flex-row">
+                                                                            {/* LEFT SIDE: CRITERIA & HOTEL DATA */}
+                                                                            <div className="flex-1 p-4 sm:p-5 space-y-3">
+                                                                                <div className="space-y-1.5">
+                                                                                    <div className="flex flex-wrap items-center gap-2">
+                                                                                        <span className="px-2 py-0.5 bg-slate-900 text-white text-[9px] font-black rounded-md uppercase tracking-wider">
+                                                                                            {item.points ?? 5} Points Max
                                                                                         </span>
-                                                                                    ) : (
-                                                                                        <span className={`px-2 py-0.5 text-[9px] font-black rounded-md uppercase tracking-wider border ${hasSubmission ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-indigo-50 text-indigo-700 border-indigo-200'}`}>
-                                                                                            {hasSubmission ? `Audited by ${auditAuthor}` : 'Required Auditor-Filled Item'}
+                                                                                        {isSelfAudit ? (
+                                                                                            <span className={`px-2 py-0.5 text-[9px] font-black rounded-md uppercase tracking-wider border ${hasSubmission ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
+                                                                                                {hasSubmission ? 'Submission Received' : 'Awaiting for Property Submission.'}
+                                                                                            </span>
+                                                                                        ) : (
+                                                                                            <span className={`px-2 py-0.5 text-[9px] font-black rounded-md uppercase tracking-wider border ${hasSubmission ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-indigo-50 text-indigo-700 border-indigo-200'}`}>
+                                                                                                {hasSubmission ? `Audited by ${auditAuthor} - ${auditTimestamp}` : 'Required Auditor-Filled Item'}
+                                                                                            </span>
+                                                                                        )}
+                                                                                        <span className="px-2 py-0.5 bg-indigo-50/90 text-indigo-800 border border-indigo-200/90 text-[9px] font-black rounded-md uppercase tracking-wider flex items-center gap-1 shadow-2xs">
+                                                                                            <User size={10} className="text-indigo-600 shrink-0" />
+                                                                                            <span>Auditor: {assignedAuditorName}</span>
                                                                                         </span>
-                                                                                    )}
-                                                                                    <span className="px-2 py-0.5 bg-indigo-50/90 text-indigo-800 border border-indigo-200/90 text-[9px] font-black rounded-md uppercase tracking-wider flex items-center gap-1 shadow-2xs">
-                                                                                        <User size={10} className="text-indigo-600 shrink-0" />
-                                                                                        <span>Auditor: {assignedAuditorName}</span>
-                                                                                    </span>
-                                                                                </div>
-                                                                                <h4 className="text-sm sm:text-base font-black text-slate-800 leading-snug tracking-tight group-hover:text-indigo-600 transition-colors">
-                                                                                    {item.name}
-                                                                                </h4>
-                                                                                {item.description && !isExpanded && (
-                                                                                    <p className="text-xs text-slate-400 font-semibold truncate max-w-2xl">
-                                                                                        {item.description}
-                                                                                    </p>
-                                                                                )}
-                                                                            </div>
-
-                                                                            <div className="flex items-center gap-3 shrink-0 justify-between sm:justify-end border-t sm:border-t-0 pt-2 sm:pt-0 border-slate-100">
-                                                                                <div className="flex items-center gap-1.5">
-                                                                                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider hidden sm:inline">Evaluation:</span>
-                                                                                    <span className={`px-2.5 py-1 text-[9px] font-black uppercase tracking-wider rounded-lg border ${
-                                                                                        currentScore !== undefined
-                                                                                            ? (isPass 
-                                                                                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200' 
-                                                                                                : isFail 
-                                                                                                    ? 'bg-red-50 text-red-700 border-red-200' 
-                                                                                                    : 'bg-amber-50 text-amber-700 border-amber-200')
-                                                                                            : 'bg-slate-50 text-slate-400 border-slate-200'
-                                                                                    }`}>
-                                                                                        {currentScore !== undefined 
-                                                                                            ? (isPass ? `PASS (+${itemMaxPoints})` : isFail ? 'FAIL (0)' : 'N/A') 
-                                                                                            : 'PENDING'}
-                                                                                    </span>
-                                                                                </div>
-                                                                                
-                                                                                <div className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all ${
-                                                                                    isExpanded ? 'bg-indigo-100 text-indigo-600' : 'bg-slate-100 hover:bg-slate-200 text-slate-500'
-                                                                                }`}>
-                                                                                    {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-                                                                                </div>
-                                                                            </div>
-                                                                        </div>
-
-                                                                        {/* EXPANDED CONTENT AREA */}
-                                                                        {isExpanded && (
-                                                                            <div className="border-t border-slate-100 flex flex-col lg:flex-row transition-all duration-300">
-                                                                                {/* LEFT SIDE: CRITERIA & HOTEL DATA */}
-                                                                                <div className="flex-1 p-4 sm:p-5 space-y-3">
+                                                                                    </div>
+                                                                                    <h4 className="text-base font-black text-slate-800 leading-tight tracking-tight group-hover:text-indigo-600 transition-colors">
+                                                                                        {item.name}
+                                                                                    </h4>
                                                                                     {item.description && (
-                                                                                        <div className="p-3.5 bg-slate-50 border border-slate-100 rounded-xl mb-3">
-                                                                                            <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider block mb-1">Audit Criteria & Guideline</span>
-                                                                                            <p className="text-xs text-slate-600 font-medium leading-relaxed">
-                                                                                                {item.description}
-                                                                                            </p>
-                                                                                        </div>
+                                                                                        <p className="text-xs text-slate-500 font-medium leading-snug">
+                                                                                            {item.description}
+                                                                                        </p>
                                                                                     )}
+                                                                                </div>
 
                                                                                 {/* SUBMISSION BENTO BOX OR AUDITOR EVIDENCE FORM */}
                                                                                 {!isSelfAudit ? (
@@ -7979,8 +7565,6 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                         submission={submission}
                                                                                         onSaved={fetchHotelSubmissionsForAuditor}
                                                                                         userProfile={userProfile}
-                                                                                        currentScore={currentScore}
-                                                                                        currentComment={currentComment}
                                                                                     />
                                                                                 ) : (
                                                                                     <div className={`rounded-xl border overflow-hidden transition-all ${
@@ -8059,7 +7643,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                                                     <p className="text-base font-black text-slate-900 leading-none">
                                                                                                                         {item.inputType === 'checkbox' 
                                                                                                                             ? (String(submission.value).toLowerCase() === 'true' ? 'YES / COMPLIANT' : 'NO / NON-COMPLIANT')
-                                                                                                                            : (submission.value !== undefined && submission.value !== null && submission.value !== '' ? String(submission.value) : 'N/A')}
+                                                                                                                            : (submission.value || 'N/A')}
                                                                                                                     </p>
                                                                                                                 </div>
                                                                                                                 {item.inputType === 'numeric' && item.min_value !== undefined && (
@@ -8083,17 +7667,8 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                             </div>
                                                                                         ) : (
                                                                                             <div className="flex items-center justify-center text-center px-4 py-2 gap-2">
-                                                                                                {getHotelFinalizedInfo(hotel).is_finalized ? (
-                                                                                                    <>
-                                                                                                        <AlertCircle size={14} className="text-rose-500 shrink-0" />
-                                                                                                        <span className="text-xs font-black text-rose-800 tracking-tight">No property evidence submitted (Audit Finalised).</span>
-                                                                                                    </>
-                                                                                                ) : (
-                                                                                                    <>
-                                                                                                        <Clock size={14} className="text-amber-500 shrink-0" />
-                                                                                                        <span className="text-xs font-black text-amber-800 tracking-tight">Awaiting for Property Submission.</span>
-                                                                                                    </>
-                                                                                                )}
+                                                                                                <Clock size={14} className="text-amber-500 shrink-0" />
+                                                                                                <span className="text-xs font-black text-amber-800 tracking-tight">Awaiting for Property Submission.</span>
                                                                                             </div>
                                                                                         )}
                                                                                     </div>
@@ -8199,9 +7774,8 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                 </div>
                                                                             </div>
                                                                         </div>
-                                                                    )}
-                                                                </div>
-                                                            );
+                                                                    </div>
+                                                                );
                                                             })}
                                                         </div>
                                                     </div>

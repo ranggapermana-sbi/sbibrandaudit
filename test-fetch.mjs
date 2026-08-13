@@ -1,6 +1,6 @@
 import https from 'https';
 
-const url = 'https://gvnwxrejgdkixbszhxkw.supabase.co/rest/v1/audit_categories?select=*';
+const url = 'https://gvnwxrejgdkixbszhxkw.supabase.co/rest/v1/audit_users?limit=1';
 const key = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd2bnd4cmVqZ2RraXhic3poeGt3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkxNTE2ODcsImV4cCI6MjA5NDcyNzY4N30.Pvv9rgR_Vr9McwxLrYfELeSpWYLNH2NPw0nkeGD6ZXo';
 
 const options = {
@@ -13,12 +13,5 @@ const options = {
 https.get(url, options, (res) => {
   let data = '';
   res.on('data', chunk => data += chunk);
-  res.on('end', () => {
-    try {
-      const arr = JSON.parse(data);
-      console.log("Categories:", arr);
-    } catch(e) {
-      console.log("Parse error:", e, data);
-    }
-  });
+  res.on('end', () => console.log(res.statusCode, data));
 });

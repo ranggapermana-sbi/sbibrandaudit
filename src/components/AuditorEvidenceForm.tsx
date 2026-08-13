@@ -19,8 +19,6 @@ interface AuditorEvidenceFormProps {
     submission: any;
     onSaved: () => void;
     userProfile: any;
-    currentScore?: number | string;
-    currentComment?: string;
 }
 
 const IMGBB_API_KEY = '15f299b33841c0f24f364546a6d5ef3c';
@@ -125,7 +123,7 @@ const splitEvidenceUrls = (value: string): string[] => {
     return urls;
 };
 
-export default function AuditorEvidenceForm({ item, hotel, submission, onSaved, userProfile, currentScore, currentComment }: AuditorEvidenceFormProps) {
+export default function AuditorEvidenceForm({ item, hotel, submission, onSaved, userProfile }: AuditorEvidenceFormProps) {
     const [value, setValue] = useState('');
     const [isNa, setIsNa] = useState(false);
     const [naReason, setNaReason] = useState('');
@@ -200,7 +198,7 @@ export default function AuditorEvidenceForm({ item, hotel, submission, onSaved, 
     // Load existing submission data
     useEffect(() => {
         if (submission) {
-            const val = submission.value !== undefined && submission.value !== null ? String(submission.value) : '';
+            const val = submission.value || '';
             setValue(val);
             setIsNa(submission.is_na || false);
             setNaReason(submission.na_reason || submission.notes || submission.remark || '');
@@ -361,109 +359,52 @@ export default function AuditorEvidenceForm({ item, hotel, submission, onSaved, 
             ? `Auditor: ${userProfile.first_name || ''} ${userProfile.last_name || ''}`.trim() || `Auditor: ${userProfile.email}`
             : 'Auditor';
 
-        // Fetch any existing record to preserve the score column and id
-        const targetHotelIds = [hotel.id, hotel.code, submission?.hotel_id].filter(Boolean);
-        let existingRecord: any = null;
-
-        if (targetHotelIds.length > 0) {
-            const { data: recs } = await supabase
-                .from('audit_submissions')
-                .select('id, hotel_id, item_id, value, score, is_na, notes, submitted_by_name')
-                .in('hotel_id', targetHotelIds)
-                .eq('item_id', item.id);
-            if (recs && recs.length > 0) {
-                existingRecord = recs[0];
-            }
-        }
-
-        // Prioritize currentScore passed from parent props
-        let finalScore = currentScore !== undefined ? currentScore : (existingRecord?.score !== undefined ? existingRecord.score : (submission?.score !== undefined ? submission.score : null));
-        if (isNa) {
-            finalScore = 'N/A';
-        }
-
-        const finalId = existingRecord?.id || submission?.id || null;
-        const targetHotelId = submission?.hotel_id || existingRecord?.hotel_id || hotel.id || hotel.code;
-
-        let dbIsNa = isNa || finalScore === 'N/A';
-        let cleanScore: any = null;
-
-        if (finalScore === 'N/A') {
-            dbIsNa = true;
-            cleanScore = null;
-        } else if (finalScore === 'PASS') {
-            cleanScore = item.points && item.points > 0 ? item.points : 1;
-        } else if (finalScore === 'FAIL') {
-            cleanScore = 0;
-        } else if (finalScore !== undefined && finalScore !== null && finalScore !== '') {
-            cleanScore = !isNaN(Number(finalScore)) ? Number(finalScore) : null;
-        }
-
-        const finalNotes = dbIsNa ? (naReason || currentComment || null) : (currentComment || existingRecord?.notes || submission?.notes || null);
-
-        const richPayload: any = {
-            hotel_id: targetHotelId,
+        const fullSubmissionData = {
+            hotel_id: hotel.id,
             item_id: item.id,
+            input_type: item.inputType,
             value: finalValue,
-            is_na: dbIsNa,
-            score: cleanScore,
+            is_na: isNa,
+            na_reason: naReason,
+            notes: naReason,
+            submitted_by: submitterName,
             submitted_by_name: submitterName,
-            updated_at: new Date().toISOString()
-        };
-
-        const corePayload: any = {
-            hotel_id: targetHotelId,
-            item_id: item.id,
-            value: finalValue,
-            is_na: dbIsNa,
-            score: cleanScore,
+            created_at: submission?.created_at || new Date().toISOString(),
             updated_at: new Date().toISOString()
         };
 
         try {
-            if (finalId) {
-                // Directly update by record ID to ensure we update the exact row
-                const { error: updateErr } = await supabase
-                    .from('audit_submissions')
-                    .update(richPayload)
-                    .eq('id', finalId);
-
-                if (updateErr) {
-                    console.warn("Update by ID failed, falling back to upsert:", updateErr);
-                    const { error: upsertErr } = await supabase.from('audit_submissions').upsert(richPayload, { onConflict: 'hotel_id,item_id' });
-                    if (upsertErr) {
-                        const { error: coreUpsertErr } = await supabase.from('audit_submissions').upsert(corePayload, { onConflict: 'hotel_id,item_id' });
-                        if (coreUpsertErr) throw coreUpsertErr;
-                    }
-                }
-            } else {
-                const { error: upsertErr } = await supabase.from('audit_submissions').upsert(richPayload, { onConflict: 'hotel_id,item_id' });
-                if (upsertErr) {
-                    console.warn("Standard rich upsert failed, executing select-then-insert fallback:", upsertErr);
-                    const { error: insertRichErr } = await supabase.from('audit_submissions').insert(richPayload);
-                    if (insertRichErr) {
-                        const { error: insertCoreErr } = await supabase.from('audit_submissions').insert(corePayload);
-                        if (insertCoreErr) throw insertCoreErr;
-                    }
+            const { error } = await supabase.from('audit_submissions').upsert(fullSubmissionData, { onConflict: 'hotel_id,item_id' });
+            if (error) {
+                console.warn("Full upsert failed, attempting fallback to core schema fields:", error);
+                const coreSubmissionData = {
+                    hotel_id: hotel.id,
+                    item_id: item.id,
+                    input_type: item.inputType,
+                    value: finalValue,
+                    is_na: isNa,
+                    na_reason: naReason,
+                    created_at: submission?.created_at || new Date().toISOString(),
+                    updated_at: new Date().toISOString()
+                };
+                const { error: fallbackError } = await supabase.from('audit_submissions').upsert(coreSubmissionData, { onConflict: 'hotel_id,item_id' });
+                if (fallbackError) {
+                    throw fallbackError;
                 }
             }
 
             // Sync with local storage
             try {
-                const lsData = JSON.stringify({
-                    ...richPayload,
+                localStorage.setItem(`sbi_audit_${hotel.id}_${item.id}`, JSON.stringify({
+                    ...fullSubmissionData,
                     isSubmitted: true
-                });
-                localStorage.setItem(`sbi_audit_${hotel.id}_${item.id}`, lsData);
-                if (targetHotelId && targetHotelId !== hotel.id) {
-                    localStorage.setItem(`sbi_audit_${targetHotelId}_${item.id}`, lsData);
-                }
+                }));
             } catch (lsErr) {
                 console.warn("LocalStorage save failed, string might be too large:", lsErr);
                 if (finalValue && finalValue.length > 500000) {
                     try {
                         localStorage.setItem(`sbi_audit_${hotel.id}_${item.id}`, JSON.stringify({
-                            ...richPayload,
+                            ...fullSubmissionData,
                             value: 'base64_too_large_for_local_storage',
                             isSubmitted: true
                         }));
@@ -471,33 +412,6 @@ export default function AuditorEvidenceForm({ item, hotel, submission, onSaved, 
                         console.error("Even small localStorage save failed:", lsErr2);
                     }
                 }
-            }
-
-            // Update local storage score and comments caches for perfect consistency
-            try {
-                const scoreKey = `${hotel.id}_${item.id}`;
-                
-                // Update local storage score cache
-                const storedScores = localStorage.getItem('sbi_inspection_scores');
-                const localScores = storedScores ? JSON.parse(storedScores) : {};
-                if (finalScore !== undefined && finalScore !== null) {
-                    localScores[scoreKey] = finalScore;
-                } else if (cleanScore !== null) {
-                    localScores[scoreKey] = cleanScore;
-                } else if (dbIsNa) {
-                    localScores[scoreKey] = 'N/A';
-                }
-                localStorage.setItem('sbi_inspection_scores', JSON.stringify(localScores));
-
-                // Update local storage comments cache
-                const storedComments = localStorage.getItem('sbi_inspection_comments');
-                const localComments = storedComments ? JSON.parse(storedComments) : {};
-                if (finalNotes) {
-                    localComments[scoreKey] = finalNotes;
-                }
-                localStorage.setItem('sbi_inspection_comments', JSON.stringify(localComments));
-            } catch (lsSyncErr) {
-                console.warn("Local storage cache sync failed in AuditorEvidenceForm:", lsSyncErr);
             }
 
             setSaveSuccess(true);
@@ -652,7 +566,7 @@ export default function AuditorEvidenceForm({ item, hotel, submission, onSaved, 
                             </div>
                             <input
                                 type="number"
-                                value={!isNaN(Number(value)) && value !== '' ? value : ''}
+                                value={value}
                                 onChange={(e) => setValue(e.target.value)}
                                 placeholder="Enter measurement, count, or value..."
                                 className="w-full p-2.5 bg-white border border-slate-200 focus:border-indigo-350 focus:ring-1 focus:ring-indigo-350 rounded-lg text-xs outline-none text-slate-800"

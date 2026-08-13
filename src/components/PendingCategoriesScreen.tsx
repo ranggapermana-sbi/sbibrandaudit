@@ -32,7 +32,7 @@ export default function PendingCategoriesScreen({ onBack, onNavigate, userProfil
     useEffect(() => {
         const loadHotels = async () => {
             try {
-                const response = await fetch(`${HOTELS_URL}hotels?select=id,code,name,brandClass,country,region`, {
+                const response = await fetch(`${HOTELS_URL}hotels?select=*`, {
                     headers: {
                         'apikey': HOTELS_KEY,
                         'Authorization': `Bearer ${HOTELS_KEY}`
@@ -75,7 +75,7 @@ export default function PendingCategoriesScreen({ onBack, onNavigate, userProfil
             // 1. Fetch categories
             const { data: catsData, error: catsError } = await supabase
                 .from('audit_categories')
-                .select('id, name, total_tasks, completed, department_id, sort_order')
+                .select('*')
                 .order('sort_order', { ascending: true });
             if (catsError) throw catsError;
 
@@ -93,11 +93,11 @@ export default function PendingCategoriesScreen({ onBack, onNavigate, userProfil
             try {
                 const { data: groupsData } = await supabase
                     .from('audit_checklist_groups')
-                    .select('id, name, description, category_ids, item_ids');
+                    .select('*');
 
                 const { data: groupHotelsData } = await supabase
                     .from('audit_group_hotels')
-                    .select('id, group_id, hotel_id');
+                    .select('*');
 
                 if (groupsData && groupHotelsData) {
                     const currentHotel = hotels.find(h => 
@@ -205,10 +205,9 @@ export default function PendingCategoriesScreen({ onBack, onNavigate, userProfil
             // 4. Fetch submissions for target hotel
             let submittedItemIds = new Set<string>();
             let naItemIds = new Set<string>();
-            let allSubmissionsList: any[] = [];
 
             try {
-                let query = supabase.from('audit_submissions').select('item_id, hotel_id, value, is_na, score');
+                let query = supabase.from('audit_submissions').select('item_id, hotel_id, value, is_na');
                 if (targetHotelIds.length > 0) {
                     query = query.in('hotel_id', targetHotelIds);
                 }
@@ -216,7 +215,6 @@ export default function PendingCategoriesScreen({ onBack, onNavigate, userProfil
                 const { data: subsData, error: subsError } = await query;
 
                 if (!subsError && subsData && Array.isArray(subsData)) {
-                    allSubmissionsList = subsData;
                     subsData.forEach((sub: any) => {
                         const subHotelIdLower = String(sub.hotel_id || '').toLowerCase();
                         const matchesHotel = targetHotelIdsLower.size === 0 || targetHotelIdsLower.has(subHotelIdLower);
@@ -230,9 +228,8 @@ export default function PendingCategoriesScreen({ onBack, onNavigate, userProfil
                     });
                 } else if (subsError) {
                     // Fallback to fetch all submissions if .in query fails
-                    const { data: fallbackSubs } = await supabase.from('audit_submissions').select('item_id, hotel_id, value, is_na, score');
+                    const { data: fallbackSubs } = await supabase.from('audit_submissions').select('item_id, hotel_id, value, is_na');
                     if (fallbackSubs && Array.isArray(fallbackSubs)) {
-                        allSubmissionsList = fallbackSubs;
                         fallbackSubs.forEach((sub: any) => {
                             const subHotelIdLower = String(sub.hotel_id || '').toLowerCase();
                             if (targetHotelIdsLower.size === 0 || targetHotelIdsLower.has(subHotelIdLower)) {
@@ -254,36 +251,6 @@ export default function PendingCategoriesScreen({ onBack, onNavigate, userProfil
             // 5. Map categories and calculate completed vs total items for each category
             const storedScoresRaw = localStorage.getItem('sbi_inspection_scores');
             const inspectionScores = storedScoresRaw ? JSON.parse(storedScoresRaw) : {};
-
-            // Populate inspectionScores from database submissions so DB is the Source of Truth
-            if (allSubmissionsList && Array.isArray(allSubmissionsList)) {
-                allSubmissionsList.forEach((sub: any) => {
-                    if (sub && sub.hotel_id && sub.item_id) {
-                        const subHotelId = String(sub.hotel_id).trim();
-                        const subItemId = String(sub.item_id).trim();
-                        let val: number | string | undefined = undefined;
-                        if (sub.is_na === true || String(sub.is_na) === 'true') {
-                            val = 'N/A';
-                        } else if (sub.score !== undefined && sub.score !== null && sub.score !== '') {
-                            if (!isNaN(Number(sub.score))) {
-                                val = Number(sub.score);
-                            } else {
-                                val = sub.score;
-                            }
-                        }
-                        if (val !== undefined) {
-                            const keysToSet = [
-                                subHotelId,
-                                subHotelId.toLowerCase(),
-                                subHotelId.toUpperCase()
-                            ];
-                            keysToSet.forEach(kId => {
-                                inspectionScores[`${kId}_${subItemId}`] = val;
-                            });
-                        }
-                    }
-                });
-            }
 
             const mapped = filteredCats.map((cat: any) => {
                 const catItems = (itemsData || []).filter((item: any) => 
@@ -511,7 +478,7 @@ export default function PendingCategoriesScreen({ onBack, onNavigate, userProfil
         try {
             const { data, error } = await supabase
                 .from('hotel_audit_status')
-                .select('hotel_id, is_finalized, finalized_by, finalized_at')
+                .select('*')
                 .eq('hotel_id', selectedHotelId)
                 .maybeSingle();
             
