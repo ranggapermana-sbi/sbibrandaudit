@@ -200,17 +200,13 @@ export default function AuditorEvidenceForm({ item, hotel, submission, onSaved, 
     // Load existing submission data
     useEffect(() => {
         if (submission) {
-            const val = (submission.value !== undefined && submission.value !== null && String(submission.value).trim() !== '')
-                ? String(submission.value).trim()
-                : (submission.evidence_urls ? (Array.isArray(submission.evidence_urls) ? submission.evidence_urls.join(',') : String(submission.evidence_urls).trim()) : '');
+            const val = submission.value !== undefined && submission.value !== null ? String(submission.value) : '';
             setValue(val);
             setIsNa(submission.is_na || false);
             setNaReason(submission.na_reason || submission.notes || submission.remark || '');
             
-            const evStr = val || (submission.evidence_urls ? (Array.isArray(submission.evidence_urls) ? submission.evidence_urls.join(',') : String(submission.evidence_urls).trim()) : '');
-            const urls = splitEvidenceUrls(evStr);
-
-            if (urls.length > 0) {
+            if (val && (item.inputType === 'camera' || item.inputType === 'image')) {
+                const urls = splitEvidenceUrls(val);
                 setPhotos(urls.map((u: string, idx: number) => ({
                     id: `loaded_${idx}_${Date.now()}`,
                     url: u,
@@ -372,7 +368,7 @@ export default function AuditorEvidenceForm({ item, hotel, submission, onSaved, 
         if (targetHotelIds.length > 0) {
             const { data: recs } = await supabase
                 .from('audit_submissions')
-                .select('id, hotel_id, item_id, value, is_na, score, notes, remarks, evidence_urls, submitted_by_name')
+                .select('*')
                 .in('hotel_id', targetHotelIds)
                 .eq('item_id', item.id);
             if (recs && recs.length > 0) {
@@ -547,7 +543,7 @@ export default function AuditorEvidenceForm({ item, hotel, submission, onSaved, 
             ) : (
                 <div className="space-y-3">
                     {/* Image / Camera upload */}
-                    {(item.inputType === 'camera' || item.inputType === 'image' || photos.length > 0) && (
+                    {(item.inputType === 'camera' || item.inputType === 'image') && (
                         <div className="space-y-3">
                             {photos.length > 0 && (
                                 <div className="grid grid-cols-3 gap-2">

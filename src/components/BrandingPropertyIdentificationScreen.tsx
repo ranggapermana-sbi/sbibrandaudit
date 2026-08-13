@@ -330,9 +330,7 @@ const AuditItemCard: React.FC<{
                 
                 if (!error && data && active) {
                     const submission = data;
-                    const val = (submission.value !== undefined && submission.value !== null && String(submission.value).trim() !== '')
-                        ? String(submission.value).trim()
-                        : (submission.evidence_urls ? (Array.isArray(submission.evidence_urls) ? submission.evidence_urls.join(',') : String(submission.evidence_urls).trim()) : '');
+                    const val = submission.value !== undefined && submission.value !== null ? String(submission.value) : '';
                     setValue(val);
                     setIsNa(submission.is_na || false);
                     setNaReason(submission.na_reason || submission.notes || submission.remark || '');
@@ -340,9 +338,7 @@ const AuditItemCard: React.FC<{
                     setSubmittedBy(submission.submitted_by_name || submission.submitted_by || submission.user_name || '');
                     hasLoadedExistingRef.current = true;
                     
-                    const isPhotoInput = item.input_type === 'camera' || item.input_type === 'image' || val.includes('data:image/') || val.includes('http://') || val.includes('https://');
-
-                    if (val && isPhotoInput) {
+                    if (val && (item.input_type === 'camera' || item.input_type === 'image')) {
                         const urls = splitEvidenceUrls(val);
                         setPhotos(urls.map((u: string, idx: number) => ({
                             id: `loaded_${idx}_${Date.now()}`,
