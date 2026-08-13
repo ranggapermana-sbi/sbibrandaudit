@@ -609,50 +609,18 @@ const AuditItemCard: React.FC<{
                 ? `${userProfile.first_name || ''} ${userProfile.last_name || ''}`.trim() || userProfile.full_name || userProfile.name || userProfile.email 
                 : (localStorage.getItem('sbi_user_name') || 'Property User');
 
-            const fullSubmissionData = {
+            const submissionPayload = {
                 hotel_id: hotelId,
                 item_id: item.id,
-                input_type: item.input_type,
                 value: finalValue,
                 is_na: isNa,
-                na_reason: naReason,
-                notes: naReason,
-                submitted_by: submitterName,
-                submitted_by_name: submitterName,
-                created_at: new Date().toISOString(),
                 updated_at: new Date().toISOString()
             };
 
             try {
-                // Upsert with full schema (includes notes and submitted_by)
-                const { error } = await supabase.from('audit_submissions').upsert(fullSubmissionData, { onConflict: 'hotel_id,item_id' });
+                const { error } = await supabase.from('audit_submissions').upsert(submissionPayload, { onConflict: 'hotel_id,item_id' });
                 if (error) {
-                    console.warn("Supabase upsert with full fields failed, attempting fallback to core schema fields:", error);
-                    // Fallback to core schema fields if additional columns don't exist in Supabase table
-                    const coreSubmissionData = {
-                        hotel_id: hotelId,
-                        item_id: item.id,
-                        input_type: item.input_type,
-                        value: finalValue,
-                        is_na: isNa,
-                        na_reason: naReason,
-                        created_at: new Date().toISOString(),
-                        updated_at: new Date().toISOString()
-                    };
-                    const { error: fallbackError } = await supabase.from('audit_submissions').upsert(coreSubmissionData, { onConflict: 'hotel_id,item_id' });
-                    if (fallbackError) {
-                        const minimalData = {
-                            hotel_id: hotelId,
-                            item_id: item.id,
-                            value: finalValue,
-                            is_na: isNa,
-                            updated_at: new Date().toISOString()
-                        };
-                        const { error: minError } = await supabase.from('audit_submissions').upsert(minimalData, { onConflict: 'hotel_id,item_id' });
-                        if (minError) {
-                            console.error("Supabase upsert fallback error:", minError);
-                        }
-                    }
+                    console.warn("Supabase upsert error:", error);
                 }
             } catch (err) {
                 console.warn("Failed to save to Supabase.", err);

@@ -2217,20 +2217,21 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                         }
                     }
                     if (val !== undefined) {
-                        // Check if any matching hotel key in updated needs sync
-                        const keys = Object.keys(updated);
-                        let found = false;
-                        keys.forEach(k => {
-                            if (k.endsWith(`_${subItemId}`) && k.startsWith(`${subHotelId}_`)) {
-                                if (updated[k] !== val) {
-                                    updated[k] = val;
-                                    changed = true;
-                                }
-                                found = true;
+                        // Populate for any hotel matching this submission
+                        (hotels || []).forEach(hotel => {
+                            if (hotel && isSubmissionForHotel(subHotelId, hotel)) {
+                                [hotel.id, hotel.code, hotel.name, subHotelId].filter(Boolean).forEach(hKey => {
+                                    const k = `${String(hKey).trim()}_${subItemId}`;
+                                    if (updated[k] !== val) {
+                                        updated[k] = val;
+                                        changed = true;
+                                    }
+                                });
                             }
                         });
-                        if (!found) {
-                            const defaultKey = `${subHotelId}_${subItemId}`;
+
+                        const defaultKey = `${subHotelId}_${subItemId}`;
+                        if (updated[defaultKey] !== val) {
                             updated[defaultKey] = val;
                             changed = true;
                         }
@@ -2243,11 +2244,57 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             }
             return prev;
         });
-    }, [allSubmissions]);
+    }, [allSubmissions, hotels]);
     const [inspectionComments, setInspectionComments] = useState<Record<string, string>>(() => {
         const stored = localStorage.getItem('sbi_inspection_comments');
         return stored ? JSON.parse(stored) : {};
     });
+
+    const isItemScoredForHotel = (hotel: any, itemId: any) => {
+        if (!hotel || !itemId) return false;
+        const possibleIds = [
+            String(hotel.id),
+            hotel.code ? String(hotel.code) : null,
+            hotel.name ? String(hotel.name) : null
+        ].filter(Boolean) as string[];
+
+        for (const hId of possibleIds) {
+            if (inspectionScores[`${hId}_${itemId}`] !== undefined) return true;
+        }
+
+        const hasSub = allSubmissions.some(s => 
+            String(s.item_id) === String(itemId) && isSubmissionForHotel(s.hotel_id, hotel)
+        );
+        return hasSub;
+    };
+
+    const getItemScoreForHotel = (hotel: any, itemId: any) => {
+        if (!hotel || !itemId) return undefined;
+        const possibleIds = [
+            String(hotel.id),
+            hotel.code ? String(hotel.code) : null,
+            hotel.name ? String(hotel.name) : null
+        ].filter(Boolean) as string[];
+
+        for (const hId of possibleIds) {
+            if (inspectionScores[`${hId}_${itemId}`] !== undefined) {
+                return inspectionScores[`${hId}_${itemId}`];
+            }
+        }
+
+        const sub = allSubmissions.find(s => 
+            String(s.item_id) === String(itemId) && isSubmissionForHotel(s.hotel_id, hotel)
+        );
+        if (sub) {
+            if (sub.is_na) return 'N/A';
+            if (sub.score !== undefined && sub.score !== null) return sub.score;
+            if (sub.value !== undefined && sub.value !== null && sub.value !== '') {
+                return !isNaN(Number(sub.value)) ? Number(sub.value) : sub.value;
+            }
+        }
+
+        return undefined;
+    };
 
     const isSubmissionForHotel = (submissionHotelId: string, hotel: Hotel) => {
         if (!submissionHotelId || !hotel) return false;

@@ -359,49 +359,18 @@ export default function AuditorEvidenceForm({ item, hotel, submission, onSaved, 
             ? `Auditor: ${userProfile.first_name || ''} ${userProfile.last_name || ''}`.trim() || `Auditor: ${userProfile.email}`
             : 'Auditor';
 
-        const fullSubmissionData = {
+        const submissionPayload = {
             hotel_id: hotel.id,
             item_id: item.id,
-            input_type: item.inputType,
             value: finalValue,
             is_na: isNa,
-            na_reason: naReason,
-            notes: naReason,
-            submitted_by: submitterName,
-            submitted_by_name: submitterName,
-            created_at: submission?.created_at || new Date().toISOString(),
             updated_at: new Date().toISOString()
         };
 
         try {
-            const { error } = await supabase.from('audit_submissions').upsert(fullSubmissionData, { onConflict: 'hotel_id,item_id' });
+            const { error } = await supabase.from('audit_submissions').upsert(submissionPayload, { onConflict: 'hotel_id,item_id' });
             if (error) {
-                console.warn("Full upsert failed, attempting fallback to core schema fields:", error);
-                const coreSubmissionData = {
-                    hotel_id: hotel.id,
-                    item_id: item.id,
-                    input_type: item.inputType,
-                    value: finalValue,
-                    is_na: isNa,
-                    na_reason: naReason,
-                    created_at: submission?.created_at || new Date().toISOString(),
-                    updated_at: new Date().toISOString()
-                };
-                const { error: fallbackError } = await supabase.from('audit_submissions').upsert(coreSubmissionData, { onConflict: 'hotel_id,item_id' });
-                if (fallbackError) {
-                    console.warn("Core upsert failed, attempting minimal fields fallback:", fallbackError);
-                    const minimalData = {
-                        hotel_id: hotel.id,
-                        item_id: item.id,
-                        value: finalValue,
-                        is_na: isNa,
-                        updated_at: new Date().toISOString()
-                    };
-                    const { error: minError } = await supabase.from('audit_submissions').upsert(minimalData, { onConflict: 'hotel_id,item_id' });
-                    if (minError) {
-                        throw minError;
-                    }
-                }
+                console.warn("Supabase upsert warning:", error);
             }
 
             // Sync with local storage
