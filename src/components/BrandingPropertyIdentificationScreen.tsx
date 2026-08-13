@@ -636,10 +636,43 @@ const AuditItemCard: React.FC<{
             try {
                 const { error } = await supabase.from('audit_submissions').upsert(richPayload, { onConflict: 'hotel_id,item_id' });
                 if (error) {
-                    console.warn("Supabase rich upsert failed, attempting fallback to core schema fields:", error);
-                    const { error: coreError } = await supabase.from('audit_submissions').upsert(corePayload, { onConflict: 'hotel_id,item_id' });
-                    if (coreError) {
-                        console.error("Supabase core fallback error:", coreError);
+                    console.warn("Standard rich upsert failed in BrandingProperty, executing select-then-insert-or-update fallback:", error);
+                    
+                    const { data: existing, error: fetchErr } = await supabase
+                        .from('audit_submissions')
+                        .select('id')
+                        .eq('hotel_id', hotelId)
+                        .eq('item_id', item.id)
+                        .maybeSingle();
+
+                    if (fetchErr) {
+                        console.error("Failed to query existing record in BrandingProperty, trying raw inserts:", fetchErr);
+                        const { error: insertRichErr } = await supabase.from('audit_submissions').insert(richPayload);
+                        if (insertRichErr) {
+                            const { error: insertCoreErr } = await supabase.from('audit_submissions').insert(corePayload);
+                            if (insertCoreErr) console.error("Fallback inserts failed:", insertCoreErr);
+                        }
+                    } else if (existing && existing.id) {
+                        const { error: updateRichErr } = await supabase
+                            .from('audit_submissions')
+                            .update(richPayload)
+                            .eq('id', existing.id);
+
+                        if (updateRichErr) {
+                            console.warn("Rich update failed, trying core payload update:", updateRichErr);
+                            const { error: updateCoreErr } = await supabase
+                                .from('audit_submissions')
+                                .update(corePayload)
+                                .eq('id', existing.id);
+                            if (updateCoreErr) console.error("Core fallback update failed:", updateCoreErr);
+                        }
+                    } else {
+                        const { error: insertRichErr } = await supabase.from('audit_submissions').insert(richPayload);
+                        if (insertRichErr) {
+                            console.warn("Rich insert failed, trying core payload insert:", insertRichErr);
+                            const { error: insertCoreErr } = await supabase.from('audit_submissions').insert(corePayload);
+                            if (insertCoreErr) console.error("Core fallback insert failed:", insertCoreErr);
+                        }
                     }
                 }
             } catch (err) {

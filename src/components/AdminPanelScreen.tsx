@@ -2667,7 +2667,32 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 is_na: score === 'N/A',
                 updated_at: new Date().toISOString()
             };
-            await supabase.from('audit_submissions').upsert(payload, { onConflict: 'hotel_id,item_id' });
+            
+            const { error } = await supabase.from('audit_submissions').upsert(payload, { onConflict: 'hotel_id,item_id' });
+            if (error) {
+                console.warn("Standard upsert failed for Admin Panel inspection score, executing fallback:", error);
+                
+                const { data: existing, error: fetchErr } = await supabase
+                    .from('audit_submissions')
+                    .select('id')
+                    .eq('hotel_id', hotelId)
+                    .eq('item_id', itemId)
+                    .maybeSingle();
+
+                if (fetchErr) {
+                    console.error("Failed to query existing submission in Admin Panel, trying insert:", fetchErr);
+                    await supabase.from('audit_submissions').insert(payload);
+                } else if (existing && existing.id) {
+                    const { error: updateErr } = await supabase
+                        .from('audit_submissions')
+                        .update(payload)
+                        .eq('id', existing.id);
+                    if (updateErr) console.error("Fallback update failed in Admin Panel:", updateErr);
+                } else {
+                    const { error: insertErr } = await supabase.from('audit_submissions').insert(payload);
+                    if (insertErr) console.error("Fallback insert failed in Admin Panel:", insertErr);
+                }
+            }
         } catch (err) {
             console.warn("Failed to sync inspection score to Supabase:", err);
         }

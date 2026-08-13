@@ -386,10 +386,47 @@ export default function AuditorEvidenceForm({ item, hotel, submission, onSaved, 
         try {
             const { error } = await supabase.from('audit_submissions').upsert(richPayload, { onConflict: 'hotel_id,item_id' });
             if (error) {
-                console.warn("Supabase rich upsert failed, falling back to core schema fields:", error);
-                const { error: coreError } = await supabase.from('audit_submissions').upsert(corePayload, { onConflict: 'hotel_id,item_id' });
-                if (coreError) {
-                    throw coreError;
+                console.warn("Standard rich upsert failed, executing select-then-insert-or-update fallback:", error);
+                
+                // Fetch to check if record exists by hotel_id and item_id
+                const { data: existing, error: fetchErr } = await supabase
+                    .from('audit_submissions')
+                    .select('id')
+                    .eq('hotel_id', hotel.id)
+                    .eq('item_id', item.id)
+                    .maybeSingle();
+
+                if (fetchErr) {
+                    console.error("Failed to query existing record, trying raw inserts as last resort:", fetchErr);
+                    // Attempt raw inserts
+                    const { error: insertRichErr } = await supabase.from('audit_submissions').insert(richPayload);
+                    if (insertRichErr) {
+                        const { error: insertCoreErr } = await supabase.from('audit_submissions').insert(corePayload);
+                        if (insertCoreErr) throw insertCoreErr;
+                    }
+                } else if (existing && existing.id) {
+                    // Update the existing record using its unique ID
+                    const { error: updateRichErr } = await supabase
+                        .from('audit_submissions')
+                        .update(richPayload)
+                        .eq('id', existing.id);
+
+                    if (updateRichErr) {
+                        console.warn("Rich update failed, updating with core payload:", updateRichErr);
+                        const { error: updateCoreErr } = await supabase
+                            .from('audit_submissions')
+                            .update(corePayload)
+                            .eq('id', existing.id);
+                        if (updateCoreErr) throw updateCoreErr;
+                    }
+                } else {
+                    // Insert a new record
+                    const { error: insertRichErr } = await supabase.from('audit_submissions').insert(richPayload);
+                    if (insertRichErr) {
+                        console.warn("Rich insert failed, inserting core payload:", insertRichErr);
+                        const { error: insertCoreErr } = await supabase.from('audit_submissions').insert(corePayload);
+                        if (insertCoreErr) throw insertCoreErr;
+                    }
                 }
             }
 
