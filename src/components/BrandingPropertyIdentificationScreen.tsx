@@ -641,11 +641,16 @@ const AuditItemCard: React.FC<{
                     };
                     const { error: fallbackError } = await supabase.from('audit_submissions').upsert(coreSubmissionData, { onConflict: 'hotel_id,item_id' });
                     if (fallbackError) {
-                        console.error("Supabase upsert fallback error:", fallbackError);
-                        if (fallbackError.code === '42P01') {
-                            alert("The audit_submissions table does not exist in Supabase. Please run the SQL script provided.");
-                        } else {
-                            alert("Failed to save to Supabase: " + fallbackError.message);
+                        const minimalData = {
+                            hotel_id: hotelId,
+                            item_id: item.id,
+                            value: finalValue,
+                            is_na: isNa,
+                            updated_at: new Date().toISOString()
+                        };
+                        const { error: minError } = await supabase.from('audit_submissions').upsert(minimalData, { onConflict: 'hotel_id,item_id' });
+                        if (minError) {
+                            console.error("Supabase upsert fallback error:", minError);
                         }
                     }
                 }

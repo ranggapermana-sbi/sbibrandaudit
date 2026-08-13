@@ -389,7 +389,18 @@ export default function AuditorEvidenceForm({ item, hotel, submission, onSaved, 
                 };
                 const { error: fallbackError } = await supabase.from('audit_submissions').upsert(coreSubmissionData, { onConflict: 'hotel_id,item_id' });
                 if (fallbackError) {
-                    throw fallbackError;
+                    console.warn("Core upsert failed, attempting minimal fields fallback:", fallbackError);
+                    const minimalData = {
+                        hotel_id: hotel.id,
+                        item_id: item.id,
+                        value: finalValue,
+                        is_na: isNa,
+                        updated_at: new Date().toISOString()
+                    };
+                    const { error: minError } = await supabase.from('audit_submissions').upsert(minimalData, { onConflict: 'hotel_id,item_id' });
+                    if (minError) {
+                        throw minError;
+                    }
                 }
             }
 

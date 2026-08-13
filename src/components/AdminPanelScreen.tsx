@@ -1088,7 +1088,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             try {
                 const { data, error } = await supabase
                     .from('audit_submissions')
-                    .select('hotel_id, item_id, is_na, value, evidence_urls');
+                    .select('*');
                 if (!error && data && active) {
                     setAllSubmissions(data);
                 }
@@ -2194,6 +2194,56 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         const stored = localStorage.getItem('sbi_inspection_scores');
         return stored ? JSON.parse(stored) : {};
     });
+
+    useEffect(() => {
+        if (!allSubmissions || allSubmissions.length === 0) return;
+        setInspectionScores(prev => {
+            const updated = { ...prev };
+            let changed = false;
+            allSubmissions.forEach(sub => {
+                if (sub && sub.hotel_id && sub.item_id) {
+                    const subHotelId = String(sub.hotel_id).trim();
+                    const subItemId = String(sub.item_id).trim();
+                    let val: number | string | undefined = undefined;
+                    if (sub.is_na) {
+                        val = 'N/A';
+                    } else if (sub.score !== undefined && sub.score !== null) {
+                        val = Number(sub.score);
+                    } else if (sub.value !== undefined && sub.value !== null && sub.value !== '') {
+                        if (!isNaN(Number(sub.value))) {
+                            val = Number(sub.value);
+                        } else {
+                            val = sub.value;
+                        }
+                    }
+                    if (val !== undefined) {
+                        // Check if any matching hotel key in updated needs sync
+                        const keys = Object.keys(updated);
+                        let found = false;
+                        keys.forEach(k => {
+                            if (k.endsWith(`_${subItemId}`) && k.startsWith(`${subHotelId}_`)) {
+                                if (updated[k] !== val) {
+                                    updated[k] = val;
+                                    changed = true;
+                                }
+                                found = true;
+                            }
+                        });
+                        if (!found) {
+                            const defaultKey = `${subHotelId}_${subItemId}`;
+                            updated[defaultKey] = val;
+                            changed = true;
+                        }
+                    }
+                }
+            });
+            if (changed) {
+                localStorage.setItem('sbi_inspection_scores', JSON.stringify(updated));
+                return updated;
+            }
+            return prev;
+        });
+    }, [allSubmissions]);
     const [inspectionComments, setInspectionComments] = useState<Record<string, string>>(() => {
         const stored = localStorage.getItem('sbi_inspection_comments');
         return stored ? JSON.parse(stored) : {};
@@ -2554,7 +2604,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         }
     };
 
-    const saveInspectionScore = (hotelId: string, itemId: string, score: number | string | undefined) => {
+    const saveInspectionScore = async (hotelId: string, itemId: string, score: number | string | undefined) => {
         const updated = { ...inspectionScores };
         if (score === undefined) {
             delete updated[`${hotelId}_${itemId}`];
@@ -2563,6 +2613,19 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         }
         setInspectionScores(updated);
         localStorage.setItem('sbi_inspection_scores', JSON.stringify(updated));
+
+        try {
+            const payload: any = {
+                hotel_id: hotelId,
+                item_id: itemId,
+                value: score !== undefined ? String(score) : null,
+                is_na: score === 'N/A',
+                updated_at: new Date().toISOString()
+            };
+            await supabase.from('audit_submissions').upsert(payload, { onConflict: 'hotel_id,item_id' });
+        } catch (err) {
+            console.warn("Failed to sync inspection score to Supabase:", err);
+        }
     };
 
     const saveInspectionComment = (hotelId: string, itemId: string, comment: string) => {
