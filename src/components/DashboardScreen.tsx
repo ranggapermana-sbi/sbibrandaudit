@@ -123,7 +123,7 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
       let hotels: any[] = [];
       try {
         hotels = await apiCache.getOrFetch<any[]>('dashboard_hotels', async () => {
-          const response = await fetch(`${HOTELS_URL}hotels?select=*`, {
+          const response = await fetch(`${HOTELS_URL}hotels?select=id,code,name,brandClass,country,region`, {
             headers: {
               'apikey': HOTELS_KEY,
               'Authorization': `Bearer ${HOTELS_KEY}`
@@ -191,8 +191,8 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
 
       try {
         const groupsResult = await apiCache.getOrFetch<any>('dashboard_groups', async () => {
-          const { data: gData } = await supabase.from('audit_checklist_groups').select('*');
-          const { data: ghData } = await supabase.from('audit_group_hotels').select('*');
+          const { data: gData } = await supabase.from('audit_checklist_groups').select('id, name, description, category_ids, item_ids');
+          const { data: ghData } = await supabase.from('audit_group_hotels').select('id, group_id, hotel_id');
           return { groupsData: gData || [], groupHotelsData: ghData || [] };
         });
 

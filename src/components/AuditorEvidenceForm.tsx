@@ -368,7 +368,7 @@ export default function AuditorEvidenceForm({ item, hotel, submission, onSaved, 
         if (targetHotelIds.length > 0) {
             const { data: recs } = await supabase
                 .from('audit_submissions')
-                .select('*')
+                .select('id, hotel_id, item_id, value, score, is_na, notes, submitted_by_name')
                 .in('hotel_id', targetHotelIds)
                 .eq('item_id', item.id);
             if (recs && recs.length > 0) {

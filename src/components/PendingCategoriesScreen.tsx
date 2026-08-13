@@ -32,7 +32,7 @@ export default function PendingCategoriesScreen({ onBack, onNavigate, userProfil
     useEffect(() => {
         const loadHotels = async () => {
             try {
-                const response = await fetch(`${HOTELS_URL}hotels?select=*`, {
+                const response = await fetch(`${HOTELS_URL}hotels?select=id,code,name,brandClass,country,region`, {
                     headers: {
                         'apikey': HOTELS_KEY,
                         'Authorization': `Bearer ${HOTELS_KEY}`
@@ -75,7 +75,7 @@ export default function PendingCategoriesScreen({ onBack, onNavigate, userProfil
             // 1. Fetch categories
             const { data: catsData, error: catsError } = await supabase
                 .from('audit_categories')
-                .select('*')
+                .select('id, name, total_tasks, completed, department_id, sort_order')
                 .order('sort_order', { ascending: true });
             if (catsError) throw catsError;
 
@@ -93,11 +93,11 @@ export default function PendingCategoriesScreen({ onBack, onNavigate, userProfil
             try {
                 const { data: groupsData } = await supabase
                     .from('audit_checklist_groups')
-                    .select('*');
+                    .select('id, name, description, category_ids, item_ids');
 
                 const { data: groupHotelsData } = await supabase
                     .from('audit_group_hotels')
-                    .select('*');
+                    .select('id, group_id, hotel_id');
 
                 if (groupsData && groupHotelsData) {
                     const currentHotel = hotels.find(h => 
@@ -511,7 +511,7 @@ export default function PendingCategoriesScreen({ onBack, onNavigate, userProfil
         try {
             const { data, error } = await supabase
                 .from('hotel_audit_status')
-                .select('*')
+                .select('hotel_id, is_finalized, finalized_by, finalized_at')
                 .eq('hotel_id', selectedHotelId)
                 .maybeSingle();
             

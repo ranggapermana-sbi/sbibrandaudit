@@ -305,7 +305,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             try {
                 const { data, error } = await supabase
                     .from('auditor_assignments')
-                    .select('*');
+                    .select('id, user_id, hotel_id, created_at');
                 if (data) {
                     const localSaved = localStorage.getItem('sbi_auditor_assignments');
                     let localList: any[] = [];
@@ -330,7 +330,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             try {
                 const { data: catData } = await supabase
                     .from('auditor_category_assignments')
-                    .select('*');
+                    .select('id, user_id, category_id, created_at');
                 
                 if (catData && Array.isArray(catData)) {
                     setAuditorCategoryAssignments(catData);
@@ -514,7 +514,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         setIsProfilesTableMissing(false);
         try {
             const data = await apiCache.getOrFetch<any[]>('audit_users_profiles', async () => {
-                const response = await fetch(`${MAIN_URL}audit_users?select=*&order=created_at.desc`, {
+                const response = await fetch(`${MAIN_URL}audit_users?select=id,email,first_name,last_name,access_level,hotel_id,hotel_name,created_at&order=created_at.desc`, {
                     headers: {
                         'apikey': MAIN_KEY,
                         'Authorization': `Bearer ${MAIN_KEY}`
@@ -1161,7 +1161,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             }
 
             if (syncedAny) {
-                const { data } = await supabase.from('audit_submissions').select('*');
+                const { data } = await supabase.from('audit_submissions').select('id, hotel_id, item_id, is_na, score, updated_at');
                 if (data) {
                     setAllSubmissions(data);
                 }
@@ -1177,7 +1177,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             try {
                 const { data, error } = await supabase
                     .from('audit_submissions')
-                    .select('*');
+                    .select('id, hotel_id, item_id, is_na, score, updated_at');
                 if (!error && data && active) {
                     setAllSubmissions(data);
                     syncLocalStorageToSupabase(data);
@@ -1217,7 +1217,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         setSupabaseErrorMsg(null);
         try {
             const mapped = await apiCache.getOrFetch<AuditCategory[]>('audit_categories', async () => {
-                const response = await fetch(`${MAIN_URL}audit_categories?select=*&order=name.asc`, {
+                const response = await fetch(`${MAIN_URL}audit_categories?select=id,name,total_tasks,completed,department_id,sort_order&order=name.asc`, {
                     headers: {
                         'apikey': MAIN_KEY,
                         'Authorization': `Bearer ${MAIN_KEY}`
@@ -1285,7 +1285,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 // Fetch checklist groups
                 const { data: groupsData, error: groupsError } = await supabase
                     .from('audit_checklist_groups')
-                    .select('*')
+                    .select('id, name, description, category_ids, item_ids')
                     .order('name', { ascending: true });
 
                 if (groupsError) {
@@ -1295,7 +1295,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 // Fetch join table associations
                 const { data: groupHotels } = await supabase
                     .from('audit_group_hotels')
-                    .select('*');
+                    .select('id, group_id, hotel_id');
 
                 return (groupsData || []).map((g: any) => {
                     const hotelIds = (groupHotels || [])
@@ -1521,7 +1521,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         setSupabaseErrorMsg(null);
         try {
             const mapped = await apiCache.getOrFetch<AuditItem[]>('audit_items', async () => {
-                const response = await fetch(`${MAIN_URL}audit_items?select=*&order=name.asc`, {
+                const response = await fetch(`${MAIN_URL}audit_items?select=id,name,points,category_id,department_id,sort_order,filled_by_hotel&order=name.asc`, {
                     headers: {
                         'apikey': MAIN_KEY,
                         'Authorization': `Bearer ${MAIN_KEY}`
@@ -1618,7 +1618,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         setSupabaseErrorMsg(null);
         try {
             const mapped = await apiCache.getOrFetch<Department[]>('audit_departments', async () => {
-                const response = await fetch(`${MAIN_URL}audit_departments?select=*&order=name.asc`, {
+                const response = await fetch(`${MAIN_URL}audit_departments?select=id,name,sort_order,head&order=name.asc`, {
                     headers: {
                         'apikey': MAIN_KEY,
                         'Authorization': `Bearer ${MAIN_KEY}`
@@ -1684,7 +1684,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         try {
             const { data, error } = await supabase
                 .from('hotel_audit_status')
-                .select('*');
+                .select('hotel_id, is_finalized, finalized_by, finalized_at, updated_at');
             
             if (error) {
                 console.warn("Could not fetch finalized statuses:", error);
@@ -1784,7 +1784,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         setSupabaseErrorMsg(null);
         try {
             const finalHotels = await apiCache.getOrFetch<Hotel[]>('hotels_master', async () => {
-                const response = await fetch(`${HOTELS_URL}hotels?select=*`, {
+                const response = await fetch(`${HOTELS_URL}hotels?select=id,code,name,brandClass,country,region`, {
                     headers: {
                         'apikey': HOTELS_KEY,
                         'Authorization': `Bearer ${HOTELS_KEY}`
@@ -1903,7 +1903,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         try {
             const mappedBatches = await apiCache.getOrFetch<AuditBatch[]>('audit_batches', async () => {
                 // Fetch batches from Supabase "audit_batches" table
-                const responseB = await fetch(`${MAIN_URL}audit_batches?select=*&order=name.asc`, {
+                const responseB = await fetch(`${MAIN_URL}audit_batches?select=id,name,created_at&order=name.asc`, {
                     headers: {
                         'apikey': MAIN_KEY,
                         'Authorization': `Bearer ${MAIN_KEY}`
@@ -1918,7 +1918,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 }
 
                 // Fetch junction Mapping from "audit_batch_hotels" table
-                const responseJ = await fetch(`${MAIN_URL}audit_batch_hotels?select=*`, {
+                const responseJ = await fetch(`${MAIN_URL}audit_batch_hotels?select=id,batch_id,hotel_id`, {
                     headers: {
                         'apikey': MAIN_KEY,
                         'Authorization': `Bearer ${MAIN_KEY}`
@@ -2583,7 +2583,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             if (idList.length > 0) {
                 const { data, error } = await supabase
                     .from('audit_submissions')
-                    .select('*')
+                    .select('id, hotel_id, item_id, value, is_na, score, submitted_by_name, created_at, updated_at')
                     .in('hotel_id', idList);
                 if (!error && data && data.length > 0) {
                     subsData = data;
@@ -2596,7 +2596,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 for (const tid of targetIds) {
                     const { data, error } = await supabase
                         .from('audit_submissions')
-                        .select('*')
+                        .select('id, hotel_id, item_id, value, is_na, score, submitted_by_name, created_at, updated_at')
                         .eq('hotel_id', tid);
                     if (!error && data && data.length > 0) {
                         subsData = data;
@@ -2605,11 +2605,11 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 }
             }
 
-            // Fallback 2: Select all submissions and filter using isSubmissionForHotel
+            // Fallback 2: Select submissions with targeted field list if hotel ID match needed
             if (!subsData || subsData.length === 0) {
                 const { data, error } = await supabase
                     .from('audit_submissions')
-                    .select('*');
+                    .select('id, hotel_id, item_id, value, is_na, score, submitted_by_name, created_at, updated_at');
                 if (!error && data && data.length > 0) {
                     if (currentHotel) {
                         subsData = data.filter(s => isSubmissionForHotel(s.hotel_id, currentHotel));
@@ -2799,7 +2799,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             if (!existing) {
                 const { data } = await supabase
                     .from('audit_submissions')
-                    .select('*')
+                    .select('id, hotel_id, item_id, value, is_na, score')
                     .eq('hotel_id', hotelId)
                     .eq('item_id', itemId)
                     .maybeSingle();
@@ -2892,7 +2892,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         try {
             const { data: existing } = await supabase
                 .from('audit_submissions')
-                .select('*')
+                .select('id, hotel_id, item_id, value, is_na, score, notes')
                 .eq('hotel_id', hotelId)
                 .eq('item_id', itemId)
                 .maybeSingle();
@@ -3677,7 +3677,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 }
             }
 
-            const { data: refetchCat } = await supabase.from('auditor_category_assignments').select('*');
+            const { data: refetchCat } = await supabase.from('auditor_category_assignments').select('id, user_id, category_id, created_at');
             if (refetchCat && Array.isArray(refetchCat)) {
                 const catMap = new Map<string, any>();
                 refetchCat.forEach((item: any) => {
@@ -3734,7 +3734,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                     .in('category_id', categoryIds);
             }
 
-            const { data: refetchCat } = await supabase.from('auditor_category_assignments').select('*');
+            const { data: refetchCat } = await supabase.from('auditor_category_assignments').select('id, user_id, category_id, created_at');
             if (refetchCat && Array.isArray(refetchCat)) {
                 const catMap = new Map<string, any>();
                 refetchCat.forEach((item: any) => {
@@ -3843,7 +3843,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             }
 
             // Refetch from DB and safely MERGE with updated local state so other users' items are never dropped
-            const { data: refetch } = await supabase.from('auditor_assignments').select('*');
+            const { data: refetch } = await supabase.from('auditor_assignments').select('id, user_id, hotel_id, created_at');
             if (refetch && Array.isArray(refetch)) {
                 const map = new Map<string, any>();
                 refetch.forEach((item: any) => {

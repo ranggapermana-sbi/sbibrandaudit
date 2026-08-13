@@ -27,7 +27,7 @@ export default function SelectHotelScreen({ userProfile, onSelectHotel, onLogout
             setError('');
             try {
                 const fullList = await apiCache.getOrFetch<Hotel[]>('all_hotels_select', async () => {
-                    const response = await fetch(`${HOTELS_URL}hotels?select=*`, {
+                    const response = await fetch(`${HOTELS_URL}hotels?select=id,code,name,brandClass,country,region`, {
                         headers: {
                             'apikey': HOTELS_KEY,
                             'Authorization': `Bearer ${HOTELS_KEY}`

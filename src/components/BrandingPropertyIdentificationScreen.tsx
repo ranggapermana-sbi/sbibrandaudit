@@ -323,7 +323,7 @@ const AuditItemCard: React.FC<{
             try {
                 const { data, error } = await supabase
                     .from('audit_submissions')
-                    .select('*')
+                    .select('id, hotel_id, item_id, value, is_na, score, notes, submitted_by_name')
                     .eq('hotel_id', hotelId)
                     .eq('item_id', item.id)
                     .maybeSingle();
@@ -459,7 +459,7 @@ const AuditItemCard: React.FC<{
             try {
                 const { data: subData, error: subErr } = await supabase
                     .from('audit_submissions')
-                    .select('*')
+                    .select('id, hotel_id, item_id, value, is_na, score, notes, submitted_by_name')
                     .eq('hotel_id', hotelId)
                     .eq('item_id', item.id)
                     .maybeSingle();
@@ -507,7 +507,7 @@ const AuditItemCard: React.FC<{
             try {
                 const { data: lockData, error: lockErr } = await supabase
                     .from('audit_item_locks')
-                    .select('*')
+                    .select('hotel_id, item_id, locked_by_name, locked_by_email, locked_at')
                     .eq('hotel_id', hotelId)
                     .eq('item_id', item.id)
                     .maybeSingle();
@@ -612,7 +612,7 @@ const AuditItemCard: React.FC<{
             // Fetch any existing record to preserve the score column and id
             const { data: existingRecord } = await supabase
                 .from('audit_submissions')
-                .select('*')
+                .select('id, hotel_id, item_id, score')
                 .eq('hotel_id', hotelId)
                 .eq('item_id', item.id)
                 .maybeSingle();
@@ -1236,7 +1236,7 @@ export default function BrandingPropertyIdentificationScreen({ selectedCategory,
             try {
                 const { data, error } = await supabase
                     .from('audit_item_locks')
-                    .select('*')
+                    .select('hotel_id, item_id, locked_by_name, locked_by_email, locked_at')
                     .eq('hotel_id', selectedHotelId);
                 
                 if (!error && data) {
@@ -1333,7 +1333,7 @@ export default function BrandingPropertyIdentificationScreen({ selectedCategory,
         try {
             const { data: existingLock, error } = await supabase
                 .from('audit_item_locks')
-                .select('*')
+                .select('hotel_id, item_id, locked_by_name, locked_by_email, locked_at')
                 .eq('hotel_id', selectedHotelId)
                 .eq('item_id', itemId)
                 .maybeSingle();
@@ -1424,7 +1424,7 @@ export default function BrandingPropertyIdentificationScreen({ selectedCategory,
     useEffect(() => {
         const loadHotels = async () => {
             try {
-                const response = await fetch(`${HOTELS_URL}hotels?select=*`, {
+                const response = await fetch(`${HOTELS_URL}hotels?select=id,code,name,brandClass,country,region`, {
                     headers: {
                         'apikey': HOTELS_KEY,
                         'Authorization': `Bearer ${HOTELS_KEY}`
@@ -1472,7 +1472,7 @@ export default function BrandingPropertyIdentificationScreen({ selectedCategory,
             try {
                 const { data, error } = await supabase
                     .from('audit_items')
-                    .select('*')
+                    .select('id, name, points, category_id, department_id, sort_order, filled_by_hotel, input_type, options, min_value, max_value')
                     .eq('category_id', selectedCategory.id);
                 
                 if (error) throw error;
@@ -1492,8 +1492,8 @@ export default function BrandingPropertyIdentificationScreen({ selectedCategory,
                 let assignedItemIds: string[] | null = null;
                 try {
                     // Try to fetch from database
-                    const { data: groupsData } = await supabase.from('audit_checklist_groups').select('*');
-                    const { data: groupHotelsData } = await supabase.from('audit_group_hotels').select('*');
+                    const { data: groupsData } = await supabase.from('audit_checklist_groups').select('id, name, description, category_ids, item_ids');
+                    const { data: groupHotelsData } = await supabase.from('audit_group_hotels').select('id, group_id, hotel_id');
 
                     if (groupsData && groupHotelsData) {
                         const currentHotel = hotels.find(h => 
