@@ -609,7 +609,18 @@ const AuditItemCard: React.FC<{
                 ? `${userProfile.first_name || ''} ${userProfile.last_name || ''}`.trim() || userProfile.full_name || userProfile.name || userProfile.email 
                 : (localStorage.getItem('sbi_user_name') || 'Property User');
 
-            const richPayload = {
+            // Fetch any existing record to preserve the score column and id
+            const { data: existingRecord } = await supabase
+                .from('audit_submissions')
+                .select('*')
+                .eq('hotel_id', hotelId)
+                .eq('item_id', item.id)
+                .maybeSingle();
+
+            const finalScore = existingRecord?.score !== undefined ? existingRecord.score : null;
+            const finalId = existingRecord?.id || null;
+
+            const richPayload: any = {
                 hotel_id: hotelId,
                 item_id: item.id,
                 value: finalValue,
@@ -622,16 +633,26 @@ const AuditItemCard: React.FC<{
                 evidence_urls: (item.input_type === 'camera' || item.input_type === 'image') && finalValue 
                     ? finalValue.split(',').filter(Boolean) 
                     : [],
+                score: finalScore,
                 updated_at: new Date().toISOString()
             };
 
-            const corePayload = {
+            if (finalId) {
+                richPayload.id = finalId;
+            }
+
+            const corePayload: any = {
                 hotel_id: hotelId,
                 item_id: item.id,
                 value: finalValue,
                 is_na: isNa,
+                score: finalScore,
                 updated_at: new Date().toISOString()
             };
+
+            if (finalId) {
+                corePayload.id = finalId;
+            }
 
             try {
                 const { error } = await supabase.from('audit_submissions').upsert(richPayload, { onConflict: 'hotel_id,item_id' });

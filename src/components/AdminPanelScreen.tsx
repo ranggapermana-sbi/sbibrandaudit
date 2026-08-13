@@ -2205,8 +2205,12 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                     let val: number | string | undefined = undefined;
                     if (sub.is_na) {
                         val = 'N/A';
-                    } else if (sub.score !== undefined && sub.score !== null) {
-                        val = Number(sub.score);
+                    } else if (sub.score !== undefined && sub.score !== null && sub.score !== '') {
+                        if (!isNaN(Number(sub.score))) {
+                            val = Number(sub.score);
+                        } else {
+                            val = sub.score;
+                        }
                     } else if (sub.value !== undefined && sub.value !== null && sub.value !== '') {
                         if (!isNaN(Number(sub.value))) {
                             val = Number(sub.value);
@@ -2285,7 +2289,9 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         );
         if (sub) {
             if (sub.is_na) return 'N/A';
-            if (sub.score !== undefined && sub.score !== null) return sub.score;
+            if (sub.score !== undefined && sub.score !== null && sub.score !== '') {
+                return !isNaN(Number(sub.score)) ? Number(sub.score) : sub.score;
+            }
             if (sub.value !== undefined && sub.value !== null && sub.value !== '') {
                 return !isNaN(Number(sub.value)) ? Number(sub.value) : sub.value;
             }
@@ -2660,29 +2666,41 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         localStorage.setItem('sbi_inspection_scores', JSON.stringify(updated));
 
         try {
+            // Fetch any existing record to preserve the evidence (value) column
+            const { data: existing } = await supabase
+                .from('audit_submissions')
+                .select('*')
+                .eq('hotel_id', hotelId)
+                .eq('item_id', itemId)
+                .maybeSingle();
+
+            const scoreStr = score !== undefined ? String(score) : null;
             const payload: any = {
                 hotel_id: hotelId,
                 item_id: itemId,
-                value: score !== undefined ? String(score) : null,
+                score: scoreStr,
                 is_na: score === 'N/A',
                 updated_at: new Date().toISOString()
             };
-            
+
+            if (existing) {
+                payload.id = existing.id;
+                payload.value = existing.value; // Preserve the evidence/text/numeric value!
+                if (existing.input_type) payload.input_type = existing.input_type;
+                if (existing.submitted_by) payload.submitted_by = existing.submitted_by;
+                if (existing.submitted_by_name) payload.submitted_by_name = existing.submitted_by_name;
+                if (existing.notes) payload.notes = existing.notes;
+            } else {
+                // Default value column if there is no evidence column yet
+                payload.value = scoreStr;
+            }
+
             const { error } = await supabase.from('audit_submissions').upsert(payload, { onConflict: 'hotel_id,item_id' });
             if (error) {
                 console.warn("Standard upsert failed for Admin Panel inspection score, executing fallback:", error);
                 
-                const { data: existing, error: fetchErr } = await supabase
-                    .from('audit_submissions')
-                    .select('id')
-                    .eq('hotel_id', hotelId)
-                    .eq('item_id', itemId)
-                    .maybeSingle();
-
-                if (fetchErr) {
-                    console.error("Failed to query existing submission in Admin Panel, trying insert:", fetchErr);
-                    await supabase.from('audit_submissions').insert(payload);
-                } else if (existing && existing.id) {
+                // Fallback insert/update using already-merged payload with preserved fields!
+                if (existing && existing.id) {
                     const { error: updateErr } = await supabase
                         .from('audit_submissions')
                         .update(payload)
@@ -2690,7 +2708,10 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                     if (updateErr) console.error("Fallback update failed in Admin Panel:", updateErr);
                 } else {
                     const { error: insertErr } = await supabase.from('audit_submissions').insert(payload);
-                    if (insertErr) console.error("Fallback insert failed in Admin Panel:", insertErr);
+                    if (insertErr) {
+                        console.warn("Fallback insert failed, trying with random ID:", insertErr);
+                        await supabase.from('audit_submissions').insert({ id: crypto.randomUUID(), ...payload });
+                    }
                 }
             }
         } catch (err) {

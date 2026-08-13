@@ -359,7 +359,18 @@ export default function AuditorEvidenceForm({ item, hotel, submission, onSaved, 
             ? `Auditor: ${userProfile.first_name || ''} ${userProfile.last_name || ''}`.trim() || `Auditor: ${userProfile.email}`
             : 'Auditor';
 
-        const richPayload = {
+        // Fetch any existing record to preserve the score column and id
+        const { data: existingRecord } = await supabase
+            .from('audit_submissions')
+            .select('*')
+            .eq('hotel_id', hotel.id)
+            .eq('item_id', item.id)
+            .maybeSingle();
+
+        const finalScore = existingRecord?.score !== undefined ? existingRecord.score : (submission?.score !== undefined ? submission.score : null);
+        const finalId = existingRecord?.id || submission?.id || null;
+
+        const richPayload: any = {
             hotel_id: hotel.id,
             item_id: item.id,
             value: finalValue,
@@ -372,16 +383,26 @@ export default function AuditorEvidenceForm({ item, hotel, submission, onSaved, 
             evidence_urls: (item.inputType === 'camera' || item.inputType === 'image') && finalValue 
                 ? finalValue.split(',').filter(Boolean) 
                 : [],
+            score: finalScore,
             updated_at: new Date().toISOString()
         };
 
-        const corePayload = {
+        if (finalId) {
+            richPayload.id = finalId;
+        }
+
+        const corePayload: any = {
             hotel_id: hotel.id,
             item_id: item.id,
             value: finalValue,
             is_na: isNa,
+            score: finalScore,
             updated_at: new Date().toISOString()
         };
+
+        if (finalId) {
+            corePayload.id = finalId;
+        }
 
         try {
             const { error } = await supabase.from('audit_submissions').upsert(richPayload, { onConflict: 'hotel_id,item_id' });
