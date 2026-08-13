@@ -131,6 +131,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     const [sqlModalTab, setSqlModalTab] = useState<'auditor' | 'checklist' | 'finalize' | 'photolock' | 'indexes'>('checklist');
     const [groupExpandedCats, setGroupExpandedCats] = useState<Record<string, boolean>>({});
     const [enlargedImage, setEnlargedImage] = useState<{ url: string; title?: string } | null>(null);
+    const [expandedItemId, setExpandedItemId] = useState<string | null>(null);
 
     const [copiedDocId, setCopiedDocId] = useState<string | null>(null);
 
@@ -1143,7 +1144,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                             if (existingDb.submitted_by_name) payload.submitted_by_name = existingDb.submitted_by_name;
                             if (existingDb.notes) payload.notes = existingDb.notes;
                         } else {
-                            payload.value = dbScore !== null ? String(dbScore) : '';
+                            payload.value = '';
                         }
 
                         const { error } = await supabase.from('audit_submissions').upsert(payload, { onConflict: 'hotel_id,item_id' });
@@ -2745,6 +2746,16 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         setInspectionScores(updated);
         localStorage.setItem('sbi_inspection_scores', JSON.stringify(updated));
 
+        // Find if this item is a self-audit item or an auditor-filled item
+        const itemObj = items.find(i => String(i.id) === String(itemId));
+        const isSelfAudit = itemObj ? (itemObj.filled_by_hotel !== false && itemObj.filled_by_hotel !== 'false') : true;
+
+        if (!isSelfAudit) {
+            // For auditor-filled items, DO NOT submit to Supabase immediately!
+            // It will be submitted only when clicking [Save Evidence]
+            return;
+        }
+
         try {
             // Fetch any existing record to preserve the evidence (value) column
             const { data: existing } = await supabase
@@ -2768,11 +2779,15 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 dbScore = !isNaN(Number(score)) ? Number(score) : null;
             }
 
+            const commentKey = `${hotelId}_${itemId}`;
+            const commentVal = inspectionComments[commentKey] || '';
+
             const payload: any = {
                 hotel_id: hotelId,
                 item_id: itemId,
                 score: dbScore,
                 is_na: dbIsNa,
+                notes: commentVal || (existing?.notes ?? null),
                 updated_at: new Date().toISOString()
             };
 
@@ -2782,10 +2797,9 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 if (existing.input_type) payload.input_type = existing.input_type;
                 if (existing.submitted_by) payload.submitted_by = existing.submitted_by;
                 if (existing.submitted_by_name) payload.submitted_by_name = existing.submitted_by_name;
-                if (existing.notes) payload.notes = existing.notes;
             } else {
-                // Default value column if there is no evidence column yet
-                payload.value = dbScore !== null ? String(dbScore) : '';
+                // Do not default value column to score points
+                payload.value = '';
             }
 
             const { error } = await supabase.from('audit_submissions').upsert(payload, { onConflict: 'hotel_id,item_id' });
@@ -2812,13 +2826,71 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         }
     };
 
-    const saveInspectionComment = (hotelId: string, itemId: string, comment: string) => {
+    const saveInspectionComment = async (hotelId: string, itemId: string, comment: string) => {
         const updated = {
             ...inspectionComments,
             [`${hotelId}_${itemId}`]: comment
         };
         setInspectionComments(updated);
         localStorage.setItem('sbi_inspection_comments', JSON.stringify(updated));
+
+        // Find if this item is a self-audit item or an auditor-filled item
+        const itemObj = items.find(i => String(i.id) === String(itemId));
+        const isSelfAudit = itemObj ? (itemObj.filled_by_hotel !== false && itemObj.filled_by_hotel !== 'false') : true;
+
+        if (!isSelfAudit) {
+            // For auditor-filled items, DO NOT submit to Supabase immediately!
+            return;
+        }
+
+        // For self-audit items, sync the comment/notes to Supabase on change
+        try {
+            const { data: existing } = await supabase
+                .from('audit_submissions')
+                .select('*')
+                .eq('hotel_id', hotelId)
+                .eq('item_id', itemId)
+                .maybeSingle();
+
+            const scoreKey = `${hotelId}_${itemId}`;
+            const scoreVal = inspectionScores[scoreKey];
+            let dbScore: any = null;
+            let dbIsNa = false;
+
+            if (scoreVal === 'N/A') {
+                dbIsNa = true;
+                dbScore = null;
+            } else if (scoreVal === 'PASS') {
+                dbScore = 1;
+            } else if (scoreVal === 'FAIL') {
+                dbScore = 0;
+            } else if (scoreVal !== undefined && scoreVal !== null) {
+                dbScore = !isNaN(Number(scoreVal)) ? Number(scoreVal) : null;
+            }
+
+            const payload: any = {
+                hotel_id: hotelId,
+                item_id: itemId,
+                score: dbScore,
+                is_na: dbIsNa,
+                notes: comment,
+                updated_at: new Date().toISOString()
+            };
+
+            if (existing) {
+                payload.id = existing.id;
+                payload.value = existing.value;
+                if (existing.input_type) payload.input_type = existing.input_type;
+                if (existing.submitted_by) payload.submitted_by = existing.submitted_by;
+                if (existing.submitted_by_name) payload.submitted_by_name = existing.submitted_by_name;
+            } else {
+                payload.value = '';
+            }
+
+            await supabase.from('audit_submissions').upsert(payload, { onConflict: 'hotel_id,item_id' });
+        } catch (err) {
+            console.warn("Failed to sync comment to Supabase:", err);
+        }
     };
 
     // Category Drag-and-drop state parameters
@@ -7742,7 +7814,10 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                 const currentScore = inspectionScores[scoreKey];
                                                                 const currentComment = inspectionComments[scoreKey] || '';
                                                                 const submission = hotelSubmissions[item.id];
-                                                                const hasSubmission = !!submission;
+                                                                const hasSubmission = !!submission && (
+                                                                    (submission.value !== undefined && submission.value !== null && String(submission.value).trim() !== '') ||
+                                                                    submission.is_na
+                                                                );
                                                                 const itemMaxPoints = item.points ?? 5;
                                                                 const isPass = currentScore !== undefined && (
                                                                     currentScore === 'PASS' ||
@@ -7766,46 +7841,94 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                     : (assignedAuditorName !== 'Unassigned' && assignedAuditorName !== 'All Hotel Auditors' ? assignedAuditorName : (userProfile ? `${userProfile.first_name || ''} ${userProfile.last_name || ''}`.trim() || userProfile.email : 'Auditor'));
                                                                 const auditTimestamp = safeFormatDateTime(submission?.updated_at || submission?.created_at);
 
+                                                                const isExpanded = expandedItemId === item.id;
+
                                                                 return (
                                                                     <div 
                                                                         key={item.id} 
-                                                                        className={`group bg-white rounded-xl border transition-all duration-200 overflow-hidden ${
-                                                                            currentScore !== undefined 
-                                                                                ? 'border-slate-200 shadow-2xs opacity-95 bg-slate-50/20' 
-                                                                                : 'border-indigo-200 shadow-xs hover:shadow-md ring-2 ring-indigo-50/60'
+                                                                        className={`group bg-white rounded-xl border transition-all duration-300 overflow-hidden ${
+                                                                            isExpanded 
+                                                                                ? 'border-indigo-400 ring-4 ring-indigo-50/50 shadow-md scale-[1.002]' 
+                                                                                : (currentScore !== undefined 
+                                                                                    ? 'border-slate-200 shadow-2xs opacity-95 bg-slate-50/20 hover:border-slate-300' 
+                                                                                    : 'border-indigo-200/80 shadow-xs hover:border-indigo-300 hover:shadow-sm ring-2 ring-indigo-50/30')
                                                                         }`}
                                                                     >
-                                                                        <div className="flex flex-col lg:flex-row">
-                                                                            {/* LEFT SIDE: CRITERIA & HOTEL DATA */}
-                                                                            <div className="flex-1 p-4 sm:p-5 space-y-3">
-                                                                                <div className="space-y-1.5">
-                                                                                    <div className="flex flex-wrap items-center gap-2">
-                                                                                        <span className="px-2 py-0.5 bg-slate-900 text-white text-[9px] font-black rounded-md uppercase tracking-wider">
-                                                                                            {item.points ?? 5} Points Max
+                                                                        {/* CLICKABLE ACCORDION HEADER */}
+                                                                        <div 
+                                                                            onClick={() => setExpandedItemId(isExpanded ? null : item.id)}
+                                                                            className={`flex flex-col sm:flex-row sm:items-center justify-between p-4 sm:p-5 cursor-pointer select-none transition-all duration-150 gap-3 ${
+                                                                                isExpanded ? 'bg-indigo-50/30' : 'hover:bg-slate-50/40'
+                                                                            }`}
+                                                                        >
+                                                                            <div className="flex-1 min-w-0 space-y-1.5">
+                                                                                <div className="flex flex-wrap items-center gap-2">
+                                                                                    <span className="px-2 py-0.5 bg-slate-900 text-white text-[9px] font-black rounded-md uppercase tracking-wider">
+                                                                                        {item.points ?? 5} Points Max
+                                                                                    </span>
+                                                                                    {isSelfAudit ? (
+                                                                                        <span className={`px-2 py-0.5 text-[9px] font-black rounded-md uppercase tracking-wider border ${hasSubmission ? 'bg-blue-50 text-blue-700 border-blue-200' : (getHotelFinalizedInfo(hotel).is_finalized ? 'bg-rose-50 text-rose-700 border-rose-200' : 'bg-amber-50 text-amber-700 border-amber-200')}`}>
+                                                                                            {hasSubmission ? 'Submission Received' : (getHotelFinalizedInfo(hotel).is_finalized ? 'No Property Evidence' : 'Awaiting for Property Submission.')}
                                                                                         </span>
-                                                                                        {isSelfAudit ? (
-                                                                                            <span className={`px-2 py-0.5 text-[9px] font-black rounded-md uppercase tracking-wider border ${hasSubmission ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
-                                                                                                {hasSubmission ? 'Submission Received' : 'Awaiting for Property Submission.'}
-                                                                                            </span>
-                                                                                        ) : (
-                                                                                            <span className={`px-2 py-0.5 text-[9px] font-black rounded-md uppercase tracking-wider border ${hasSubmission ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-indigo-50 text-indigo-700 border-indigo-200'}`}>
-                                                                                                {hasSubmission ? `Audited by ${auditAuthor} - ${auditTimestamp}` : 'Required Auditor-Filled Item'}
-                                                                                            </span>
-                                                                                        )}
-                                                                                        <span className="px-2 py-0.5 bg-indigo-50/90 text-indigo-800 border border-indigo-200/90 text-[9px] font-black rounded-md uppercase tracking-wider flex items-center gap-1 shadow-2xs">
-                                                                                            <User size={10} className="text-indigo-600 shrink-0" />
-                                                                                            <span>Auditor: {assignedAuditorName}</span>
+                                                                                    ) : (
+                                                                                        <span className={`px-2 py-0.5 text-[9px] font-black rounded-md uppercase tracking-wider border ${hasSubmission ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-indigo-50 text-indigo-700 border-indigo-200'}`}>
+                                                                                            {hasSubmission ? `Audited by ${auditAuthor}` : 'Required Auditor-Filled Item'}
                                                                                         </span>
-                                                                                    </div>
-                                                                                    <h4 className="text-base font-black text-slate-800 leading-tight tracking-tight group-hover:text-indigo-600 transition-colors">
-                                                                                        {item.name}
-                                                                                    </h4>
-                                                                                    {item.description && (
-                                                                                        <p className="text-xs text-slate-500 font-medium leading-snug">
-                                                                                            {item.description}
-                                                                                        </p>
                                                                                     )}
+                                                                                    <span className="px-2 py-0.5 bg-indigo-50/90 text-indigo-800 border border-indigo-200/90 text-[9px] font-black rounded-md uppercase tracking-wider flex items-center gap-1 shadow-2xs">
+                                                                                        <User size={10} className="text-indigo-600 shrink-0" />
+                                                                                        <span>Auditor: {assignedAuditorName}</span>
+                                                                                    </span>
                                                                                 </div>
+                                                                                <h4 className="text-sm sm:text-base font-black text-slate-800 leading-snug tracking-tight group-hover:text-indigo-600 transition-colors">
+                                                                                    {item.name}
+                                                                                </h4>
+                                                                                {item.description && !isExpanded && (
+                                                                                    <p className="text-xs text-slate-400 font-semibold truncate max-w-2xl">
+                                                                                        {item.description}
+                                                                                    </p>
+                                                                                )}
+                                                                            </div>
+
+                                                                            <div className="flex items-center gap-3 shrink-0 justify-between sm:justify-end border-t sm:border-t-0 pt-2 sm:pt-0 border-slate-100">
+                                                                                <div className="flex items-center gap-1.5">
+                                                                                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider hidden sm:inline">Evaluation:</span>
+                                                                                    <span className={`px-2.5 py-1 text-[9px] font-black uppercase tracking-wider rounded-lg border ${
+                                                                                        currentScore !== undefined
+                                                                                            ? (isPass 
+                                                                                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200' 
+                                                                                                : isFail 
+                                                                                                    ? 'bg-red-50 text-red-700 border-red-200' 
+                                                                                                    : 'bg-amber-50 text-amber-700 border-amber-200')
+                                                                                            : 'bg-slate-50 text-slate-400 border-slate-200'
+                                                                                    }`}>
+                                                                                        {currentScore !== undefined 
+                                                                                            ? (isPass ? `PASS (+${itemMaxPoints})` : isFail ? 'FAIL (0)' : 'N/A') 
+                                                                                            : 'PENDING'}
+                                                                                    </span>
+                                                                                </div>
+                                                                                
+                                                                                <div className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all ${
+                                                                                    isExpanded ? 'bg-indigo-100 text-indigo-600' : 'bg-slate-100 hover:bg-slate-200 text-slate-500'
+                                                                                }`}>
+                                                                                    {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                                                                                </div>
+                                                                            </div>
+                                                                        </div>
+
+                                                                        {/* EXPANDED CONTENT AREA */}
+                                                                        {isExpanded && (
+                                                                            <div className="border-t border-slate-100 flex flex-col lg:flex-row transition-all duration-300">
+                                                                                {/* LEFT SIDE: CRITERIA & HOTEL DATA */}
+                                                                                <div className="flex-1 p-4 sm:p-5 space-y-3">
+                                                                                    {item.description && (
+                                                                                        <div className="p-3.5 bg-slate-50 border border-slate-100 rounded-xl mb-3">
+                                                                                            <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider block mb-1">Audit Criteria & Guideline</span>
+                                                                                            <p className="text-xs text-slate-600 font-medium leading-relaxed">
+                                                                                                {item.description}
+                                                                                            </p>
+                                                                                        </div>
+                                                                                    )}
 
                                                                                 {/* SUBMISSION BENTO BOX OR AUDITOR EVIDENCE FORM */}
                                                                                 {!isSelfAudit ? (
@@ -7815,6 +7938,8 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                         submission={submission}
                                                                                         onSaved={fetchHotelSubmissionsForAuditor}
                                                                                         userProfile={userProfile}
+                                                                                        currentScore={currentScore}
+                                                                                        currentComment={currentComment}
                                                                                     />
                                                                                 ) : (
                                                                                     <div className={`rounded-xl border overflow-hidden transition-all ${
@@ -7917,8 +8042,17 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                             </div>
                                                                                         ) : (
                                                                                             <div className="flex items-center justify-center text-center px-4 py-2 gap-2">
-                                                                                                <Clock size={14} className="text-amber-500 shrink-0" />
-                                                                                                <span className="text-xs font-black text-amber-800 tracking-tight">Awaiting for Property Submission.</span>
+                                                                                                {getHotelFinalizedInfo(hotel).is_finalized ? (
+                                                                                                    <>
+                                                                                                        <AlertCircle size={14} className="text-rose-500 shrink-0" />
+                                                                                                        <span className="text-xs font-black text-rose-800 tracking-tight">No property evidence submitted (Audit Finalised).</span>
+                                                                                                    </>
+                                                                                                ) : (
+                                                                                                    <>
+                                                                                                        <Clock size={14} className="text-amber-500 shrink-0" />
+                                                                                                        <span className="text-xs font-black text-amber-800 tracking-tight">Awaiting for Property Submission.</span>
+                                                                                                    </>
+                                                                                                )}
                                                                                             </div>
                                                                                         )}
                                                                                     </div>
@@ -8024,8 +8158,9 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                 </div>
                                                                             </div>
                                                                         </div>
-                                                                    </div>
-                                                                );
+                                                                    )}
+                                                                </div>
+                                                            );
                                                             })}
                                                         </div>
                                                     </div>

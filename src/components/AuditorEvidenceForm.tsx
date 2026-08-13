@@ -19,6 +19,8 @@ interface AuditorEvidenceFormProps {
     submission: any;
     onSaved: () => void;
     userProfile: any;
+    currentScore?: number | string;
+    currentComment?: string;
 }
 
 const IMGBB_API_KEY = '15f299b33841c0f24f364546a6d5ef3c';
@@ -123,7 +125,7 @@ const splitEvidenceUrls = (value: string): string[] => {
     return urls;
 };
 
-export default function AuditorEvidenceForm({ item, hotel, submission, onSaved, userProfile }: AuditorEvidenceFormProps) {
+export default function AuditorEvidenceForm({ item, hotel, submission, onSaved, userProfile, currentScore, currentComment }: AuditorEvidenceFormProps) {
     const [value, setValue] = useState('');
     const [isNa, setIsNa] = useState(false);
     const [naReason, setNaReason] = useState('');
@@ -367,28 +369,39 @@ export default function AuditorEvidenceForm({ item, hotel, submission, onSaved, 
             .eq('item_id', item.id)
             .maybeSingle();
 
-        const finalScore = existingRecord?.score !== undefined ? existingRecord.score : (submission?.score !== undefined ? submission.score : null);
+        // Prioritize currentScore passed from parent props
+        let finalScore = currentScore !== undefined ? currentScore : (existingRecord?.score !== undefined ? existingRecord.score : (submission?.score !== undefined ? submission.score : null));
+        if (isNa) {
+            finalScore = 'N/A';
+        }
+
         const finalId = existingRecord?.id || submission?.id || null;
 
+        let dbIsNa = isNa || finalScore === 'N/A';
         let cleanScore: any = null;
+
         if (finalScore === 'N/A') {
+            dbIsNa = true;
             cleanScore = null;
         } else if (finalScore === 'PASS') {
-            cleanScore = 1;
+            cleanScore = item.points && item.points > 0 ? item.points : 1;
         } else if (finalScore === 'FAIL') {
             cleanScore = 0;
-        } else if (finalScore !== undefined && finalScore !== null) {
+        } else if (finalScore !== undefined && finalScore !== null && finalScore !== '') {
             cleanScore = !isNaN(Number(finalScore)) ? Number(finalScore) : null;
         }
+
+        const finalNotes = dbIsNa ? (naReason || currentComment || null) : (currentComment || existingRecord?.notes || submission?.notes || null);
+        const finalNaReason = dbIsNa ? (naReason || currentComment || null) : null;
 
         const richPayload: any = {
             hotel_id: hotel.id,
             item_id: item.id,
             value: finalValue,
-            is_na: isNa,
+            is_na: dbIsNa,
             input_type: item.inputType,
-            na_reason: isNa ? naReason : null,
-            notes: isNa ? naReason : null,
+            na_reason: finalNaReason,
+            notes: finalNotes,
             submitted_by: submitterName,
             submitted_by_name: submitterName,
             evidence_urls: (item.inputType === 'camera' || item.inputType === 'image') && finalValue 
@@ -406,8 +419,9 @@ export default function AuditorEvidenceForm({ item, hotel, submission, onSaved, 
             hotel_id: hotel.id,
             item_id: item.id,
             value: finalValue,
-            is_na: isNa,
+            is_na: dbIsNa,
             score: cleanScore,
+            notes: finalNotes,
             updated_at: new Date().toISOString()
         };
 
@@ -481,6 +495,33 @@ export default function AuditorEvidenceForm({ item, hotel, submission, onSaved, 
                         console.error("Even small localStorage save failed:", lsErr2);
                     }
                 }
+            }
+
+            // Update local storage score and comments caches for perfect consistency
+            try {
+                const scoreKey = `${hotel.id}_${item.id}`;
+                
+                // Update local storage score cache
+                const storedScores = localStorage.getItem('sbi_inspection_scores');
+                const localScores = storedScores ? JSON.parse(storedScores) : {};
+                if (finalScore !== undefined && finalScore !== null) {
+                    localScores[scoreKey] = finalScore;
+                } else if (cleanScore !== null) {
+                    localScores[scoreKey] = cleanScore;
+                } else if (dbIsNa) {
+                    localScores[scoreKey] = 'N/A';
+                }
+                localStorage.setItem('sbi_inspection_scores', JSON.stringify(localScores));
+
+                // Update local storage comments cache
+                const storedComments = localStorage.getItem('sbi_inspection_comments');
+                const localComments = storedComments ? JSON.parse(storedComments) : {};
+                if (finalNotes) {
+                    localComments[scoreKey] = finalNotes;
+                }
+                localStorage.setItem('sbi_inspection_comments', JSON.stringify(localComments));
+            } catch (lsSyncErr) {
+                console.warn("Local storage cache sync failed in AuditorEvidenceForm:", lsSyncErr);
             }
 
             setSaveSuccess(true);
