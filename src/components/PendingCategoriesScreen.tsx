@@ -208,7 +208,7 @@ export default function PendingCategoriesScreen({ onBack, onNavigate, userProfil
             let allSubmissionsList: any[] = [];
 
             try {
-                let query = supabase.from('audit_submissions').select('item_id, hotel_id, value, is_na, score');
+                let query = supabase.from('audit_submissions').select('item_id, hotel_id, is_na, score');
                 if (targetHotelIds.length > 0) {
                     query = query.in('hotel_id', targetHotelIds);
                 }
@@ -230,7 +230,7 @@ export default function PendingCategoriesScreen({ onBack, onNavigate, userProfil
                     });
                 } else if (subsError) {
                     // Fallback to fetch all submissions if .in query fails
-                    const { data: fallbackSubs } = await supabase.from('audit_submissions').select('item_id, hotel_id, value, is_na, score');
+                    const { data: fallbackSubs } = await supabase.from('audit_submissions').select('item_id, hotel_id, is_na, score');
                     if (fallbackSubs && Array.isArray(fallbackSubs)) {
                         allSubmissionsList = fallbackSubs;
                         fallbackSubs.forEach((sub: any) => {

@@ -330,7 +330,9 @@ const AuditItemCard: React.FC<{
                 
                 if (!error && data && active) {
                     const submission = data;
-                    const val = submission.value || '';
+                    const val = (submission.value !== undefined && submission.value !== null && String(submission.value).trim() !== '')
+                        ? String(submission.value).trim()
+                        : (submission.evidence_urls ? (Array.isArray(submission.evidence_urls) ? submission.evidence_urls.join(',') : String(submission.evidence_urls).trim()) : '');
                     setValue(val);
                     setIsNa(submission.is_na || false);
                     setNaReason(submission.na_reason || submission.notes || submission.remark || '');
@@ -338,7 +340,9 @@ const AuditItemCard: React.FC<{
                     setSubmittedBy(submission.submitted_by_name || submission.submitted_by || submission.user_name || '');
                     hasLoadedExistingRef.current = true;
                     
-                    if (val && (item.input_type === 'camera' || item.input_type === 'image')) {
+                    const isPhotoInput = item.input_type === 'camera' || item.input_type === 'image' || val.includes('data:image/') || val.includes('http://') || val.includes('https://');
+
+                    if (val && isPhotoInput) {
                         const urls = splitEvidenceUrls(val);
                         setPhotos(urls.map((u: string, idx: number) => ({
                             id: `loaded_${idx}_${Date.now()}`,
@@ -364,7 +368,7 @@ const AuditItemCard: React.FC<{
                     if (stored && active) {
                         try {
                             const localData = JSON.parse(stored);
-                            const val = localData.value || '';
+                            const val = localData.value !== undefined && localData.value !== null ? String(localData.value) : '';
                             setValue(val);
                             setIsNa(localData.is_na || false);
                             setNaReason(localData.na_reason || localData.notes || localData.remark || '');
@@ -479,7 +483,7 @@ const AuditItemCard: React.FC<{
                         alert(`Submission aborted: This item has already been submitted by ${subData.submitted_by_name || subData.submitted_by || 'another user'}. Your local view will be updated.`);
                         
                         // Update our component's state to match the existing database record
-                        const val = subData.value || '';
+                        const val = subData.value !== undefined && subData.value !== null ? String(subData.value) : '';
                         setValue(val);
                         setIsNa(subData.is_na || false);
                         setNaReason(subData.na_reason || subData.notes || subData.remark || '');
@@ -625,21 +629,9 @@ const AuditItemCard: React.FC<{
                 item_id: item.id,
                 value: finalValue,
                 is_na: isNa,
-                input_type: item.input_type,
-                na_reason: isNa ? naReason : null,
-                notes: naReason,
-                submitted_by: submitterName,
-                submitted_by_name: submitterName,
-                evidence_urls: (item.input_type === 'camera' || item.input_type === 'image') && finalValue 
-                    ? finalValue.split(',').filter(Boolean) 
-                    : [],
                 score: finalScore,
                 updated_at: new Date().toISOString()
             };
-
-            if (finalId) {
-                richPayload.id = finalId;
-            }
 
             const corePayload: any = {
                 hotel_id: hotelId,
@@ -649,10 +641,6 @@ const AuditItemCard: React.FC<{
                 score: finalScore,
                 updated_at: new Date().toISOString()
             };
-
-            if (finalId) {
-                corePayload.id = finalId;
-            }
 
             try {
                 const { error } = await supabase.from('audit_submissions').upsert(richPayload, { onConflict: 'hotel_id,item_id' });

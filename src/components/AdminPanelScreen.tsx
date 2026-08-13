@@ -1101,6 +1101,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 const localVal = localScores[key];
                 if (localVal === undefined || localVal === null) continue;
 
+                // Match against dbSubmissions flexibly using item_id and hotel_id
                 const existingDb = dbSubmissions.find(s => 
                     String(s.item_id) === String(itemId) && 
                     (String(s.hotel_id).trim().toLowerCase() === String(hotelId).trim().toLowerCase())
@@ -1128,35 +1129,39 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                             dbScore = !isNaN(num) ? num : null;
                         }
 
-                        const payload: any = {
-                            hotel_id: hotelId,
-                            item_id: itemId,
-                            score: dbScore,
-                            is_na: dbIsNa,
-                            updated_at: new Date().toISOString()
-                        };
-
-                        if (existingDb) {
-                            payload.id = existingDb.id;
-                            payload.value = existingDb.value;
-                            if (existingDb.input_type) payload.input_type = existingDb.input_type;
-                            if (existingDb.submitted_by) payload.submitted_by = existingDb.submitted_by;
-                            if (existingDb.submitted_by_name) payload.submitted_by_name = existingDb.submitted_by_name;
-                            if (existingDb.notes) payload.notes = existingDb.notes;
+                        if (existingDb && existingDb.id) {
+                            // Update score on existing record directly by ID without altering value column
+                            const { error } = await supabase
+                                .from('audit_submissions')
+                                .update({ score: dbScore, is_na: dbIsNa, updated_at: new Date().toISOString() })
+                                .eq('id', existingDb.id);
+                            if (!error) syncedAny = true;
                         } else {
-                            payload.value = '';
-                        }
+                            // Check local storage for any existing evidence value before inserting new record
+                            let localValData = '';
+                            try {
+                                const lsParsed = JSON.parse(localStorage.getItem(`sbi_audit_${hotelId}_${itemId}`) || '{}');
+                                if (lsParsed && lsParsed.value) localValData = String(lsParsed.value);
+                            } catch (e) {}
 
-                        const { error } = await supabase.from('audit_submissions').upsert(payload, { onConflict: 'hotel_id,item_id' });
-                        if (!error) {
-                            syncedAny = true;
+                            const payload: any = {
+                                hotel_id: hotelId,
+                                item_id: itemId,
+                                score: dbScore,
+                                is_na: dbIsNa,
+                                value: localValData || '',
+                                updated_at: new Date().toISOString()
+                            };
+
+                            const { error } = await supabase.from('audit_submissions').upsert(payload, { onConflict: 'hotel_id,item_id' });
+                            if (!error) syncedAny = true;
                         }
                     }
                 }
             }
 
             if (syncedAny) {
-                const { data } = await supabase.from('audit_submissions').select('*');
+                const { data } = await supabase.from('audit_submissions').select('id, hotel_id, item_id, is_na, score, submitted_by_name, updated_at');
                 if (data) {
                     setAllSubmissions(data);
                 }
@@ -1168,11 +1173,13 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
 
     useEffect(() => {
         let active = true;
+        let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+
         const fetchAllSubmissions = async () => {
             try {
                 const { data, error } = await supabase
                     .from('audit_submissions')
-                    .select('*');
+                    .select('id, hotel_id, item_id, is_na, score, submitted_by_name, updated_at');
                 if (!error && data && active) {
                     setAllSubmissions(data);
                     syncLocalStorageToSupabase(data);
@@ -1191,7 +1198,10 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 schema: 'public',
                 table: 'audit_submissions'
             }, () => {
-                fetchAllSubmissions();
+                if (debounceTimer) clearTimeout(debounceTimer);
+                debounceTimer = setTimeout(() => {
+                    fetchAllSubmissions();
+                }, 1500);
             })
             .subscribe();
 
@@ -1202,6 +1212,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
 
         return () => {
             active = false;
+            if (debounceTimer) clearTimeout(debounceTimer);
             supabase.removeChannel(channel);
             clearInterval(interval);
         };
@@ -1679,7 +1690,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         try {
             const { data, error } = await supabase
                 .from('hotel_audit_status')
-                .select('*');
+                .select('hotel_id, is_finalized, finalized_by, finalized_at, updated_at');
             
             if (error) {
                 console.warn("Could not fetch finalized statuses:", error);
@@ -2578,7 +2589,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             if (idList.length > 0) {
                 const { data, error } = await supabase
                     .from('audit_submissions')
-                    .select('*')
+                    .select('id, hotel_id, item_id, value, is_na, score, notes, remarks, evidence_urls, submitted_by_name, updated_at')
                     .in('hotel_id', idList);
                 if (!error && data && data.length > 0) {
                     subsData = data;
@@ -2591,7 +2602,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 for (const tid of targetIds) {
                     const { data, error } = await supabase
                         .from('audit_submissions')
-                        .select('*')
+                        .select('id, hotel_id, item_id, value, is_na, score, notes, remarks, evidence_urls, submitted_by_name, updated_at')
                         .eq('hotel_id', tid);
                     if (!error && data && data.length > 0) {
                         subsData = data;
@@ -2600,31 +2611,85 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 }
             }
 
-            // Fallback 2: Select all submissions and filter using isSubmissionForHotel
+            // Fallback 2: Query by partial matching on hotel identifiers and significant words
+            if ((!subsData || subsData.length === 0) && currentHotel) {
+                const searchTerms: string[] = [];
+                if (currentHotel.id) searchTerms.push(String(currentHotel.id));
+                if (currentHotel.code) searchTerms.push(String(currentHotel.code));
+                if (currentHotel.name) {
+                    searchTerms.push(String(currentHotel.name));
+                    const words = String(currentHotel.name).split(/[\s,.-]+/).filter(w => w.length > 2);
+                    searchTerms.push(...words);
+                }
+                for (const st of searchTerms) {
+                    if (!st || st.trim().length === 0) continue;
+                    const { data, error } = await supabase
+                        .from('audit_submissions')
+                        .select('id, hotel_id, item_id, value, is_na, score, notes, remarks, evidence_urls, submitted_by_name, updated_at')
+                        .ilike('hotel_id', `%${st.trim()}%`);
+                    if (!error && data && data.length > 0) {
+                        subsData = data;
+                        break;
+                    }
+                }
+            }
+
+            // Fallback 3: Query recent submissions and filter client-side with isSubmissionForHotel
             if (!subsData || subsData.length === 0) {
                 const { data, error } = await supabase
                     .from('audit_submissions')
-                    .select('*');
+                    .select('id, hotel_id, item_id, value, is_na, score, notes, remarks, evidence_urls, submitted_by_name, updated_at')
+                    .order('updated_at', { ascending: false })
+                    .limit(2000);
                 if (!error && data && data.length > 0) {
                     if (currentHotel) {
                         subsData = data.filter(s => isSubmissionForHotel(s.hotel_id, currentHotel));
-                    } else {
+                    } else if (selectedInspectionHotelId) {
                         subsData = data.filter(s => String(s.hotel_id).toLowerCase() === String(selectedInspectionHotelId).toLowerCase());
                     }
                 }
             }
 
-            // Fallback 3: Filter from existing allSubmissions state
-            if ((!subsData || subsData.length === 0) && allSubmissions && allSubmissions.length > 0) {
-                if (currentHotel) {
-                    subsData = allSubmissions.filter(s => isSubmissionForHotel(s.hotel_id, currentHotel));
-                }
-            }
-
             const submissionsMap: Record<string, any> = {};
-            (subsData || []).forEach(sub => {
+
+            // Sort subsData by updated_at / created_at ascending so newer submissions overwrite older ones
+            const sortedSubs = [...(subsData || [])].sort((a, b) => {
+                const tA = new Date(a.updated_at || a.created_at || 0).getTime();
+                const tB = new Date(b.updated_at || b.created_at || 0).getTime();
+                return tA - tB;
+            });
+
+            sortedSubs.forEach(sub => {
                 if (sub && sub.item_id !== undefined && sub.item_id !== null) {
-                    submissionsMap[sub.item_id] = sub;
+                    const itemIdKey = String(sub.item_id);
+
+                    // Standardize photo/evidence URL fields between value and evidence_urls
+                    const rawVal = sub.value !== undefined && sub.value !== null ? String(sub.value).trim() : '';
+                    const rawEv = sub.evidence_urls 
+                        ? (Array.isArray(sub.evidence_urls) ? sub.evidence_urls.join(',') : String(sub.evidence_urls).trim())
+                        : '';
+                    sub.value = rawVal || rawEv;
+
+                    const keysToStore = [itemIdKey, String(sub.item_id), String(sub.item_id).toLowerCase()];
+                    if (sub.item_name) keysToStore.push(String(sub.item_name).trim().toLowerCase());
+
+                    keysToStore.forEach(k => {
+                        const existingInMap = submissionsMap[k];
+                        if (!existingInMap) {
+                            submissionsMap[k] = sub;
+                        } else {
+                            const hasVal = sub.value !== undefined && sub.value !== null && String(sub.value).trim() !== '';
+                            const existingHasVal = existingInMap.value !== undefined && existingInMap.value !== null && String(existingInMap.value).trim() !== '';
+                            const mergedVal = hasVal ? sub.value : (existingHasVal ? existingInMap.value : (sub.value || ''));
+                            submissionsMap[k] = {
+                                ...existingInMap,
+                                ...sub,
+                                value: mergedVal,
+                                score: sub.score !== null && sub.score !== undefined ? sub.score : existingInMap.score,
+                                is_na: sub.is_na !== undefined ? sub.is_na : existingInMap.is_na
+                            };
+                        }
+                    });
                 }
             });
 
@@ -2638,22 +2703,27 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                             const item_id = parts.pop();
                             const hId = parts.join('_');
                             if (currentHotel && isSubmissionForHotel(hId, currentHotel) && item_id) {
-                                if (!submissionsMap[item_id]) {
-                                    try {
-                                        const parsed = JSON.parse(localStorage.getItem(key) || '{}');
-                                        if (parsed && (parsed.value !== undefined || parsed.is_na || parsed.evidence_urls)) {
-                                            submissionsMap[item_id] = {
+                                const existingInMap = submissionsMap[item_id] || submissionsMap[String(item_id)];
+                                try {
+                                    const parsed = JSON.parse(localStorage.getItem(key) || '{}');
+                                    const parsedVal = parsed.value !== undefined && parsed.value !== null ? String(parsed.value) : '';
+                                    if (parsed && (parsedVal !== '' || parsed.is_na || parsed.evidence_urls)) {
+                                        if (!existingInMap || (parsedVal !== '' && (!existingInMap.value || String(existingInMap.value).trim() === ''))) {
+                                            const localSub = {
+                                                ...(existingInMap || {}),
                                                 item_id,
                                                 hotel_id: hId,
-                                                value: parsed.value || '',
-                                                is_na: !!parsed.is_na,
-                                                evidence_urls: parsed.evidence_urls || [],
-                                                score: parsed.score,
-                                                remarks: parsed.remarks || ''
+                                                value: parsedVal || existingInMap?.value || '',
+                                                is_na: !!parsed.is_na || existingInMap?.is_na,
+                                                evidence_urls: parsed.evidence_urls || existingInMap?.evidence_urls || [],
+                                                score: parsed.score !== undefined ? parsed.score : existingInMap?.score,
+                                                remarks: parsed.remarks || existingInMap?.remarks || ''
                                             };
+                                            submissionsMap[item_id] = localSub;
+                                            submissionsMap[String(item_id)] = localSub;
                                         }
-                                    } catch (e) {}
-                                }
+                                    }
+                                } catch (e) {}
                             }
                         }
                     }
@@ -2757,13 +2827,17 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         }
 
         try {
-            // Fetch any existing record to preserve the evidence (value) column
-            const { data: existing } = await supabase
-                .from('audit_submissions')
-                .select('*')
-                .eq('hotel_id', hotelId)
-                .eq('item_id', itemId)
-                .maybeSingle();
+            // Fetch existing record or use cached hotelSubmissions to preserve value column
+            let existing: any = hotelSubmissions[itemId] || hotelSubmissions[String(itemId)];
+            if (!existing) {
+                const { data } = await supabase
+                    .from('audit_submissions')
+                    .select('id, hotel_id, item_id, value, is_na, score')
+                    .eq('hotel_id', hotelId)
+                    .eq('item_id', itemId)
+                    .maybeSingle();
+                existing = data;
+            }
 
             let dbScore: any = null;
             let dbIsNa = false;
@@ -2779,46 +2853,50 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 dbScore = !isNaN(Number(score)) ? Number(score) : null;
             }
 
-            const commentKey = `${hotelId}_${itemId}`;
-            const commentVal = inspectionComments[commentKey] || '';
+            if (existing && existing.id) {
+                // Directly update score on existing row without overwriting value column
+                const { error: updateErr } = await supabase
+                    .from('audit_submissions')
+                    .update({
+                        score: dbScore,
+                        is_na: dbIsNa,
+                        updated_at: new Date().toISOString()
+                    })
+                    .eq('id', existing.id);
 
-            const payload: any = {
-                hotel_id: hotelId,
-                item_id: itemId,
-                score: dbScore,
-                is_na: dbIsNa,
-                notes: commentVal || (existing?.notes ?? null),
-                updated_at: new Date().toISOString()
-            };
-
-            if (existing) {
-                payload.id = existing.id;
-                payload.value = existing.value; // Preserve the evidence/text/numeric value!
-                if (existing.input_type) payload.input_type = existing.input_type;
-                if (existing.submitted_by) payload.submitted_by = existing.submitted_by;
-                if (existing.submitted_by_name) payload.submitted_by_name = existing.submitted_by_name;
+                if (updateErr) {
+                    console.warn("Update by ID failed in saveInspectionScore, using upsert:", updateErr);
+                    const payload: any = {
+                        hotel_id: hotelId,
+                        item_id: itemId,
+                        score: dbScore,
+                        is_na: dbIsNa,
+                        value: existing.value !== undefined && existing.value !== null ? existing.value : '',
+                        updated_at: new Date().toISOString()
+                    };
+                    await supabase.from('audit_submissions').upsert(payload, { onConflict: 'hotel_id,item_id' });
+                }
             } else {
-                // Do not default value column to score points
-                payload.value = '';
-            }
+                // Check if local storage or state has a value
+                let localVal = '';
+                try {
+                    const lsParsed = JSON.parse(localStorage.getItem(`sbi_audit_${hotelId}_${itemId}`) || '{}');
+                    if (lsParsed && lsParsed.value) localVal = String(lsParsed.value);
+                } catch (e) {}
 
-            const { error } = await supabase.from('audit_submissions').upsert(payload, { onConflict: 'hotel_id,item_id' });
-            if (error) {
-                console.warn("Standard upsert failed for Admin Panel inspection score, executing fallback:", error);
-                
-                // Fallback insert/update using already-merged payload with preserved fields!
-                if (existing && existing.id) {
-                    const { error: updateErr } = await supabase
-                        .from('audit_submissions')
-                        .update(payload)
-                        .eq('id', existing.id);
-                    if (updateErr) console.error("Fallback update failed in Admin Panel:", updateErr);
-                } else {
-                    const { error: insertErr } = await supabase.from('audit_submissions').insert(payload);
-                    if (insertErr) {
-                        console.warn("Fallback insert failed, trying with random ID:", insertErr);
-                        await supabase.from('audit_submissions').insert({ id: crypto.randomUUID(), ...payload });
-                    }
+                const payload: any = {
+                    hotel_id: hotelId,
+                    item_id: itemId,
+                    score: dbScore,
+                    is_na: dbIsNa,
+                    value: localVal || '',
+                    updated_at: new Date().toISOString()
+                };
+
+                const { error } = await supabase.from('audit_submissions').upsert(payload, { onConflict: 'hotel_id,item_id' });
+                if (error) {
+                    console.warn("Upsert failed in saveInspectionScore, trying insert:", error);
+                    await supabase.from('audit_submissions').insert(payload);
                 }
             }
         } catch (err) {
@@ -2873,16 +2951,12 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 item_id: itemId,
                 score: dbScore,
                 is_na: dbIsNa,
-                notes: comment,
                 updated_at: new Date().toISOString()
             };
 
             if (existing) {
                 payload.id = existing.id;
                 payload.value = existing.value;
-                if (existing.input_type) payload.input_type = existing.input_type;
-                if (existing.submitted_by) payload.submitted_by = existing.submitted_by;
-                if (existing.submitted_by_name) payload.submitted_by_name = existing.submitted_by_name;
             } else {
                 payload.value = '';
             }
@@ -7813,9 +7887,17 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                 const scoreKey = `${hotel.id}_${item.id}`;
                                                                 const currentScore = inspectionScores[scoreKey];
                                                                 const currentComment = inspectionComments[scoreKey] || '';
-                                                                const submission = hotelSubmissions[item.id];
+                                                                const submission = hotelSubmissions[item.id] || 
+                                                                    hotelSubmissions[String(item.id)] || 
+                                                                    hotelSubmissions[String(item.id).toLowerCase()] || 
+                                                                    (item.name ? hotelSubmissions[String(item.name).trim().toLowerCase()] : undefined) ||
+                                                                    Object.values(hotelSubmissions).find((s: any) => 
+                                                                        String(s?.item_id).trim().toLowerCase() === String(item.id).trim().toLowerCase() ||
+                                                                        (s?.item_name && item.name && String(s.item_name).trim().toLowerCase() === String(item.name).trim().toLowerCase())
+                                                                    );
                                                                 const hasSubmission = !!submission && (
                                                                     (submission.value !== undefined && submission.value !== null && String(submission.value).trim() !== '') ||
+                                                                    (submission.evidence_urls !== undefined && submission.evidence_urls !== null && (Array.isArray(submission.evidence_urls) ? submission.evidence_urls.length > 0 : String(submission.evidence_urls).trim() !== '')) ||
                                                                     submission.is_na
                                                                 );
                                                                 const itemMaxPoints = item.points ?? 5;
@@ -7970,31 +8052,36 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                                 ) : (
                                                                                                     <div className="space-y-3">
                                                                                                         {/* Visual Evidence with In-App Lightbox */}
-                                                                                                        {(item.inputType === 'camera' || item.inputType === 'image') && submission.value && (
-                                                                                                             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                                                                                                                 {splitEvidenceUrls(String(submission.value)).map((url, urlIdx) => (
-                                                                                                                     <div 
-                                                                                                                         key={urlIdx}
-                                                                                                                         className="group/img relative rounded-xl border border-slate-200 overflow-hidden bg-slate-900/5 flex items-center justify-center aspect-square cursor-zoom-in transition-all hover:border-indigo-300 hover:shadow-sm"
-                                                                                                                         onClick={() => setEnlargedImage({ url: url, title: `${item.name} — Photo ${urlIdx + 1} — ${hotel.name}` })}
-                                                                                                                     >
-                                                                                                                         <img 
-                                                                                                                             src={url} 
-                                                                                                                             alt={`Submission Photo ${urlIdx + 1}`} 
-                                                                                                                             referrerPolicy={url?.startsWith('blob:') || url?.startsWith('data:') ? undefined : 'no-referrer'} 
-                                                                                                                             className="w-full h-full object-cover" 
-                                                                                                                         />
-                                                                                                                         <div className="absolute inset-0 bg-slate-950/40 opacity-0 group-hover/img:opacity-100 transition-opacity flex flex-col items-center justify-center text-white font-black text-[10px] uppercase tracking-wider text-center p-2 gap-1">
-                                                                                                                             <Maximize2 size={14} />
-                                                                                                                             <span>Enlarge</span>
-                                                                                                                         </div>
-                                                                                                                         <div className="absolute bottom-1.5 right-1.5 bg-slate-900/80 backdrop-blur-md text-white text-[8px] font-extrabold px-1.5 py-0.5 rounded opacity-90 group-hover/img:opacity-0 transition-opacity flex items-center gap-1">
-                                                                                                                             <Eye size={10} /> Photo {urlIdx + 1}
-                                                                                                                         </div>
-                                                                                                                     </div>
-                                                                                                                 ))}
-                                                                                                             </div>
-                                                                                                         )}
+                                                                                                        {(() => {
+                                                                                                            const valStr = String(submission.value || (Array.isArray(submission.evidence_urls) ? submission.evidence_urls.join(',') : submission.evidence_urls || '')).trim();
+                                                                                                            const urls = splitEvidenceUrls(valStr);
+                                                                                                            if (urls.length === 0) return null;
+                                                                                                            return (
+                                                                                                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                                                                                                                    {urls.map((url, urlIdx) => (
+                                                                                                                        <div 
+                                                                                                                            key={urlIdx}
+                                                                                                                            className="group/img relative rounded-xl border border-slate-200 overflow-hidden bg-slate-900/5 flex items-center justify-center aspect-square cursor-zoom-in transition-all hover:border-indigo-300 hover:shadow-sm"
+                                                                                                                            onClick={() => setEnlargedImage({ url: url, title: `${item.name} — Photo ${urlIdx + 1} — ${hotel.name}` })}
+                                                                                                                        >
+                                                                                                                            <img 
+                                                                                                                                src={url} 
+                                                                                                                                alt={`Submission Photo ${urlIdx + 1}`} 
+                                                                                                                                referrerPolicy={url?.startsWith('blob:') || url?.startsWith('data:') ? undefined : 'no-referrer'} 
+                                                                                                                                className="w-full h-full object-cover" 
+                                                                                                                            />
+                                                                                                                            <div className="absolute inset-0 bg-slate-950/40 opacity-0 group-hover/img:opacity-100 transition-opacity flex flex-col items-center justify-center text-white font-black text-[10px] uppercase tracking-wider text-center p-2 gap-1">
+                                                                                                                                <Maximize2 size={14} />
+                                                                                                                                <span>Enlarge</span>
+                                                                                                                            </div>
+                                                                                                                            <div className="absolute bottom-1.5 right-1.5 bg-slate-900/80 backdrop-blur-md text-white text-[8px] font-extrabold px-1.5 py-0.5 rounded opacity-90 group-hover/img:opacity-0 transition-opacity flex items-center gap-1">
+                                                                                                                                <Eye size={10} /> Photo {urlIdx + 1}
+                                                                                                                            </div>
+                                                                                                                        </div>
+                                                                                                                    ))}
+                                                                                                                </div>
+                                                                                                            );
+                                                                                                        })()}
 
                                                                                                          {/* Document Evidence */}
                                                                                                         {item.inputType === 'document' && submission.value && (
@@ -8018,7 +8105,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                                                     <p className="text-base font-black text-slate-900 leading-none">
                                                                                                                         {item.inputType === 'checkbox' 
                                                                                                                             ? (String(submission.value).toLowerCase() === 'true' ? 'YES / COMPLIANT' : 'NO / NON-COMPLIANT')
-                                                                                                                            : (submission.value || 'N/A')}
+                                                                                                                            : (submission.value !== undefined && submission.value !== null && submission.value !== '' ? String(submission.value) : 'N/A')}
                                                                                                                     </p>
                                                                                                                 </div>
                                                                                                                 {item.inputType === 'numeric' && item.min_value !== undefined && (

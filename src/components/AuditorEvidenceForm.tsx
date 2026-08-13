@@ -200,13 +200,17 @@ export default function AuditorEvidenceForm({ item, hotel, submission, onSaved, 
     // Load existing submission data
     useEffect(() => {
         if (submission) {
-            const val = submission.value || '';
+            const val = (submission.value !== undefined && submission.value !== null && String(submission.value).trim() !== '')
+                ? String(submission.value).trim()
+                : (submission.evidence_urls ? (Array.isArray(submission.evidence_urls) ? submission.evidence_urls.join(',') : String(submission.evidence_urls).trim()) : '');
             setValue(val);
             setIsNa(submission.is_na || false);
             setNaReason(submission.na_reason || submission.notes || submission.remark || '');
             
-            if (val && (item.inputType === 'camera' || item.inputType === 'image')) {
-                const urls = splitEvidenceUrls(val);
+            const evStr = val || (submission.evidence_urls ? (Array.isArray(submission.evidence_urls) ? submission.evidence_urls.join(',') : String(submission.evidence_urls).trim()) : '');
+            const urls = splitEvidenceUrls(evStr);
+
+            if (urls.length > 0) {
                 setPhotos(urls.map((u: string, idx: number) => ({
                     id: `loaded_${idx}_${Date.now()}`,
                     url: u,
@@ -362,12 +366,19 @@ export default function AuditorEvidenceForm({ item, hotel, submission, onSaved, 
             : 'Auditor';
 
         // Fetch any existing record to preserve the score column and id
-        const { data: existingRecord } = await supabase
-            .from('audit_submissions')
-            .select('*')
-            .eq('hotel_id', hotel.id)
-            .eq('item_id', item.id)
-            .maybeSingle();
+        const targetHotelIds = [hotel.id, hotel.code, submission?.hotel_id].filter(Boolean);
+        let existingRecord: any = null;
+
+        if (targetHotelIds.length > 0) {
+            const { data: recs } = await supabase
+                .from('audit_submissions')
+                .select('id, hotel_id, item_id, value, is_na, score, notes, remarks, evidence_urls, submitted_by_name')
+                .in('hotel_id', targetHotelIds)
+                .eq('item_id', item.id);
+            if (recs && recs.length > 0) {
+                existingRecord = recs[0];
+            }
+        }
 
         // Prioritize currentScore passed from parent props
         let finalScore = currentScore !== undefined ? currentScore : (existingRecord?.score !== undefined ? existingRecord.score : (submission?.score !== undefined ? submission.score : null));
@@ -376,6 +387,7 @@ export default function AuditorEvidenceForm({ item, hotel, submission, onSaved, 
         }
 
         const finalId = existingRecord?.id || submission?.id || null;
+        const targetHotelId = submission?.hotel_id || existingRecord?.hotel_id || hotel.id || hotel.code;
 
         let dbIsNa = isNa || finalScore === 'N/A';
         let cleanScore: any = null;
@@ -392,84 +404,48 @@ export default function AuditorEvidenceForm({ item, hotel, submission, onSaved, 
         }
 
         const finalNotes = dbIsNa ? (naReason || currentComment || null) : (currentComment || existingRecord?.notes || submission?.notes || null);
-        const finalNaReason = dbIsNa ? (naReason || currentComment || null) : null;
 
         const richPayload: any = {
-            hotel_id: hotel.id,
+            hotel_id: targetHotelId,
             item_id: item.id,
             value: finalValue,
             is_na: dbIsNa,
-            input_type: item.inputType,
-            na_reason: finalNaReason,
-            notes: finalNotes,
-            submitted_by: submitterName,
-            submitted_by_name: submitterName,
-            evidence_urls: (item.inputType === 'camera' || item.inputType === 'image') && finalValue 
-                ? finalValue.split(',').filter(Boolean) 
-                : [],
             score: cleanScore,
+            submitted_by_name: submitterName,
             updated_at: new Date().toISOString()
         };
-
-        if (finalId) {
-            richPayload.id = finalId;
-        }
 
         const corePayload: any = {
-            hotel_id: hotel.id,
+            hotel_id: targetHotelId,
             item_id: item.id,
             value: finalValue,
             is_na: dbIsNa,
             score: cleanScore,
-            notes: finalNotes,
             updated_at: new Date().toISOString()
         };
 
-        if (finalId) {
-            corePayload.id = finalId;
-        }
-
         try {
-            const { error } = await supabase.from('audit_submissions').upsert(richPayload, { onConflict: 'hotel_id,item_id' });
-            if (error) {
-                console.warn("Standard rich upsert failed, executing select-then-insert-or-update fallback:", error);
-                
-                // Fetch to check if record exists by hotel_id and item_id
-                const { data: existing, error: fetchErr } = await supabase
+            if (finalId) {
+                // Directly update by record ID to ensure we update the exact row
+                const { error: updateErr } = await supabase
                     .from('audit_submissions')
-                    .select('id')
-                    .eq('hotel_id', hotel.id)
-                    .eq('item_id', item.id)
-                    .maybeSingle();
+                    .update(richPayload)
+                    .eq('id', finalId);
 
-                if (fetchErr) {
-                    console.error("Failed to query existing record, trying raw inserts as last resort:", fetchErr);
-                    // Attempt raw inserts
+                if (updateErr) {
+                    console.warn("Update by ID failed, falling back to upsert:", updateErr);
+                    const { error: upsertErr } = await supabase.from('audit_submissions').upsert(richPayload, { onConflict: 'hotel_id,item_id' });
+                    if (upsertErr) {
+                        const { error: coreUpsertErr } = await supabase.from('audit_submissions').upsert(corePayload, { onConflict: 'hotel_id,item_id' });
+                        if (coreUpsertErr) throw coreUpsertErr;
+                    }
+                }
+            } else {
+                const { error: upsertErr } = await supabase.from('audit_submissions').upsert(richPayload, { onConflict: 'hotel_id,item_id' });
+                if (upsertErr) {
+                    console.warn("Standard rich upsert failed, executing select-then-insert fallback:", upsertErr);
                     const { error: insertRichErr } = await supabase.from('audit_submissions').insert(richPayload);
                     if (insertRichErr) {
-                        const { error: insertCoreErr } = await supabase.from('audit_submissions').insert(corePayload);
-                        if (insertCoreErr) throw insertCoreErr;
-                    }
-                } else if (existing && existing.id) {
-                    // Update the existing record using its unique ID
-                    const { error: updateRichErr } = await supabase
-                        .from('audit_submissions')
-                        .update(richPayload)
-                        .eq('id', existing.id);
-
-                    if (updateRichErr) {
-                        console.warn("Rich update failed, updating with core payload:", updateRichErr);
-                        const { error: updateCoreErr } = await supabase
-                            .from('audit_submissions')
-                            .update(corePayload)
-                            .eq('id', existing.id);
-                        if (updateCoreErr) throw updateCoreErr;
-                    }
-                } else {
-                    // Insert a new record
-                    const { error: insertRichErr } = await supabase.from('audit_submissions').insert(richPayload);
-                    if (insertRichErr) {
-                        console.warn("Rich insert failed, inserting core payload:", insertRichErr);
                         const { error: insertCoreErr } = await supabase.from('audit_submissions').insert(corePayload);
                         if (insertCoreErr) throw insertCoreErr;
                     }
@@ -478,10 +454,14 @@ export default function AuditorEvidenceForm({ item, hotel, submission, onSaved, 
 
             // Sync with local storage
             try {
-                localStorage.setItem(`sbi_audit_${hotel.id}_${item.id}`, JSON.stringify({
+                const lsData = JSON.stringify({
                     ...richPayload,
                     isSubmitted: true
-                }));
+                });
+                localStorage.setItem(`sbi_audit_${hotel.id}_${item.id}`, lsData);
+                if (targetHotelId && targetHotelId !== hotel.id) {
+                    localStorage.setItem(`sbi_audit_${targetHotelId}_${item.id}`, lsData);
+                }
             } catch (lsErr) {
                 console.warn("LocalStorage save failed, string might be too large:", lsErr);
                 if (finalValue && finalValue.length > 500000) {
@@ -567,7 +547,7 @@ export default function AuditorEvidenceForm({ item, hotel, submission, onSaved, 
             ) : (
                 <div className="space-y-3">
                     {/* Image / Camera upload */}
-                    {(item.inputType === 'camera' || item.inputType === 'image') && (
+                    {(item.inputType === 'camera' || item.inputType === 'image' || photos.length > 0) && (
                         <div className="space-y-3">
                             {photos.length > 0 && (
                                 <div className="grid grid-cols-3 gap-2">
