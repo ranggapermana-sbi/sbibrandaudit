@@ -1080,6 +1080,91 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     // Fetch categories function
     const [allSubmissions, setAllSubmissions] = useState<any[]>([]);
 
+    const syncLocalStorageToSupabase = async (dbSubmissions: any[]) => {
+        const stored = localStorage.getItem('sbi_inspection_scores');
+        if (!stored) return;
+        try {
+            const localScores = JSON.parse(stored);
+            const keys = Object.keys(localScores);
+            if (keys.length === 0) return;
+
+            let syncedAny = false;
+
+            for (const key of keys) {
+                const parts = key.split('_');
+                if (parts.length < 2) continue;
+                
+                const hotelId = parts[0];
+                const itemId = parts.slice(1).join('_');
+                
+                const localVal = localScores[key];
+                if (localVal === undefined || localVal === null) continue;
+
+                const existingDb = dbSubmissions.find(s => 
+                    String(s.item_id) === String(itemId) && 
+                    (String(s.hotel_id).trim().toLowerCase() === String(hotelId).trim().toLowerCase())
+                );
+
+                const isLocalValScore = localVal === 'PASS' || localVal === 'FAIL' || localVal === 'N/A' || !isNaN(Number(localVal));
+                
+                if (isLocalValScore) {
+                    const dbHasScore = existingDb && (existingDb.score !== null && existingDb.score !== undefined);
+                    const dbHasIsNa = existingDb && existingDb.is_na;
+
+                    if (!existingDb || (!dbHasScore && !dbHasIsNa)) {
+                        let dbScore: any = null;
+                        let dbIsNa = false;
+
+                        if (localVal === 'N/A') {
+                            dbIsNa = true;
+                            dbScore = null;
+                        } else if (localVal === 'PASS') {
+                            dbScore = 1;
+                        } else if (localVal === 'FAIL') {
+                            dbScore = 0;
+                        } else {
+                            const num = Number(localVal);
+                            dbScore = !isNaN(num) ? num : null;
+                        }
+
+                        const payload: any = {
+                            hotel_id: hotelId,
+                            item_id: itemId,
+                            score: dbScore,
+                            is_na: dbIsNa,
+                            updated_at: new Date().toISOString()
+                        };
+
+                        if (existingDb) {
+                            payload.id = existingDb.id;
+                            payload.value = existingDb.value;
+                            if (existingDb.input_type) payload.input_type = existingDb.input_type;
+                            if (existingDb.submitted_by) payload.submitted_by = existingDb.submitted_by;
+                            if (existingDb.submitted_by_name) payload.submitted_by_name = existingDb.submitted_by_name;
+                            if (existingDb.notes) payload.notes = existingDb.notes;
+                        } else {
+                            payload.value = dbScore !== null ? String(dbScore) : '';
+                        }
+
+                        const { error } = await supabase.from('audit_submissions').upsert(payload, { onConflict: 'hotel_id,item_id' });
+                        if (!error) {
+                            syncedAny = true;
+                        }
+                    }
+                }
+            }
+
+            if (syncedAny) {
+                const { data } = await supabase.from('audit_submissions').select('*');
+                if (data) {
+                    setAllSubmissions(data);
+                }
+            }
+        } catch (e) {
+            console.error("Error auto-syncing local scores:", e);
+        }
+    };
+
     useEffect(() => {
         let active = true;
         const fetchAllSubmissions = async () => {
@@ -1089,6 +1174,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                     .select('*');
                 if (!error && data && active) {
                     setAllSubmissions(data);
+                    syncLocalStorageToSupabase(data);
                 }
             } catch (e) {
                 console.error("Error fetching all submissions:", e);
