@@ -2297,12 +2297,6 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                         } else {
                             val = sub.score;
                         }
-                    } else if (sub.value !== undefined && sub.value !== null && sub.value !== '') {
-                        if (!isNaN(Number(sub.value))) {
-                            val = Number(sub.value);
-                        } else {
-                            val = sub.value;
-                        }
                     }
                     if (val !== undefined) {
                         // Populate for any hotel matching this submission

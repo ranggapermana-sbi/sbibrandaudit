@@ -205,9 +205,10 @@ export default function PendingCategoriesScreen({ onBack, onNavigate, userProfil
             // 4. Fetch submissions for target hotel
             let submittedItemIds = new Set<string>();
             let naItemIds = new Set<string>();
+            let allSubmissionsList: any[] = [];
 
             try {
-                let query = supabase.from('audit_submissions').select('item_id, hotel_id, value, is_na');
+                let query = supabase.from('audit_submissions').select('item_id, hotel_id, value, is_na, score');
                 if (targetHotelIds.length > 0) {
                     query = query.in('hotel_id', targetHotelIds);
                 }
@@ -215,6 +216,7 @@ export default function PendingCategoriesScreen({ onBack, onNavigate, userProfil
                 const { data: subsData, error: subsError } = await query;
 
                 if (!subsError && subsData && Array.isArray(subsData)) {
+                    allSubmissionsList = subsData;
                     subsData.forEach((sub: any) => {
                         const subHotelIdLower = String(sub.hotel_id || '').toLowerCase();
                         const matchesHotel = targetHotelIdsLower.size === 0 || targetHotelIdsLower.has(subHotelIdLower);
@@ -228,8 +230,9 @@ export default function PendingCategoriesScreen({ onBack, onNavigate, userProfil
                     });
                 } else if (subsError) {
                     // Fallback to fetch all submissions if .in query fails
-                    const { data: fallbackSubs } = await supabase.from('audit_submissions').select('item_id, hotel_id, value, is_na');
+                    const { data: fallbackSubs } = await supabase.from('audit_submissions').select('item_id, hotel_id, value, is_na, score');
                     if (fallbackSubs && Array.isArray(fallbackSubs)) {
+                        allSubmissionsList = fallbackSubs;
                         fallbackSubs.forEach((sub: any) => {
                             const subHotelIdLower = String(sub.hotel_id || '').toLowerCase();
                             if (targetHotelIdsLower.size === 0 || targetHotelIdsLower.has(subHotelIdLower)) {
@@ -251,6 +254,36 @@ export default function PendingCategoriesScreen({ onBack, onNavigate, userProfil
             // 5. Map categories and calculate completed vs total items for each category
             const storedScoresRaw = localStorage.getItem('sbi_inspection_scores');
             const inspectionScores = storedScoresRaw ? JSON.parse(storedScoresRaw) : {};
+
+            // Populate inspectionScores from database submissions so DB is the Source of Truth
+            if (allSubmissionsList && Array.isArray(allSubmissionsList)) {
+                allSubmissionsList.forEach((sub: any) => {
+                    if (sub && sub.hotel_id && sub.item_id) {
+                        const subHotelId = String(sub.hotel_id).trim();
+                        const subItemId = String(sub.item_id).trim();
+                        let val: number | string | undefined = undefined;
+                        if (sub.is_na === true || String(sub.is_na) === 'true') {
+                            val = 'N/A';
+                        } else if (sub.score !== undefined && sub.score !== null && sub.score !== '') {
+                            if (!isNaN(Number(sub.score))) {
+                                val = Number(sub.score);
+                            } else {
+                                val = sub.score;
+                            }
+                        }
+                        if (val !== undefined) {
+                            const keysToSet = [
+                                subHotelId,
+                                subHotelId.toLowerCase(),
+                                subHotelId.toUpperCase()
+                            ];
+                            keysToSet.forEach(kId => {
+                                inspectionScores[`${kId}_${subItemId}`] = val;
+                            });
+                        }
+                    }
+                });
+            }
 
             const mapped = filteredCats.map((cat: any) => {
                 const catItems = (itemsData || []).filter((item: any) => 
