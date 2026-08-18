@@ -92,6 +92,11 @@ const uploadToIMGBB = async (file: File): Promise<string> => {
     }
 }
 
+const isImageInput = (type: string) => {
+    const t = (type || '').toLowerCase().trim();
+    return ['camera', 'image', 'photo', 'picture', 'img', 'gallery'].includes(t);
+};
+
 const splitEvidenceUrls = (value: string): string[] => {
     if (!value) return [];
     const urls: string[] = [];
@@ -338,14 +343,14 @@ const AuditItemCard: React.FC<{
                     setSubmittedBy(submission.submitted_by_name || submission.submitted_by || submission.user_name || '');
                     hasLoadedExistingRef.current = true;
                     
-                    if (val && (item.input_type === 'camera' || item.input_type === 'image')) {
+                    if (val && (isImageInput(item.input_type) || val.startsWith('http') || val.startsWith('data:image/') || val.includes('imgbb.com'))) {
                         const urls = splitEvidenceUrls(val);
                         setPhotos(urls.map((u: string, idx: number) => ({
                             id: `loaded_${idx}_${Date.now()}`,
                             url: u,
                             file: null
                         })));
-                    } else if (item.input_type === 'camera' || item.input_type === 'image') {
+                    } else if (isImageInput(item.input_type)) {
                         setPhotos([]);
                     }
 
@@ -374,14 +379,14 @@ const AuditItemCard: React.FC<{
                             }
                             setSubmittedBy(localData.submitted_by_name || localData.submitted_by || localData.submitted_by_user || '');
                             
-                            if (val && (item.input_type === 'camera' || item.input_type === 'image')) {
+                            if (val && (isImageInput(item.input_type) || val.startsWith('http') || val.startsWith('data:image/') || val.includes('imgbb.com'))) {
                                 const urls = splitEvidenceUrls(val);
                                 setPhotos(urls.map((u: string, idx: number) => ({
                                     id: `loaded_${idx}_${Date.now()}`,
                                     url: u,
                                     file: null
                                 })));
-                            } else if (item.input_type === 'camera' || item.input_type === 'image') {
+                            } else if (isImageInput(item.input_type)) {
                                 setPhotos([]);
                             }
 
@@ -412,7 +417,7 @@ const AuditItemCard: React.FC<{
     const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files) {
             const files = Array.from(e.target.files) as File[];
-            if (item.input_type === 'image' || item.input_type === 'camera') {
+            if (isImageInput(item.input_type)) {
                 const newPhotos: PhotoItem[] = files.map((file: File, idx) => ({
                     id: `local_${idx}_${Date.now()}`,
                     url: URL.createObjectURL(file),
@@ -534,7 +539,7 @@ const AuditItemCard: React.FC<{
                 }
                 finalValue = ''; 
             } else {
-                if (item.input_type === 'camera' || item.input_type === 'image') {
+                if (isImageInput(item.input_type)) {
                     if (photos.length > 0) {
                         const uploadedUrls: string[] = [];
                         for (const p of photos) {
@@ -690,8 +695,13 @@ const AuditItemCard: React.FC<{
     const renderInput = () => {
         if (isNa) return null;
 
-        switch (item.input_type) {
+        switch ((item.input_type || '').toLowerCase().trim()) {
             case 'camera':
+            case 'image':
+            case 'photo':
+            case 'picture':
+            case 'img':
+            case 'gallery':
                 return (
                     <div className="mt-3 space-y-3">
                         {isCameraOpen && createPortal(

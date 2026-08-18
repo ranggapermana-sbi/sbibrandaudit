@@ -7,6 +7,11 @@ import { Department, Hotel, AuditBatch, AuditCategory, AuditItem, AuditGroup } f
 import { DEFAULT_DEPARTMENTS, DEFAULT_CATEGORIES, DEFAULT_HOTELS, DEFAULT_BATCHES, DEFAULT_GROUPS, DEFAULT_OFFLINE_ITEMS, HARDCODED_TEST_HOTELS } from '../lib/constants';
 import AuditorEvidenceForm from './AuditorEvidenceForm';
 
+const isImageInput = (type: string) => {
+    const t = (type || '').toLowerCase().trim();
+    return ['camera', 'image', 'photo', 'picture', 'img', 'gallery'].includes(t);
+};
+
 const splitEvidenceUrls = (value: string): string[] => {
     if (!value) return [];
     const urls: string[] = [];
@@ -7595,7 +7600,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                                 ) : (
                                                                                                     <div className="space-y-3">
                                                                                                         {/* Visual Evidence with In-App Lightbox */}
-                                                                                                        {(item.inputType === 'camera' || item.inputType === 'image') && submission.value && (
+                                                                                                                                                                                                                 {(isImageInput(item.inputType) || (submission.value && (String(submission.value).startsWith('http') || String(submission.value).startsWith('data:image/') || String(submission.value).includes('imgbb.com')))) && submission.value && (
                                                                                                              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                                                                                                                  {splitEvidenceUrls(String(submission.value)).map((url, urlIdx) => (
                                                                                                                      <div 
@@ -11140,7 +11145,7 @@ CREATE POLICY "Allow public write audit_item_locks" ON audit_item_locks FOR ALL 
                                         <button
                                             onClick={() => {
                                                 const sqlText = `-- Complete Performance & Database Indexing Script for Swiss-Belhotel Brand Audit
--- Step 1: Ensure all required system tables exist safely
+-- Step 1: Ensure all required system tables and missing columns exist safely
 
 CREATE TABLE IF NOT EXISTS public.audit_submissions (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -11178,6 +11183,11 @@ CREATE TABLE IF NOT EXISTS public.auditor_category_assignments (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
     UNIQUE(user_id, category_id)
 );
+
+-- Migration / Safeguards for existing tables
+ALTER TABLE IF EXISTS public.auditor_assignments ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL;
+ALTER TABLE IF EXISTS public.audit_batch_hotels ADD COLUMN IF NOT EXISTS id UUID DEFAULT gen_random_uuid();
+ALTER TABLE IF EXISTS public.audit_items ADD COLUMN IF NOT EXISTS options TEXT;
 
 ALTER TABLE public.auditor_assignments ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Allow public select auditor_assignments" ON public.auditor_assignments;
