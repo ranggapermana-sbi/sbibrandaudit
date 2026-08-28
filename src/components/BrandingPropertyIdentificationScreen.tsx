@@ -130,8 +130,11 @@ const AuditItemCard: React.FC<{
     locked?: boolean,
     activeLock?: { locked_by_name: string; locked_by_email: string; locked_at: string },
     onAcquireLock?: () => void,
-    onReleaseLock?: () => void
-}> = ({ item, hotelId, userProfile, locked, activeLock, onAcquireLock, onReleaseLock }) => {
+    onReleaseLock?: () => void,
+    existingSubmission?: any,
+    onClose?: () => void
+}> = ({ item, hotelId, userProfile, locked, activeLock, onAcquireLock, onReleaseLock, existingSubmission, onClose }) => {
+    const [isExpanded, setIsExpanded] = useState<boolean>(!!onClose);
     const [value, setValue] = useState<string>('');
     const [isNa, setIsNa] = useState<boolean>(false);
     const [naReason, setNaReason] = useState<string>('');
@@ -142,7 +145,6 @@ const AuditItemCard: React.FC<{
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
     const [photos, setPhotos] = useState<PhotoItem[]>([]);
 
-    const hasLoadedExistingRef = useRef<boolean>(false);
     const [copied, setCopied] = useState(false);
 
     const handleCopyLink = (text: string) => {
@@ -319,100 +321,45 @@ const AuditItemCard: React.FC<{
         };
     }, []);
 
-    // Initialize from Supabase with local storage fallback
+    // Initialize from batch existingSubmission prop or local storage fallback
     useEffect(() => {
-        let active = true;
-        hasLoadedExistingRef.current = false;
-        const fetchExistingSubmission = async () => {
-            if (!hotelId || !item.id) return;
-            try {
-                const { data, error } = await supabase
-                    .from('audit_submissions')
-                    .select('*')
-                    .eq('hotel_id', hotelId)
-                    .eq('item_id', item.id)
-                    .maybeSingle();
-                
-                if (!error && data && active) {
-                    const submission = data;
-                    const val = submission.value || '';
-                    setValue(val);
-                    setIsNa(submission.is_na || false);
-                    setNaReason(submission.na_reason || submission.notes || submission.remark || '');
-                    setIsSubmitted(true);
-                    setSubmittedBy(submission.submitted_by_name || submission.submitted_by || submission.user_name || '');
-                    hasLoadedExistingRef.current = true;
-                    
-                    if (val && (isImageInput(item.input_type) || val.startsWith('http') || val.startsWith('data:image/') || val.includes('imgbb.com'))) {
-                        const urls = splitEvidenceUrls(val);
-                        setPhotos(urls.map((u: string, idx: number) => ({
-                            id: `loaded_${idx}_${Date.now()}`,
-                            url: u,
-                            file: null
-                        })));
-                    } else if (isImageInput(item.input_type)) {
-                        setPhotos([]);
-                    }
+        const populateFromSubmission = (submission: any) => {
+            const val = submission.value || '';
+            setValue(val);
+            setIsNa(submission.is_na || false);
+            setNaReason(submission.na_reason || submission.notes || submission.remark || '');
+            setIsSubmitted(true);
+            setSubmittedBy(submission.submitted_by_name || submission.submitted_by || submission.user_name || '');
+            
+            if (val && (isImageInput(item.input_type) || val.startsWith('http') || val.startsWith('data:image/') || val.includes('imgbb.com'))) {
+                const urls = splitEvidenceUrls(val);
+                setPhotos(urls.map((u: string, idx: number) => ({
+                    id: `loaded_${idx}_${Date.now()}`,
+                    url: u,
+                    file: null
+                })));
+            } else if (isImageInput(item.input_type)) {
+                setPhotos([]);
+            }
 
-                    if (val && item.input_type === 'document') {
-                        setPreviewUrl(val);
-                    }
-                    
-                    // Sync to local storage
-                    localStorage.setItem(`sbi_audit_${hotelId}_${item.id}`, JSON.stringify({
-                        ...submission,
-                        isSubmitted: true
-                    }));
-                } else {
-                    // Fall back to local storage if no cloud record
-                    const stored = localStorage.getItem(`sbi_audit_${hotelId}_${item.id}`);
-                    if (stored && active) {
-                        try {
-                            const localData = JSON.parse(stored);
-                            const val = localData.value || '';
-                            setValue(val);
-                            setIsNa(localData.is_na || false);
-                            setNaReason(localData.na_reason || localData.notes || localData.remark || '');
-                            setIsSubmitted(localData.isSubmitted || false);
-                            if (localData.isSubmitted) {
-                                hasLoadedExistingRef.current = true;
-                            }
-                            setSubmittedBy(localData.submitted_by_name || localData.submitted_by || localData.submitted_by_user || '');
-                            
-                            if (val && (isImageInput(item.input_type) || val.startsWith('http') || val.startsWith('data:image/') || val.includes('imgbb.com'))) {
-                                const urls = splitEvidenceUrls(val);
-                                setPhotos(urls.map((u: string, idx: number) => ({
-                                    id: `loaded_${idx}_${Date.now()}`,
-                                    url: u,
-                                    file: null
-                                })));
-                            } else if (isImageInput(item.input_type)) {
-                                setPhotos([]);
-                            }
-
-                            if (val && item.input_type === 'document') {
-                                setPreviewUrl(val);
-                            }
-                        } catch (e) {}
-                    } else if (active) {
-                        // Reset to default empty state if neither exists
-                        setValue('');
-                        setIsNa(false);
-                        setNaReason('');
-                        setIsSubmitted(false);
-                        setPreviewUrl(null);
-                        setSubmittedBy('');
-                        setPhotos([]);
-                        hasLoadedExistingRef.current = false;
-                    }
-                }
-            } catch (err) {
-                console.error("Error fetching submission from Supabase:", err);
+            if (val && item.input_type === 'document') {
+                setPreviewUrl(val);
             }
         };
-        fetchExistingSubmission();
-        return () => { active = false; };
-    }, [hotelId, item.id, item.input_type]);
+
+        if (existingSubmission) {
+            populateFromSubmission(existingSubmission);
+        } else {
+            const stored = localStorage.getItem(`sbi_audit_${hotelId}_${item.id}`);
+            if (stored) {
+                try {
+                    const localData = JSON.parse(stored);
+                    populateFromSubmission(localData);
+                    setIsSubmitted(localData.isSubmitted || false);
+                } catch (e) {}
+            }
+        }
+    }, [existingSubmission, hotelId, item.id, item.input_type]);
 
     const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files) {
@@ -480,7 +427,7 @@ const AuditItemCard: React.FC<{
 
                     const isAdminOrAuditor = userProfile?.access_level === 'admin' || userProfile?.access_level === 'auditor';
 
-                    if (!isSameSubmitter && !isAdminOrAuditor && !hasLoadedExistingRef.current) {
+                    if (!isSameSubmitter && !isAdminOrAuditor) {
                         alert(`Submission aborted: This item has already been submitted by ${subData.submitted_by_name || subData.submitted_by || 'another user'}. Your local view will be updated.`);
                         
                         // Update our component's state to match the existing database record
@@ -767,7 +714,7 @@ const AuditItemCard: React.FC<{
                                         onClick={() => setActivePreviewImage(p.url)}
                                         className="relative group rounded-xl border border-slate-200 shadow-2xs overflow-hidden aspect-square bg-slate-50 cursor-pointer"
                                     >
-                                        <img src={p.url} alt={`Evidence ${idx + 1}`} referrerPolicy={p.url?.startsWith('blob:') || p.url?.startsWith('data:') ? undefined : 'no-referrer'} className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" />
+                                        <img src={p.url} alt={`Evidence ${idx + 1}`} loading="lazy" decoding="async" referrerPolicy={p.url?.startsWith('blob:') || p.url?.startsWith('data:') ? undefined : 'no-referrer'} className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" />
                                         <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                                             <span className="bg-slate-900/80 backdrop-blur-md text-white text-[10px] font-bold px-2.5 py-1.5 rounded-lg flex items-center gap-1 shadow-sm">
                                                 <Eye size={12} />
@@ -819,7 +766,7 @@ const AuditItemCard: React.FC<{
                                         onClick={() => setActivePreviewImage(p.url)}
                                         className="relative group rounded-xl border border-slate-200 shadow-2xs overflow-hidden aspect-square bg-slate-50 cursor-pointer"
                                     >
-                                        <img src={p.url} alt={`Evidence ${idx + 1}`} referrerPolicy={p.url?.startsWith('blob:') || p.url?.startsWith('data:') ? undefined : 'no-referrer'} className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" />
+                                        <img src={p.url} alt={`Evidence ${idx + 1}`} loading="lazy" decoding="async" referrerPolicy={p.url?.startsWith('blob:') || p.url?.startsWith('data:') ? undefined : 'no-referrer'} className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" />
                                         <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                                             <span className="bg-slate-900/80 backdrop-blur-md text-white text-[10px] font-bold px-2.5 py-1.5 rounded-lg flex items-center gap-1 shadow-sm">
                                                 <Eye size={12} />
@@ -1031,8 +978,74 @@ const AuditItemCard: React.FC<{
         }
     };
 
+    if (!isExpanded) {
+        return (
+            <div className={`bg-white p-4 sm:p-5 rounded-2xl border ${isSubmitted ? 'border-emerald-200 shadow-emerald-100/50' : 'border-slate-200'} shadow-sm transition-all hover:shadow-md flex flex-col justify-between`}>
+                <div>
+                    {isLockedByAnother && (
+                        <div className="flex items-center gap-2 bg-amber-50 border border-amber-200/50 text-amber-800 px-3 py-2 rounded-xl text-xs font-bold mb-3 animate-pulse">
+                            <Lock size={14} className="text-amber-500 shrink-0" />
+                            <span>{activeLock?.locked_by_name} is currently handling this item.</span>
+                        </div>
+                    )}
+                    <div className="flex items-start justify-between gap-3">
+                        <div className="space-y-1.5 min-w-0 flex-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-slate-500 text-[10px] font-extrabold uppercase tracking-widest bg-slate-100 border border-slate-200 px-2 py-0.5 rounded">
+                                    {item.points || 0} PTS
+                                </span>
+                                <span className="text-indigo-600 text-[10px] font-extrabold uppercase tracking-widest bg-indigo-50 border border-indigo-100 px-2 py-0.5 rounded">
+                                    {item.input_type}
+                                </span>
+                                {isSubmitted ? (
+                                    <span className="text-emerald-800 text-[10px] font-extrabold bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded flex items-center gap-1">
+                                        <CheckCircle2 size={12} className="text-emerald-600" />
+                                        Submitted {submittedBy ? `by ${submittedBy}` : ''}
+                                    </span>
+                                ) : (
+                                    <span className="text-slate-500 text-[10px] font-extrabold bg-slate-100 border border-slate-200 px-2 py-0.5 rounded">
+                                        Pending Inspection
+                                    </span>
+                                )}
+                            </div>
+                            <h3 className="text-sm sm:text-base font-bold text-slate-800 leading-snug">
+                                {item.name}
+                            </h3>
+                            {item.description && (
+                                <p className="text-xs text-slate-500 line-clamp-2 bg-slate-50 p-2.5 rounded-lg border border-slate-100">
+                                    {item.description}
+                                </p>
+                            )}
+                        </div>
+
+                        <button
+                            type="button"
+                            onClick={() => setIsExpanded(true)}
+                            className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-3.5 py-2.5 rounded-xl text-xs flex items-center gap-1.5 shadow-sm transition-all shrink-0 active:scale-95 cursor-pointer"
+                        >
+                            <span>Inspect</span>
+                            <ChevronRight size={14} />
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
     return (
-        <div className={`bg-white p-3.5 sm:p-5 md:p-6 rounded-xl sm:rounded-2xl border ${isSubmitted ? 'border-emerald-200 shadow-emerald-100/50' : 'border-slate-200'} shadow-sm transition-all hover:shadow-md flex flex-col justify-between h-full`}>
+        <div className={`bg-white p-3.5 sm:p-5 md:p-6 rounded-xl sm:rounded-2xl border ${isSubmitted ? 'border-emerald-200 shadow-emerald-100/50' : 'border-slate-200'} shadow-sm transition-all hover:shadow-md flex flex-col justify-between h-full relative`}>
+            <div className="absolute top-3 right-3 z-10">
+                <button
+                    type="button"
+                    onClick={() => {
+                        if (onClose) onClose();
+                        else setIsExpanded(false);
+                    }}
+                    className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-3 py-1.5 rounded-lg text-xs flex items-center gap-1 transition-all"
+                >
+                    <span>Close / Back</span>
+                </button>
+            </div>
             <div>
                 {isLockedByAnother && (
                     <div className="flex items-center gap-2 bg-amber-50 border border-amber-200/50 text-amber-800 px-3.5 py-3 rounded-xl text-xs font-bold mb-4 animate-pulse">
@@ -1040,7 +1053,7 @@ const AuditItemCard: React.FC<{
                         <span>{activeLock?.locked_by_name} is currently handling this item.</span>
                     </div>
                 )}
-                <div className="flex items-start justify-between gap-2.5 sm:gap-4 mb-3 sm:mb-4">
+                <div className="flex items-start justify-between gap-2.5 sm:gap-4 mb-3 sm:mb-4 pr-24">
                     <div className="space-y-1 sm:space-y-2 min-w-0 flex-1">
                         <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
                             <span className="text-slate-500 text-[9px] sm:text-[10px] font-extrabold uppercase tracking-widest bg-slate-100 border border-slate-200 px-2 py-0.5 rounded">
@@ -1071,11 +1084,6 @@ const AuditItemCard: React.FC<{
                             </div>
                         )}
                     </div>
-                    {isSubmitted && (
-                        <div className="shrink-0 flex items-center justify-center bg-emerald-50 text-emerald-600 p-1.5 sm:p-2 rounded-full border border-emerald-100 shadow-sm">
-                            <CheckCircle2 size={20} className="sm:w-6 sm:h-6" />
-                        </div>
-                    )}
                 </div>
 
                 {renderInput()}
@@ -1193,9 +1201,11 @@ const AuditItemCard: React.FC<{
 
 export default function BrandingPropertyIdentificationScreen({ selectedCategory, userProfile, onBack }: BrandingPropertyProps) {
     const [items, setItems] = useState<any[]>([]);
+    const [submissionsMap, setSubmissionsMap] = useState<Record<string, any>>({});
     const [isLoading, setIsLoading] = useState(true);
     const [hotels, setHotels] = useState<any[]>([]);
     const [isHotelFinalized, setIsHotelFinalized] = useState(false);
+    const [selectedInspectionItem, setSelectedInspectionItem] = useState<any | null>(null);
     
     const isAuditee = !!userProfile && userProfile.access_level !== 'admin' && userProfile.access_level !== 'auditor';
     
@@ -1449,14 +1459,22 @@ export default function BrandingPropertyIdentificationScreen({ selectedCategory,
         const fetchCategoryItems = async () => {
             setIsLoading(true);
             try {
-                const { data, error } = await supabase
-                    .from('audit_items')
-                    .select('*')
-                    .eq('category_id', selectedCategory.id);
+                const [itemsRes, subsRes] = await Promise.all([
+                    supabase.from('audit_items').select('*').eq('category_id', selectedCategory.id),
+                    selectedHotelId ? supabase.from('audit_submissions').select('*').eq('hotel_id', selectedHotelId) : Promise.resolve({ data: [], error: null })
+                ]);
+
+                if (itemsRes.error) throw itemsRes.error;
+
+                const subMap: Record<string, any> = {};
+                if (!subsRes.error && subsRes.data) {
+                    subsRes.data.forEach((s: any) => {
+                        subMap[s.item_id] = s;
+                    });
+                }
+                setSubmissionsMap(subMap);
                 
-                if (error) throw error;
-                
-                const filtered = (data || []).filter((item: any) => item.filled_by_hotel !== false && item.filled_by_hotel !== 'false');
+                const filtered = (itemsRes.data || []).filter((item: any) => item.filled_by_hotel !== false && item.filled_by_hotel !== 'false');
                 
                 const sorted = filtered.sort((a: any, b: any) => {
                     const sA = a.sort_order !== undefined && a.sort_order !== null ? Number(a.sort_order) : 999999;
@@ -1651,19 +1669,103 @@ export default function BrandingPropertyIdentificationScreen({ selectedCategory,
                         No active checklist items configured for this category in the database.
                     </div>
                 ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
-                        {items.map((item) => (
-                            <AuditItemCard 
-                                key={item.id} 
-                                item={item} 
-                                hotelId={selectedHotelId} 
-                                userProfile={userProfile} 
-                                locked={isHotelFinalized} 
-                                activeLock={activeLocks[item.id]}
-                                onAcquireLock={() => handleAcquireLock(item.id)}
-                                onReleaseLock={() => handleReleaseLock(item.id)}
+                    <div className="space-y-2.5 sm:space-y-3">
+                        <div className="bg-indigo-900 text-white p-4 rounded-2xl shadow-sm flex items-center justify-between">
+                            <div>
+                                <h2 className="text-xs sm:text-sm font-extrabold uppercase tracking-wider">Master Checklist Items</h2>
+                                <p className="text-[11px] text-indigo-200 mt-0.5">Click any item below to inspect or upload evidence on-demand.</p>
+                            </div>
+                            <span className="bg-indigo-800 text-indigo-100 text-xs font-bold px-3 py-1.5 rounded-xl border border-indigo-700">
+                                {items.filter(i => submissionsMap[i.id]).length} / {items.length} Completed
+                            </span>
+                        </div>
+
+                        {items.map((item) => {
+                            const sub = submissionsMap[item.id];
+                            const isSubmitted = !!sub;
+                            const isLocked = activeLocks[item.id] && activeLocks[item.id].locked_by_email !== userProfile?.email;
+                            return (
+                                <div 
+                                    key={item.id} 
+                                    onClick={() => setSelectedInspectionItem(item)}
+                                    className="bg-white p-4 rounded-2xl border border-slate-200 hover:border-indigo-400 shadow-xs hover:shadow-md transition-all flex items-center justify-between gap-3 cursor-pointer group"
+                                >
+                                    <div className="flex items-center gap-3.5 min-w-0">
+                                        <div className="shrink-0 w-9 h-9 rounded-xl bg-slate-100 text-slate-700 group-hover:bg-indigo-50 group-hover:text-indigo-600 flex items-center justify-center font-black text-xs transition-colors">
+                                            {item.points || 0}p
+                                        </div>
+                                        <div className="min-w-0 space-y-1">
+                                            <div className="flex items-center gap-2 flex-wrap">
+                                                <span className="text-[10px] font-black uppercase tracking-wider text-indigo-600 bg-indigo-50 border border-indigo-100 px-2 py-0.5 rounded">
+                                                    {item.input_type}
+                                                </span>
+                                                {isSubmitted ? (
+                                                    <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded flex items-center gap-1">
+                                                        <CheckCircle2 size={12} /> Submitted {sub.submitted_by_name ? `by ${sub.submitted_by_name}` : ''}
+                                                    </span>
+                                                ) : (
+                                                    <span className="text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded">
+                                                        Pending Inspection
+                                                    </span>
+                                                )}
+                                                {isLocked && (
+                                                    <span className="text-[10px] font-bold text-red-700 bg-red-50 border border-red-200 px-2 py-0.5 rounded flex items-center gap-1">
+                                                        <Lock size={10} /> Locked by {activeLocks[item.id]?.locked_by_name}
+                                                    </span>
+                                                )}
+                                            </div>
+                                            <h3 className="text-sm sm:text-base font-bold text-slate-900 truncate group-hover:text-indigo-600 transition-colors">
+                                                {item.name}
+                                            </h3>
+                                        </div>
+                                    </div>
+
+                                    <div className="shrink-0 flex items-center gap-2">
+                                        <span className="bg-indigo-600 group-hover:bg-indigo-700 text-white text-xs font-bold px-3.5 py-2 rounded-xl flex items-center gap-1.5 shadow-sm transition-all">
+                                            <span>Inspect</span>
+                                            <ChevronRight size={14} />
+                                        </span>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
+
+                {/* On-Demand Inspection Modal */}
+                {selectedInspectionItem && (
+                    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-6 overflow-y-auto animate-fadeIn">
+                        <div className="bg-white rounded-3xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto border border-slate-200 p-4 sm:p-6 relative">
+                            <div className="flex items-center justify-between pb-4 mb-4 border-b border-slate-100">
+                                <div>
+                                    <span className="text-[10px] font-black uppercase tracking-widest text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-lg">
+                                        {selectedInspectionItem.input_type} • {selectedInspectionItem.points || 0} PTS
+                                    </span>
+                                    <h2 className="text-base sm:text-lg font-bold text-slate-900 mt-1">
+                                        {selectedInspectionItem.name}
+                                    </h2>
+                                </div>
+                                <button
+                                    onClick={() => setSelectedInspectionItem(null)}
+                                    className="p-2 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold transition-all cursor-pointer"
+                                >
+                                    ✕
+                                </button>
+                            </div>
+
+                            <AuditItemCard
+                                key={selectedInspectionItem.id}
+                                item={selectedInspectionItem}
+                                hotelId={selectedHotelId}
+                                userProfile={userProfile}
+                                locked={isHotelFinalized}
+                                activeLock={activeLocks[selectedInspectionItem.id]}
+                                onAcquireLock={() => handleAcquireLock(selectedInspectionItem.id)}
+                                onReleaseLock={() => handleReleaseLock(selectedInspectionItem.id)}
+                                existingSubmission={submissionsMap[selectedInspectionItem.id]}
+                                onClose={() => setSelectedInspectionItem(null)}
                             />
-                        ))}
+                        </div>
                     </div>
                 )}
             </main>

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { ArrowLeft, CheckCircle, Clock, Building, BarChart3, ChevronRight, ChevronLeft, ChevronsLeft, ChevronsRight, ArrowUpDown, Plus, Trash2, Edit, Search, X, AlertCircle, MapPin, Settings2, Calendar, Star, Briefcase, ClipboardList, FileCheck, Layers, Package, Camera, ImageIcon, FileText, Hash, Type, CheckSquare, Users, ShieldCheck, Percent, GripVertical, ChevronUp, ChevronDown, Eye, User, RefreshCw, CheckCircle2, Maximize2, ExternalLink, ZoomIn, Database, Copy, Check, Lock, Unlock } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { apiCache } from '../lib/cache';
+import { fetchHotelsWithFallback } from '../lib/hotelService';
 
 import { Department, Hotel, AuditBatch, AuditCategory, AuditItem, AuditGroup } from '../types';
 import { DEFAULT_DEPARTMENTS, DEFAULT_CATEGORIES, DEFAULT_HOTELS, DEFAULT_BATCHES, DEFAULT_GROUPS, DEFAULT_OFFLINE_ITEMS, HARDCODED_TEST_HOTELS } from '../lib/constants';
@@ -53,7 +54,7 @@ const recentSubmissions = [
 const HOTEL_BRANDS = [
     'Grand Swiss-Belhotel',
     'Managed by SBI',
-    'MƒÄUA',
+    'MAUA',
     'Swiss-Belboutique',
     'Swiss-Belcourt',
     'Swiss-Belexpress',
@@ -135,6 +136,8 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     const [showSqlModal, setShowSqlModal] = useState(false);
     const [sqlModalTab, setSqlModalTab] = useState<'auditor' | 'checklist' | 'finalize' | 'photolock' | 'indexes'>('checklist');
     const [groupExpandedCats, setGroupExpandedCats] = useState<Record<string, boolean>>({});
+    const [collapsedCategories, setCollapsedCategories] = useState<Record<string, boolean>>({});
+    const [expandedInspectionItems, setExpandedInspectionItems] = useState<Record<string, boolean>>({});
     const [enlargedImage, setEnlargedImage] = useState<{ url: string; title?: string } | null>(null);
 
     const [copiedDocId, setCopiedDocId] = useState<string | null>(null);
@@ -689,7 +692,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                         <tr>
                                             <td style="background: linear-gradient(135deg, #4f46e5 0%, #3730a3 100%); padding: 40px; text-align: center;">
                                                 <div style="display: inline-block; background-color: rgba(255, 255, 255, 0.15); border: 1px solid rgba(255, 255, 255, 0.25); border-radius: 14px; padding: 10px; margin-bottom: 20px; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);">
-                                                    <span style="font-size: 28px; line-height: 1;">üõ°Ô∏è</span>
+                                                    <span style="font-size: 28px; line-height: 1;"></span>
                                                 </div>
                                                 <h1 style="margin: 0; font-size: 24px; font-weight: 800; color: #ffffff; letter-spacing: -0.025em;">Account Approved</h1>
                                                 <p style="margin: 8px 0 0 0; font-size: 14px; color: #c7d2fe; font-weight: 500;">SBI Brand Audit 2026 Portal</p>
@@ -1093,7 +1096,8 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             try {
                 const { data, error } = await supabase
                     .from('audit_submissions')
-                    .select('hotel_id, item_id, is_na, value, evidence_urls');
+                    .select('hotel_id, item_id, is_na, value, evidence_urls')
+                    .limit(50000);
                 if (!error && data && active) {
                     setAllSubmissions(data);
                 }
@@ -1698,92 +1702,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         setIsSupabaseLoading(true);
         setSupabaseErrorMsg(null);
         try {
-            const finalHotels = await apiCache.getOrFetch<Hotel[]>('hotels_master', async () => {
-                const response = await fetch(`${HOTELS_URL}hotels?select=*`, {
-                    headers: {
-                        'apikey': HOTELS_KEY,
-                        'Authorization': `Bearer ${HOTELS_KEY}`
-                    }
-                });
-                if (!response.ok) {
-                    throw new Error(`Failed to fetch database: HTTP ${response.status} - ${response.statusText}`);
-                }
-                const data = await response.json();
-                
-                // Map Supabase layout to local structure
-                const mapped: Hotel[] = data.map((item: any) => {
-                    let country = item.country || '';
-                    const parts = (item.location || item.city_country || '').split(',');
-                    if (!country && parts.length > 1) {
-                        country = parts[parts.length - 1].trim();
-                    } else if (!country) {
-                        country = 'Indonesia';
-                    }
-
-                    let region = item.region || '';
-                    if (!region) {
-                        const countryLower = country.toLowerCase();
-                        if (countryLower.includes('bahrain') || countryLower.includes('uae') || countryLower.includes('kuwait') || countryLower.includes('saudi') || countryLower.includes('qatar') || countryLower.includes('oman') || countryLower.includes('middle east')) {
-                            region = 'Middle East';
-                        } else if (countryLower.includes('indonesia') || countryLower.includes('malaysia') || countryLower.includes('philippines') || countryLower.includes('vietnam') || countryLower.includes('thailand') || countryLower.includes('asia')) {
-                            region = 'Asia Pacific';
-                        } else if (countryLower.includes('australia') || countryLower.includes('zealand') || countryLower.includes('oceania')) {
-                            region = 'Oceania';
-                        } else {
-                            region = 'Asia Pacific';
-                        }
-                    }
-
-                    let stars = item.stars || item.star_rating || item.star_class || item.rating;
-                    if (!stars) {
-                        const nameLower = (item.name || item.hotel_name || '').toLowerCase();
-                        if (nameLower.includes('grand') || nameLower.includes('resort') || nameLower.includes('suites') || nameLower.includes('boutique') || nameLower.includes('seef')) {
-                            stars = 5;
-                        } else if (nameLower.includes('inn') || nameLower.includes('express')) {
-                            stars = 3;
-                        } else {
-                            stars = 4;
-                        }
-                    }
-
-                    const rawId = item.id !== undefined && item.id !== null ? String(item.id) : '';
-                    const fallbackId = item.hotel_id !== undefined && item.hotel_id !== null ? String(item.hotel_id) : '';
-                    const finalId = rawId || fallbackId || item.code || String(item.name || '').replace(/\s+/g, '-').toLowerCase();
-
-                    return {
-                        id: finalId,
-                        name: item.name || item.hotel_name || '',
-                        location: item.location || item.city_country || '',
-                        code: item.code || '',
-                        brandClass: item.brandClass || item.brand_class || item.brand || 'Swiss-Belhotel',
-                        region: region,
-                        country: country,
-                        stars: Number(stars) || 4
-                    };
-                });
-
-                // Ensure Swiss-Belhotel International is always at the very top
-                const sbiIndex = mapped.findIndex(h => h.name.toLowerCase() === 'swiss-belhotel international');
-                if (sbiIndex > -1) {
-                    const [sbi] = mapped.splice(sbiIndex, 1);
-                    mapped.unshift(sbi);
-                } else {
-                    mapped.unshift({
-                        id: 'sbi-ho',
-                        name: 'Swiss-Belhotel International',
-                        location: 'Corporate Headquarters',
-                        code: 'SBI',
-                        brandClass: 'Corporate',
-                        region: 'Global',
-                        country: 'International',
-                        stars: 5
-                    });
-                }
-
-                const filteredMapped = mapped.filter(h => h.id !== 'sbi-test' && h.id !== 'sbi-dummy');
-                return [...filteredMapped, ...HARDCODED_TEST_HOTELS];
-            }, { forceRefresh });
-
+            const finalHotels = await fetchHotelsWithFallback();
             setHotels(finalHotels);
             localStorage.setItem('sbi_audit_hotels_v2', JSON.stringify(finalHotels));
             setSupabaseConnected(true);
@@ -2006,6 +1925,12 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             fetchCategoriesFromSupabase();
             fetchItemsFromSupabase();
         } else if (subView === 'users') {
+            fetchProfilesFromSupabase();
+        } else if (subView === 'progress_report' || subView === 'inspection') {
+            fetchHotelsFromSupabase();
+            fetchItemsFromSupabase();
+            fetchCategoriesFromSupabase();
+            fetchGroupsFromSupabase();
             fetchProfilesFromSupabase();
         }
     }, [subView]);
@@ -4310,7 +4235,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                 <span className="w-1.5 h-1.5 rounded-full bg-rose-400 inline-block animate-pulse"></span>
                                                                 No Auditees: <strong className="text-slate-800 hover:text-indigo-700 underline decoration-dotted decoration-slate-300 hover:decoration-indigo-400 underline-offset-2">{hotelsWithoutAuditees}</strong>
                                                             </span>
-                                                            <span className="text-slate-300">‚Ä¢</span>
+                                                            <span className="text-slate-300"></span>
                                                             <span 
                                                                 onClick={() => {
                                                                     setStatsModalType('brand_leads');
@@ -4354,12 +4279,12 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                         <span className="w-1.5 h-1.5 rounded-full bg-amber-400 inline-block"></span>
                                                         Pending: <strong className="text-slate-800">{totalPending}</strong>
                                                     </span>
-                                                    <span className="text-slate-300">‚Ä¢</span>
+                                                    <span className="text-slate-300"></span>
                                                     <span className="flex items-center gap-1">
                                                         <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block"></span>
                                                         Approved: <strong className="text-slate-800">{totalApproved}</strong>
                                                     </span>
-                                                    <span className="text-slate-300">‚Ä¢</span>
+                                                    <span className="text-slate-300"></span>
                                                     <span className="flex items-center gap-1">
                                                         <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 inline-block"></span>
                                                         Brand Leads: <strong className="text-slate-800">{totalBrandLeads}</strong>
@@ -4680,7 +4605,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                 The <code className="bg-amber-100 px-1 py-0.5 rounded font-mono font-bold text-amber-800">public.audit_users</code> table doesn't exist yet on your Supabase instance, or permissions require database provisioning. 
                                             </p>
                                             <p className="text-xs text-slate-650 leading-relaxed mt-2 font-medium">
-                                                üëâ We have automatically saved your onboarding information locally in your browser. To finalize cloud storage sync, please copy the script inside the <strong className="text-slate-800">/supabase-onboarding.sql</strong> file and execute it within your Supabase SQL Editor.
+                                                 We have automatically saved your onboarding information locally in your browser. To finalize cloud storage sync, please copy the script inside the <strong className="text-slate-800">/supabase-onboarding.sql</strong> file and execute it within your Supabase SQL Editor.
                                             </p>
                                         </div>
                                     </div>
@@ -4723,10 +4648,10 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                 });
 
                                 const formatSqlTimestamp = (isoString?: string) => {
-                                    if (!isoString) return '‚Äî';
+                                    if (!isoString) return '';
                                     try {
                                         const d = new Date(isoString);
-                                        if (isNaN(d.getTime())) return '‚Äî';
+                                        if (isNaN(d.getTime())) return '';
                                         const day = String(d.getUTCDate()).padStart(2, '0');
                                         const month = String(d.getUTCMonth() + 1).padStart(2, '0');
                                         const year = d.getUTCFullYear();
@@ -4735,7 +4660,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                         const seconds = String(d.getUTCSeconds()).padStart(2, '0');
                                         return `${day}-${month}-${year} ${hours}:${minutes}:${seconds} (UTC)`;
                                     } catch {
-                                        return '‚Äî';
+                                        return '';
                                     }
                                 };
 
@@ -4775,7 +4700,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                     <span className={roleStyles.text}>{roleStyles.icon}</span>
                                                                     <div>
                                                                         <div className="font-bold flex items-center gap-1.5 flex-wrap">
-                                                                            <span>{p.display_name || '‚Äî'}</span>
+                                                                            <span>{p.display_name || ''}</span>
                                                                             {!isOnboardingFinished && (
                                                                                 <span 
                                                                                     className="inline-flex items-center gap-1 text-[9px] bg-amber-50 text-amber-700 border border-amber-150/60 px-1.5 py-0.5 rounded-md font-black uppercase tracking-wider animate-pulse animate-infinite"
@@ -4790,7 +4715,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                         )}
                                                                     </div>
                                                                 </td>
-                                                                <td className="px-6 py-4 text-xs text-slate-600">{p.email || '‚Äî'}</td>
+                                                                <td className="px-6 py-4 text-xs text-slate-600">{p.email || ''}</td>
                                                                 <td className="px-6 py-4 text-xs">
                                                                     {p.hotel_name ? (
                                                                         <div>
@@ -4798,11 +4723,11 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                              {p.hotel_code && <span className="ml-1.5 font-mono text-xs font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded">#{p.hotel_code}</span>}
                                                                         </div>
                                                                     ) : (
-                                                                        <span className="text-slate-400 font-medium">‚Äî</span>
+                                                                        <span className="text-slate-400 font-medium"></span>
                                                                     )}
                                                                 </td>
                                                                 <td className="px-6 py-4 text-xs text-slate-600">
-                                                                    <div>{p.role || '‚Äî'}</div>
+                                                                    <div>{p.role || ''}</div>
                                                                     {p.is_brand_audit_lead && (
                                                                         <span className="mt-1 inline-flex items-center text-[8px] bg-indigo-50 text-indigo-700 border border-indigo-100 px-1.5 py-0.5 rounded font-extrabold uppercase tracking-wide">Brand Lead</span>
                                                                     )}
@@ -5658,13 +5583,13 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                              </span>
                                                                          )}
                                                                      </div>
-                                                                     <p className="text-[10px] text-slate-400 font-semibold mt-0.5">{hotel.location} ‚Ä¢ {hotel.brandClass}</p>
+                                                                     <p className="text-[10px] text-slate-400 font-semibold mt-0.5">{hotel.location}  {hotel.brandClass}</p>
                                                                  </div>
                                                              </div>
 
                                                              {hotel.stars && (
                                                                  <span className="text-[10px] text-amber-500 font-bold bg-amber-50 px-2 py-0.5 rounded-full border border-amber-100 shrink-0">
-                                                                     {'‚òÖ'.repeat(hotel.stars)}
+                                                                     {''.repeat(hotel.stars)}
                                                                  </span>
                                                              )}
                                                          </div>
@@ -6240,7 +6165,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                                         )}
                                                                                                     </div>
                                                                                                     <div className="flex flex-wrap items-center gap-2 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
-                                                                                                        <span>{hotel.brandClass} ‚Ä¢ {hotel.region || 'Region Unspecified'}</span>
+                                                                                                        <span>{hotel.brandClass}  {hotel.region || 'Region Unspecified'}</span>
                                                                                                         {totalAssignedAuditors > 0 && (
                                                                                                             <span className="text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded font-bold normal-case">
                                                                                                                 Assigned to {totalAssignedAuditors} {totalAssignedAuditors === 1 ? 'auditor' : 'auditors'}
@@ -6315,7 +6240,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                 )}
                                                                             </div>
                                                                             <div className="flex flex-wrap items-center gap-2 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
-                                                                                <span>{hotel.brandClass} ‚Ä¢ {hotel.country || 'Indonesia'} ‚Ä¢ {hotel.region || 'Region Unspecified'}</span>
+                                                                                <span>{hotel.brandClass}  {hotel.country || 'Indonesia'}  {hotel.region || 'Region Unspecified'}</span>
                                                                                 {totalAssignedAuditors > 0 && (
                                                                                     <span className="text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded font-bold normal-case">
                                                                                         Assigned to {totalAssignedAuditors} {totalAssignedAuditors === 1 ? 'auditor' : 'auditors'}
@@ -6647,7 +6572,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                                     <span>{itemCount} checklist items</span>
                                                                                                     {totalAssignedCatAuditors > 0 && (
                                                                                                         <span className="text-amber-600 font-bold">
-                                                                                                            ‚Ä¢ Assigned to {totalAssignedCatAuditors} {totalAssignedCatAuditors === 1 ? 'auditor' : 'auditors'}
+                                                                                                             Assigned to {totalAssignedCatAuditors} {totalAssignedCatAuditors === 1 ? 'auditor' : 'auditors'}
                                                                                                         </span>
                                                                                                     )}
                                                                                                 </div>
@@ -6727,7 +6652,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                     <span>{itemCount} checklist items</span>
                                                                                     {totalAssignedCatAuditors > 0 && (
                                                                                         <span className="text-amber-600 font-bold">
-                                                                                            ‚Ä¢ Assigned to {totalAssignedCatAuditors} {totalAssignedCatAuditors === 1 ? 'auditor' : 'auditors'}
+                                                                                             Assigned to {totalAssignedCatAuditors} {totalAssignedCatAuditors === 1 ? 'auditor' : 'auditors'}
                                                                                         </span>
                                                                                     )}
                                                                                 </div>
@@ -7313,7 +7238,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                         <p className="text-slate-400 font-bold text-xs mt-2 uppercase tracking-widest flex items-center gap-2 flex-wrap">
                                                             <span className="flex items-center gap-1">
                                                                 <MapPin size={12} className="text-indigo-400" />
-                                                                {hotel.location || 'Swiss-Belhotel Property'} ‚Ä¢ {hotel.brand || 'Luxury Standards'}
+                                                                {hotel.location || 'Swiss-Belhotel Property'}  {hotel.brand || 'Luxury Standards'}
                                                             </span>
                                                             <span className="text-slate-600 font-normal select-none">|</span>
                                                             <span className="flex items-center gap-1.5 text-indigo-300">
@@ -7586,7 +7511,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                                             {submission._is_demo ? 'Demo Pool Evidence' : 'Property Evidence'}
                                                                                                         </span>
                                                                                                     </div>
-                                                                                                    <span className="text-slate-400 text-[10px]">Submitted by <strong className="text-slate-700 font-bold">{getSubmitterName(submission, hotel)}</strong> ‚Ä¢ {safeFormatDateTime(submission.created_at)}</span>
+                                                                                                    <span className="text-slate-400 text-[10px]">Submitted by <strong className="text-slate-700 font-bold">{getSubmitterName(submission, hotel)}</strong>  {safeFormatDateTime(submission.created_at)}</span>
                                                                                                 </div>
 
                                                                                                 {submission.is_na ? (
@@ -7606,9 +7531,9 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                                                      <div 
                                                                                                                          key={urlIdx}
                                                                                                                          className="group/img relative rounded-xl border border-slate-200 overflow-hidden bg-slate-900/5 flex items-center justify-center aspect-square cursor-zoom-in transition-all hover:border-indigo-300 hover:shadow-sm"
-                                                                                                                         onClick={() => setEnlargedImage({ url: url, title: `${item.name} ‚Äî Photo ${urlIdx + 1} ‚Äî ${hotel.name}` })}
+                                                                                                                         onClick={() => setEnlargedImage({ url: url, title: `${item.name}  Photo ${urlIdx + 1}  ${hotel.name}` })}
                                                                                                                      >
-                                                                                                                         <img 
+                                                                                                                         <img loading="lazy" decoding="async" 
                                                                                                                              src={url} 
                                                                                                                              alt={`Submission Photo ${urlIdx + 1}`} 
                                                                                                                              referrerPolicy={url?.startsWith('blob:') || url?.startsWith('data:') ? undefined : 'no-referrer'} 
@@ -7690,7 +7615,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                                     ? (isPass ? 'text-emerald-600' : isFail ? 'text-red-600' : isNA ? 'text-amber-600' : 'text-slate-900') 
                                                                                                     : 'text-slate-300'
                                                                                             }`}>
-                                                                                                {currentScore !== undefined ? (isPass ? 'PASS' : isFail ? 'FAIL' : isNA ? 'N/A' : currentScore) : '‚Äî'}
+                                                                                                {currentScore !== undefined ? (isPass ? 'PASS' : isFail ? 'FAIL' : isNA ? 'N/A' : currentScore) : ''}
                                                                                             </span>
                                                                                             <span className="text-[10px] font-black text-slate-400">({item.points ?? 5} PTS)</span>
                                                                                         </div>
@@ -7709,3838 +7634,106 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                                         saveInspectionScore(hotel.id, item.id, itemMaxPoints > 0 ? itemMaxPoints : 'PASS');
                                                                                                     }
                                                                                                 }}
-                                                                                                className={`py-2.5 px-1.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all duration-150 cursor-pointer flex flex-col items-center justify-center gap-0.5 border ${
-                                                                                                    isPass
-                                                                                                        ? 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600 shadow-sm shadow-emerald-100'
-                                                                                                        : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-200 hover:border-emerald-400'
-                                                                                                }`}
-                                                                                            >
-                                                                                                <span className="text-xs">Pass</span>
-                                                                                                <span className={`text-[9px] font-bold ${isPass ? 'text-emerald-100' : 'text-emerald-600'}`}>
-                                                                                                    +{itemMaxPoints} pts
-                                                                                                </span>
-                                                                                            </button>
-                                                                                            <button
-                                                                                                type="button"
-                                                                                                id={`btn-fail-${item.id}`}
-                                                                                                onClick={() => {
-                                                                                                    if (isFail) {
-                                                                                                        saveInspectionScore(hotel.id, item.id, undefined);
-                                                                                                    } else {
-                                                                                                        saveInspectionScore(hotel.id, item.id, itemMaxPoints > 0 ? 0 : 'FAIL');
-                                                                                                    }
-                                                                                                }}
-                                                                                                className={`py-2.5 px-1.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all duration-150 cursor-pointer flex flex-col items-center justify-center gap-0.5 border ${
-                                                                                                    isFail
-                                                                                                        ? 'bg-red-600 hover:bg-red-700 text-white border-red-600 shadow-sm shadow-red-100'
-                                                                                                        : 'bg-red-50 hover:bg-red-100 text-red-800 border-red-200 hover:border-red-400'
-                                                                                                }`}
-                                                                                            >
-                                                                                                <span className="text-xs">Fail</span>
-                                                                                                <span className={`text-[9px] font-bold ${isFail ? 'text-red-100' : 'text-red-600'}`}>
-                                                                                                    0 pts
-                                                                                                </span>
-                                                                                            </button>
-                                                                                            <button
-                                                                                                type="button"
-                                                                                                id={`btn-na-${item.id}`}
-                                                                                                onClick={() => {
-                                                                                                    if (isNA) {
-                                                                                                        saveInspectionScore(hotel.id, item.id, undefined);
-                                                                                                    } else {
-                                                                                                        saveInspectionScore(hotel.id, item.id, 'N/A');
-                                                                                                    }
-                                                                                                }}
-                                                                                                className={`py-2.5 px-1.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all duration-150 cursor-pointer flex flex-col items-center justify-center gap-0.5 border ${
-                                                                                                    isNA
-                                                                                                        ? 'bg-amber-500 hover:bg-amber-600 text-white border-amber-500 shadow-sm shadow-amber-100 ring-2 ring-amber-500 ring-offset-2'
-                                                                                                        : submission?.is_na
-                                                                                                        ? 'bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-300 hover:border-amber-400 animate-pulse'
-                                                                                                        : 'bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-200 hover:border-amber-400'
-                                                                                                }`}
-                                                                                            >
-                                                                                                <span className="text-xs">{submission?.is_na ? 'Approve N/A' : 'N/A'}</span>
-                                                                                                <span className={`text-[9px] font-bold ${isNA ? 'text-amber-100' : 'text-amber-600'}`}>
-                                                                                                    Exempt
-                                                                                                </span>
-                                                                                            </button>
-                                                                                        </div>
-                                                                                    </div>
-
-                                                                                    <div className="space-y-1">
-                                                                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">AUDITOR NOTES/REMARKS</label>
-                                                                                        <textarea 
-                                                                                            value={currentComment}
-                                                                                            onChange={(e) => saveInspectionComment(hotel.id, item.id, e.target.value)}
-                                                                                            placeholder="Describe non-compliance or specific findings..."
-                                                                                            className="w-full h-20 bg-white border border-slate-200 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 rounded-xl p-2.5 text-xs text-slate-700 outline-none transition-all resize-none placeholder:text-slate-300"
-                                                                                        />
-                                                                                    </div>
-                                                                                </div>
-                                                                            </div>
-                                                                        </div>
-                                                                    </div>
-                                                                );
-                                                            })}
-                                                        </div>
-                                                    </div>
-                                                );
-                                            })}
-                                        </div>
-
-                                        {/* FINALIZE FOOTER */}
-                                        <div className="bg-slate-900 rounded-[32px] p-8 text-white shadow-2xl flex flex-col md:flex-row md:items-center justify-between gap-8 border border-white/5">
-                                            <div className="flex items-center gap-5">
-                                                <div className="w-16 h-16 rounded-[22px] bg-emerald-500/10 text-emerald-400 flex items-center justify-center shrink-0 border border-emerald-500/20">
-                                                    <ShieldCheck size={32} />
-                                                </div>
-                                                <div>
-                                                    <h3 className="text-xl font-black tracking-tight">Finalize Internal Brand Audit</h3>
-                                                    <p className="text-slate-400 font-bold text-xs mt-1 uppercase tracking-widest">
-                                                        Property: {hotel.name} ‚Ä¢ Total Scored: {scoredItems.length}/{allHotelItems.length} Items
-                                                    </p>
-                                                </div>
-                                            </div>
-
-                                            <div className="flex flex-col sm:flex-row items-center gap-4">
-                                                {(() => {
-                                                    const isFullyScored = allHotelItems.length > 0 && scoredItems.length === allHotelItems.length;
-                                                    const scoringProgressPct = allHotelItems.length > 0 ? Math.round((scoredItems.length / allHotelItems.length) * 100) : 0;
-                                                    return (
-                                                        <React.Fragment>
-                                                            {!isFullyScored && (
-                                                                <div className="text-xs font-bold text-amber-300 bg-amber-500/10 border border-amber-500/20 px-4 py-2.5 rounded-2xl flex items-center gap-2">
-                                                                    <AlertCircle size={15} className="shrink-0 text-amber-400" />
-                                                                    <span>Scoring progress must be 100% to submit ({scoredItems.length}/{allHotelItems.length} scored)</span>
-                                                                </div>
-                                                            )}
-                                                            <button 
-                                                                disabled={!isFullyScored}
-                                                                onClick={() => {
-                                                                    if (!isFullyScored) return;
-                                                                    setToastMessage("Audit Finalized Successfully!");
-                                                                    setTimeout(() => setToastMessage(null), 3000);
-                                                                    setSelectedInspectionHotelId('');
-                                                                    setSelectedInspectionCategoryId('');
-                                                                }}
-                                                                className={`h-16 px-10 rounded-[22px] font-black text-sm uppercase tracking-widest transition-all outline-none flex items-center gap-3 group ${
-                                                                    isFullyScored
-                                                                        ? 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-xl shadow-indigo-600/20 active:scale-95 cursor-pointer'
-                                                                        : 'bg-slate-800 text-slate-500 border border-slate-700/60 cursor-not-allowed opacity-60 shadow-none'
-                                                                }`}
-                                                                title={!isFullyScored ? `Scoring progress is ${scoringProgressPct}%. All items must be scored to submit full report.` : "Submit Full Report"}
-                                                            >
-                                                                <FileCheck size={20} className={isFullyScored ? "group-hover:scale-110 transition-transform text-white" : "text-slate-500"} />
-                                                                Submit Full Report
-                                                            </button>
-                                                        </React.Fragment>
-                                                    );
-                                                })()}
-                                            </div>
-                                        </div>
-                                    </div>
-                                );
-                            })()}
-                            </React.Fragment>
-                        )}
-                    </div>
-                ) : subView === 'progress_report' ? (
-                    <div className="space-y-6 animate-fadeIn">
-                        {/* BACK BUTTON & HEADER */}
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                            <div>
-                                <button 
-                                    onClick={() => { setSubView('dashboard'); setSearchQuery(''); }} 
-                                    className="inline-flex items-center gap-1.5 text-xs font-bold text-indigo-600 bg-indigo-50/50 hover:bg-indigo-55/80 px-3.5 py-1.5 rounded-full border border-indigo-100/50 mb-3 hover:shadow-sm active:scale-95 transition-all outline-none"
-                                >
-                                    <ArrowLeft size={12} /> Back to Dashboard
-                                </button>
-                                <h2 className="text-2xl font-extrabold text-slate-900 tracking-tight">Audit Progress Report</h2>
-                                <p className="text-xs text-slate-500 mt-1">
-                                    Real-time monitoring of self-audit checklist compliance across all properties.
-                                </p>
-                            </div>
-                        </div>
-
-                        {(() => {
-                            // Filter out corporate hotels/properties at the start of progress report calculations
-                            const nonCorporateHotels = hotels.filter(h => {
-                                const bClass = (h.brandClass || '').toLowerCase();
-                                const hType = (h as any).type ? String((h as any).type).toLowerCase() : '';
-                                return bClass !== 'corporate' && hType !== 'corporate';
-                            });
-
-                            // Pre-index valid local storage entries ONCE to avoid heavy O(Hotels * Storage) CPU overhead
-                            const localAuditEntries: Array<{ keyHotelId: string; keyItemId: string; parsed: any }> = [];
-                            try {
-                                for (let i = 0; i < localStorage.length; i++) {
-                                    const key = localStorage.key(i);
-                                    if (key && key.startsWith('sbi_audit_')) {
-                                        if (key.includes('_finalized')) continue;
-                                        const raw = localStorage.getItem(key);
-                                        if (!raw) continue;
-                                        
-                                        const rest = key.replace('sbi_audit_', '');
-                                        const parts = rest.split('_');
-                                        if (parts.length >= 2) {
-                                            const keyHotelId = parts[0];
-                                            const keyItemId = parts.slice(1).join('_');
-                                            try {
-                                                const parsed = JSON.parse(raw);
-                                                if (parsed.value !== undefined || parsed.is_na || (parsed.evidence_urls && parsed.evidence_urls.length > 0) || parsed.isSubmitted) {
-                                                    localAuditEntries.push({ keyHotelId, keyItemId, parsed });
-                                                }
-                                            } catch (e) {}
-                                        }
-                                    }
-                                }
-                            } catch (e) {
-                                console.warn("Could not pre-scan localStorage:", e);
-                            }
-
-                            // 1. Helper to calculate progress for a single hotel
-                            const getHotelProgress = (hotelId: string) => {
-                                const hIdLower = String(hotelId).toLowerCase();
-                                const currentHotel = hotels.find(h => 
-                                    String(h.id).toLowerCase() === hIdLower || 
-                                    (h.code && String(h.code).toLowerCase() === hIdLower) ||
-                                    (h.name && String(h.name).toLowerCase() === hIdLower)
-                                ) || { id: hotelId } as Hotel;
-                                
-                                const possibleIds = [
-                                    hIdLower,
-                                    currentHotel?.id ? String(currentHotel.id).toLowerCase() : null,
-                                    currentHotel?.code ? String(currentHotel.code).toLowerCase() : null,
-                                    currentHotel?.name ? String(currentHotel.name).toLowerCase() : null
-                                ].filter(Boolean) as string[];
-
-                                (profilesList || []).forEach(p => {
-                                    const matchesCode = p.hotel_code && currentHotel?.code && String(p.hotel_code).trim().toLowerCase() === String(currentHotel.code).trim().toLowerCase();
-                                    const matchesName = p.hotel_name && currentHotel?.name && String(p.hotel_name).trim().toLowerCase() === String(currentHotel.name).trim().toLowerCase();
-                                    const matchesId = p.hotel_id && currentHotel?.id && String(p.hotel_id).trim().toLowerCase() === String(currentHotel.id).trim().toLowerCase();
-                                    if (matchesCode || matchesName || matchesId) {
-                                        if (p.hotel_id) possibleIds.push(String(p.hotel_id).toLowerCase());
-                                        if (p.hotel_code) possibleIds.push(String(p.hotel_code).toLowerCase());
-                                        if (p.hotel_name) possibleIds.push(String(p.hotel_name).toLowerCase());
-                                        if (p.id) possibleIds.push(String(p.id).toLowerCase());
-                                    }
-                                });
-
-                                const assignedGroups = groups.filter(g => {
-                                    const hotelIds = g.hotelIds || g.hotel_id || [];
-                                    return hotelIds.some((hId: any) => possibleIds.includes(String(hId).toLowerCase()));
-                                });
-
-                                let assignedCategoryIds: string[] | null = null;
-                                let assignedItemIds: string[] | null = null;
-
-                                if (assignedGroups.length > 0) {
-                                    const allCatIds = new Set<string>();
-                                    const allItemIds = new Set<string>();
-                                    assignedGroups.forEach((g: any) => {
-                                        const cids = g.categoryIds || g.category_ids || [];
-                                        const iids = g.itemIds || g.item_ids || [];
-                                        cids.forEach((id: any) => allCatIds.add(String(id)));
-                                        iids.forEach((id: any) => allItemIds.add(String(id)));
-                                    });
-                                    if (allCatIds.size > 0) assignedCategoryIds = Array.from(allCatIds);
-                                    if (allItemIds.size > 0) assignedItemIds = Array.from(allItemIds);
-                                }
-
-                                const hotelItems = items.filter((item: any) => {
-                                    if (assignedCategoryIds && assignedCategoryIds.length > 0 && !assignedCategoryIds.includes(String(item.categoryId || item.category_id))) {
-                                        return false;
-                                    }
-                                    if (assignedItemIds && assignedItemIds.length > 0 && !assignedItemIds.includes(String(item.id))) {
-                                        return false;
-                                    }
-                                    return item.filled_by_hotel !== false && item.filled_by_hotel !== 'false';
-                                });
-
-                                const submittedItemIdsForHotel = new Set<string>();
-                                const naItemIdsForHotel = new Set<string>();
-
-                                // 1. Match from Supabase submissions
-                                (allSubmissions || []).forEach((sub: any) => {
-                                    if (sub.item_id !== undefined && sub.item_id !== null) {
-                                        const itemIdStr = String(sub.item_id);
-                                        if (currentHotel && isSubmissionForHotel(sub.hotel_id, currentHotel)) {
-                                            submittedItemIdsForHotel.add(itemIdStr);
-                                            if (sub.is_na === true || String(sub.is_na) === 'true') {
-                                                naItemIdsForHotel.add(itemIdStr);
-                                            }
-                                        } else if (possibleIds.includes(String(sub.hotel_id || '').toLowerCase())) {
-                                            submittedItemIdsForHotel.add(itemIdStr);
-                                            if (sub.is_na === true || String(sub.is_na) === 'true') {
-                                                naItemIdsForHotel.add(itemIdStr);
-                                            }
-                                        }
-                                    }
-                                });
-
-                                // 2. Match from pre-indexed Local Storage
-                                localAuditEntries.forEach(({ keyHotelId, keyItemId, parsed }) => {
-                                    if ((currentHotel && isSubmissionForHotel(keyHotelId, currentHotel)) || possibleIds.includes(keyHotelId.toLowerCase())) {
-                                        submittedItemIdsForHotel.add(String(keyItemId));
-                                        if (parsed.is_na) {
-                                            naItemIdsForHotel.add(String(keyItemId));
-                                        }
-                                    }
-                                });
-
-                                let completedT = 0;
-                                let totalT = 0;
-                                hotelItems.forEach((item: any) => {
-                                    const itemIdStr = String(item.id);
-                                    const isSubmitted = submittedItemIdsForHotel.has(itemIdStr);
-
-                                    // Determine if auditor approved N/A or made it N/A themselves
-                                    let isAuditorNa = false;
-                                    for (const pid of possibleIds) {
-                                        if (inspectionScores[`${pid}_${item.id}`] === 'N/A') {
-                                            isAuditorNa = true;
-                                            break;
-                                        }
-                                    }
-                                    if (currentHotel?.id && inspectionScores[`${currentHotel.id}_${item.id}`] === 'N/A') {
-                                        isAuditorNa = true;
-                                    }
-
-                                    if (!isAuditorNa) {
-                                        totalT++;
-                                        if (isSubmitted) {
-                                            completedT++;
-                                        }
-                                    }
-                                });
-
-                                const finalInfo = getHotelFinalizedInfo(currentHotel || hotelId);
-                                let percentage = totalT > 0 ? Math.round((completedT / totalT) * 100) : (hotelItems.length > 0 && naItemIdsForHotel.size === hotelItems.length ? 100 : 0);
-
-                                if (finalInfo.is_finalized) {
-                                    percentage = 100;
-                                    if (totalT > 0) {
-                                        completedT = totalT;
-                                    } else if (submittedItemIdsForHotel.size > 0) {
-                                        completedT = submittedItemIdsForHotel.size;
-                                        totalT = submittedItemIdsForHotel.size;
-                                    } else {
-                                        completedT = 1;
-                                        totalT = 1;
-                                    }
-                                }
-
-                                return { completed: completedT, total: totalT, percentage, isFinalized: finalInfo.is_finalized };
-                            };
-
-                            // Memoized Map cache per render for O(1) repeated lookups
-                            const hotelProgressMap = new Map<string, { completed: number; total: number; percentage: number; isFinalized: boolean; statusText: string; statusOrder: number }>();
-                            const getHotelProgressCached = (hotelId: string) => {
-                                const hKey = String(hotelId).toLowerCase();
-                                if (hotelProgressMap.has(hKey)) {
-                                    return hotelProgressMap.get(hKey)!;
-                                }
-                                const res = getHotelProgress(hotelId);
-                                const finInfo = getHotelFinalizedInfo(hotelId);
-                                const isFin = res.isFinalized || finInfo.is_finalized;
-
-                                let statusText = "Not Started";
-                                let statusOrder = 4;
-                                if (isFin) {
-                                    statusText = "Finalized";
-                                    statusOrder = 1;
-                                } else if (res.percentage === 100) {
-                                    statusText = "Completed";
-                                    statusOrder = 2;
-                                } else if (res.percentage > 0) {
-                                    statusText = "In Progress";
-                                    statusOrder = 3;
-                                }
-                                const fullResult = { ...res, isFinalized: isFin, statusText, statusOrder };
-                                hotelProgressMap.set(hKey, fullResult);
-                                return fullResult;
-                            };
-
-                            // Helper to check if a hotel is completed
-                            const isHotelCompleted = (hotelId: string) => {
-                                const { percentage, isFinalized } = getHotelProgressCached(hotelId);
-                                return isFinalized || percentage === 100;
-                            };
-
-                            // 2. Helper to calculate combined average progress across a group of hotels
-                            const calculateHotelBasedProgress = (hotelList: Hotel[]) => {
-                                const totalHotels = hotelList.length;
-                                if (totalHotels === 0) {
-                                    return { completedHotels: 0, inProgressHotels: 0, totalHotels: 0, percentage: 0 };
-                                }
-
-                                let completedHotels = 0;
-                                let inProgressHotels = 0;
-                                let sumPercentage = 0;
-
-                                hotelList.forEach(h => {
-                                    const { percentage, isFinalized } = getHotelProgressCached(h.id);
-                                    const effPct = isFinalized ? 100 : percentage;
-                                    
-                                    sumPercentage += effPct;
-                                    if (isFinalized || effPct === 100) {
-                                        completedHotels++;
-                                    } else if (effPct > 0) {
-                                        inProgressHotels++;
-                                    }
-                                });
-
-                                const avgPercentage = Math.round(sumPercentage / totalHotels);
-                                return { completedHotels, inProgressHotels, totalHotels, percentage: avgPercentage };
-                            };
-
-                            // Unique categories for filtering / summary cards (excluding corporate assets)
-                            const uniqueRegions = Array.from(new Set(nonCorporateHotels.map(h => h.region).filter(Boolean))) as string[];
-                            const uniqueCountries = Array.from(new Set(nonCorporateHotels.map(h => h.country).filter(Boolean))) as string[];
-                            const uniqueBrands = Array.from(new Set(nonCorporateHotels.map(h => h.brandClass).filter(Boolean))) as string[];
-
-                            // Summaries
-                            const regionProgresses = uniqueRegions.map(region => {
-                                const regionHotels = nonCorporateHotels.filter(h => h.region === region);
-                                const prog = calculateHotelBasedProgress(regionHotels);
-                                return { name: region, ...prog };
-                            });
-                            const countryProgresses = uniqueCountries.map(country => {
-                                const countryHotels = nonCorporateHotels.filter(h => h.country === country);
-                                const prog = calculateHotelBasedProgress(countryHotels);
-                                return { name: country, ...prog };
-                            });
-                            const brandProgresses = uniqueBrands.map(brand => {
-                                const brandHotels = nonCorporateHotels.filter(h => h.brandClass === brand);
-                                const prog = calculateHotelBasedProgress(brandHotels);
-                                return { name: brand, ...prog };
-                            });
-
-                            // Helper to find Brand Leads for a hotel
-                            const brandLeadsMap = new Map<string, any[]>();
-                            const getBrandLeadsForHotel = (hotel: any) => {
-                                const hKey = String(hotel.id).toLowerCase();
-                                if (brandLeadsMap.has(hKey)) {
-                                    return brandLeadsMap.get(hKey)!;
-                                }
-                                if (!profilesList || !Array.isArray(profilesList)) return [];
-                                const res = profilesList.filter(p => {
-                                    if (!p.is_brand_audit_lead) return false;
-                                    if (!p.hotel_id) return false;
-                                    const ids = String(p.hotel_id).split(',').map(id => id.trim());
-                                    const codes = p.hotel_code ? String(p.hotel_code).split(',').map(c => c.trim().toLowerCase()) : [];
-                                    const names = p.hotel_name ? String(p.hotel_name).split(',').map(n => n.trim().toLowerCase()) : [];
-                                    
-                                    return ids.includes(String(hotel.id)) || 
-                                           (hotel.code && codes.includes(String(hotel.code).toLowerCase())) || 
-                                           (hotel.name && names.includes(String(hotel.name).toLowerCase()));
-                                });
-                                brandLeadsMap.set(hKey, res);
-                                return res;
-                            };
-
-                            // Filtered Hotels
-                            const filteredHotels = nonCorporateHotels.filter(h => {
-                                const matchesRegion = !progressRegionFilter || h.region === progressRegionFilter;
-                                const matchesCountry = !progressCountryFilter || h.country === progressCountryFilter;
-                                const matchesBrand = !progressBrandFilter || h.brandClass === progressBrandFilter;
-                                
-                                const brandLeads = getBrandLeadsForHotel(h);
-                                const matchesBrandLead = progressBrandLeadFilter === 'all' || 
-                                    (progressBrandLeadFilter === 'has_lead' && brandLeads.length > 0) ||
-                                    (progressBrandLeadFilter === 'no_lead' && brandLeads.length === 0);
-                                
-                                const q = progressSearchQuery.toLowerCase().trim();
-                                const matchesSearch = !q || 
-                                    (h.name || '').toLowerCase().includes(q) || 
-                                    (h.code || '').toLowerCase().includes(q);
-
-                                let matchesStatus = true;
-                                if (progressStatusFilter !== 'all') {
-                                    const progInfo = getHotelProgressCached(h.id);
-                                    if (progressStatusFilter === 'finalized') {
-                                        matchesStatus = progInfo.isFinalized;
-                                    } else if (progressStatusFilter === 'in_progress') {
-                                        matchesStatus = !progInfo.isFinalized && progInfo.percentage > 0;
-                                    } else if (progressStatusFilter === 'not_started') {
-                                        matchesStatus = !progInfo.isFinalized && progInfo.percentage === 0;
-                                    }
-                                }
-
-                                return matchesRegion && matchesCountry && matchesBrand && matchesBrandLead && matchesSearch && matchesStatus;
-                            });
-
-                            // Sorting logic optimized for audit report
-                            const sortedHotels = [...filteredHotels].sort((a, b) => {
-                                let comparison = 0;
-                                if (progressSortField === 'name') {
-                                    const nameA = (a.name || '').toLowerCase();
-                                    const nameB = (b.name || '').toLowerCase();
-                                    comparison = nameA.localeCompare(nameB);
-                                } else if (progressSortField === 'brand') {
-                                    const brandA = (a.brandClass || '').toLowerCase();
-                                    const brandB = (b.brandClass || '').toLowerCase();
-                                    comparison = brandA.localeCompare(brandB);
-                                } else if (progressSortField === 'location') {
-                                    const locA = `${a.country || ''} ${a.region || ''}`.toLowerCase();
-                                    const locB = `${b.country || ''} ${b.region || ''}`.toLowerCase();
-                                    comparison = locA.localeCompare(locB);
-                                } else if (progressSortField === 'progress') {
-                                    const progA = getHotelProgressCached(a.id);
-                                    const progB = getHotelProgressCached(b.id);
-                                    comparison = progA.percentage - progB.percentage;
-                                    if (comparison === 0) {
-                                        comparison = progA.completed - progB.completed;
-                                    }
-                                } else if (progressSortField === 'status') {
-                                    const progA = getHotelProgressCached(a.id);
-                                    const progB = getHotelProgressCached(b.id);
-                                    comparison = progA.statusOrder - progB.statusOrder;
-                                }
-
-                                if (comparison === 0) {
-                                    comparison = (a.name || '').localeCompare(b.name || '');
-                                }
-
-                                return progressSortDirection === 'asc' ? comparison : -comparison;
-                            });
-
-                            // Pagination calculations
-                            const totalHotelsCount = sortedHotels.length;
-                            const totalPages = Math.max(1, Math.ceil(totalHotelsCount / progressPageSize));
-                            const safePage = Math.min(Math.max(1, progressPage), totalPages);
-                            const startIndex = (safePage - 1) * progressPageSize;
-                            const endIndex = Math.min(startIndex + progressPageSize, totalHotelsCount);
-                            const paginatedHotels = sortedHotels.slice(startIndex, endIndex);
-
-                            const handleSortToggle = (field: 'name' | 'brand' | 'location' | 'progress' | 'status') => {
-                                if (progressSortField === field) {
-                                    setProgressSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
-                                } else {
-                                    setProgressSortField(field);
-                                    setProgressSortDirection('asc');
-                                }
-                                setProgressPage(1);
-                            };
-
-                            return (
-                                <div className="space-y-6">
-                                    {/* PROGRESS CARDS ROW (Region, Country, Brand) */}
-                                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                                        {/* Region Progress Column */}
-                                        <div className="bg-slate-50/60 p-5 rounded-3xl border border-slate-150/50 shadow-[0_4px_20px_rgba(15,23,42,0.01)] flex flex-col h-[320px]">
-                                            <h3 className="text-xs font-black uppercase text-slate-500 tracking-wider mb-4 flex items-center gap-1.5 shrink-0">
-                                                <Percent size={14} className="text-indigo-600" />
-                                                Region Progress Summary
-                                            </h3>
-                                            <div className="space-y-2.5 overflow-y-auto pr-1 flex-1 custom-scrollbar">
-                                                {regionProgresses.map((rp, i) => (
-                                                    <div 
-                                                        key={rp.name || i}
-                                                        onClick={() => setProgressRegionFilter(progressRegionFilter === rp.name ? '' : rp.name)}
-                                                        className={`p-3.5 rounded-2xl border transition-all cursor-pointer hover:scale-[1.015] active:scale-[0.99] duration-200 ${
-                                                            progressRegionFilter === rp.name 
-                                                                ? 'bg-gradient-to-br from-indigo-600 to-indigo-700 text-white border-indigo-600 shadow-md shadow-indigo-600/10' 
-                                                                : 'bg-white hover:bg-slate-50 border-slate-150/60 text-slate-800'
-                                                        }`}
-                                                    >
-                                                        <div className="flex justify-between items-center text-xs font-bold mb-2">
-                                                            <span className="truncate max-w-[170px] tracking-tight">{rp.name}</span>
-                                                            <span className={progressRegionFilter === rp.name ? 'text-white' : 'text-indigo-600'}>{rp.percentage}%</span>
-                                                        </div>
-                                                        <div className="w-full h-2 bg-slate-100/80 rounded-full overflow-hidden border border-slate-200/10">
-                                                            <div 
-                                                                className={`h-full rounded-full transition-all duration-300 ${progressRegionFilter === rp.name ? 'bg-white' : 'bg-indigo-600'}`}
-                                                                style={{ width: `${rp.percentage}%` }}
-                                                            />
-                                                        </div>
-                                                        <p className={`text-[10px] font-medium mt-1.5 flex justify-between items-center ${progressRegionFilter === rp.name ? 'text-indigo-200' : 'text-slate-400'}`}>
-                                                            <span>
-                                                                {rp.completedHotels > 0 ? `${rp.completedHotels} done ‚Ä¢ ` : ''}
-                                                                {rp.inProgressHotels} in progress ({rp.totalHotels} {rp.totalHotels === 1 ? 'hotel' : 'hotels'})
-                                                            </span>
-                                                            {progressRegionFilter === rp.name && <span className="text-[9px] font-black uppercase bg-indigo-500/50 px-1.5 py-0.5 rounded">Active Filter</span>}
-                                                        </p>
-                                                    </div>
-                                                ))}
-                                                {regionProgresses.length === 0 && (
-                                                    <p className="text-xs text-slate-400 text-center py-10 font-bold">No region data available</p>
-                                                )}
-                                            </div>
-                                        </div>
-
-                                        {/* Country Progress Column */}
-                                        <div className="bg-slate-50/60 p-5 rounded-3xl border border-slate-150/50 shadow-[0_4px_20px_rgba(15,23,42,0.01)] flex flex-col h-[320px]">
-                                            <h3 className="text-xs font-black uppercase text-slate-500 tracking-wider mb-4 flex items-center gap-1.5 shrink-0">
-                                                <MapPin size={14} className="text-emerald-600" />
-                                                Country Progress Summary
-                                            </h3>
-                                            <div className="space-y-2.5 overflow-y-auto pr-1 flex-1 custom-scrollbar">
-                                                {countryProgresses.map((cp, i) => (
-                                                    <div 
-                                                        key={cp.name || i}
-                                                        onClick={() => setProgressCountryFilter(progressCountryFilter === cp.name ? '' : cp.name)}
-                                                        className={`p-3.5 rounded-2xl border transition-all cursor-pointer hover:scale-[1.015] active:scale-[0.99] duration-200 ${
-                                                            progressCountryFilter === cp.name 
-                                                                ? 'bg-gradient-to-br from-emerald-600 to-emerald-700 text-white border-emerald-600 shadow-md shadow-emerald-600/10' 
-                                                                : 'bg-white hover:bg-slate-50 border-slate-150/60 text-slate-800'
-                                                        }`}
-                                                    >
-                                                        <div className="flex justify-between items-center text-xs font-bold mb-2">
-                                                            <span className="truncate max-w-[170px] tracking-tight">{cp.name}</span>
-                                                            <span className={progressCountryFilter === cp.name ? 'text-white' : 'text-emerald-600'}>{cp.percentage}%</span>
-                                                        </div>
-                                                        <div className="w-full h-2 bg-slate-100/80 rounded-full overflow-hidden border border-slate-200/10">
-                                                            <div 
-                                                                className={`h-full rounded-full transition-all duration-300 ${progressCountryFilter === cp.name ? 'bg-white' : 'bg-emerald-600'}`}
-                                                                style={{ width: `${cp.percentage}%` }}
-                                                            />
-                                                        </div>
-                                                        <p className={`text-[10px] font-medium mt-1.5 flex justify-between items-center ${progressCountryFilter === cp.name ? 'text-emerald-200' : 'text-slate-400'}`}>
-                                                            <span>
-                                                                {cp.completedHotels > 0 ? `${cp.completedHotels} done ‚Ä¢ ` : ''}
-                                                                {cp.inProgressHotels} in progress ({cp.totalHotels} {cp.totalHotels === 1 ? 'hotel' : 'hotels'})
-                                                            </span>
-                                                            {progressCountryFilter === cp.name && <span className="text-[9px] font-black uppercase bg-emerald-500/50 px-1.5 py-0.5 rounded">Active Filter</span>}
-                                                        </p>
-                                                    </div>
-                                                ))}
-                                                {countryProgresses.length === 0 && (
-                                                    <p className="text-xs text-slate-400 text-center py-10 font-bold">No country data available</p>
-                                                )}
-                                            </div>
-                                        </div>
-
-                                        {/* Brand Progress Column */}
-                                        <div className="bg-slate-50/60 p-5 rounded-3xl border border-slate-150/50 shadow-[0_4px_20px_rgba(15,23,42,0.01)] flex flex-col h-[320px]">
-                                            <h3 className="text-xs font-black uppercase text-slate-500 tracking-wider mb-4 flex items-center gap-1.5 shrink-0">
-                                                <Building size={14} className="text-amber-600" />
-                                                Brand Progress Summary
-                                            </h3>
-                                            <div className="space-y-2.5 overflow-y-auto pr-1 flex-1 custom-scrollbar">
-                                                {brandProgresses.map((bp, i) => (
-                                                    <div 
-                                                        key={bp.name || i}
-                                                        onClick={() => setProgressBrandFilter(progressBrandFilter === bp.name ? '' : bp.name)}
-                                                        className={`p-3.5 rounded-2xl border transition-all cursor-pointer hover:scale-[1.015] active:scale-[0.99] duration-200 ${
-                                                            progressBrandFilter === bp.name 
-                                                                ? 'bg-gradient-to-br from-amber-600 to-amber-700 text-white border-amber-600 shadow-md shadow-amber-600/10' 
-                                                                : 'bg-white hover:bg-slate-50 border-slate-150/60 text-slate-800'
-                                                        }`}
-                                                    >
-                                                        <div className="flex justify-between items-center text-xs font-bold mb-2">
-                                                            <span className="truncate max-w-[170px] tracking-tight">{bp.name}</span>
-                                                            <span className={progressBrandFilter === bp.name ? 'text-white' : 'text-amber-600'}>{bp.percentage}%</span>
-                                                        </div>
-                                                        <div className="w-full h-2 bg-slate-100/80 rounded-full overflow-hidden border border-slate-200/10">
-                                                            <div 
-                                                                className={`h-full rounded-full transition-all duration-300 ${progressBrandFilter === bp.name ? 'bg-white' : 'bg-amber-600'}`}
-                                                                style={{ width: `${bp.percentage}%` }}
-                                                            />
-                                                        </div>
-                                                        <p className={`text-[10px] font-medium mt-1.5 flex justify-between items-center ${progressBrandFilter === bp.name ? 'text-amber-200' : 'text-slate-400'}`}>
-                                                            <span>
-                                                                {bp.completedHotels > 0 ? `${bp.completedHotels} done ‚Ä¢ ` : ''}
-                                                                {bp.inProgressHotels} in progress ({bp.totalHotels} {bp.totalHotels === 1 ? 'hotel' : 'hotels'})
-                                                            </span>
-                                                            {progressBrandFilter === bp.name && <span className="text-[9px] font-black uppercase bg-amber-500/50 px-1.5 py-0.5 rounded">Active Filter</span>}
-                                                        </p>
-                                                    </div>
-                                                ))}
-                                                {brandProgresses.length === 0 && (
-                                                    <p className="text-xs text-slate-400 text-center py-10 font-bold">No brand data available</p>
-                                                )}
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    {/* SEARCH & FILTERS BAR */}
-                                    <div className="bg-white p-5 rounded-3xl border border-slate-150/80 shadow-[0_12px_40px_rgba(15,23,42,0.015)]">
-                                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                                            {/* Search box */}
-                                            <div className="relative flex-1">
-                                                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-                                                    <Search size={16} />
-                                                </div>
-                                                <input
-                                                    type="text"
-                                                    className="w-full pl-10 pr-8 py-2.5 text-xs border border-slate-200 rounded-xl bg-slate-50/50 focus:bg-white focus:outline-none focus:border-indigo-500 font-medium transition-all"
-                                                    placeholder="Search registered hotel properties by name or code..."
-                                                    value={progressSearchQuery}
-                                                    onChange={(e) => {
-                                                        setProgressSearchQuery(e.target.value);
-                                                        setProgressPage(1);
-                                                    }}
-                                                />
-                                                {progressSearchQuery && (
-                                                    <button 
-                                                        onClick={() => {
-                                                            setProgressSearchQuery('');
-                                                            setProgressPage(1);
-                                                        }}
-                                                        className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-600"
-                                                    >
-                                                        <X size={14} />
-                                                    </button>
-                                                )}
-                                            </div>
-
-                                            {/* Dropdowns */}
-                                            <div className="flex flex-wrap items-center gap-3">
-                                                {/* Region Filter */}
-                                                <div className="w-full sm:w-[150px]">
-                                                    <select
-                                                        className="w-full px-3 py-2.5 text-xs border border-slate-200 rounded-xl bg-slate-50/50 focus:bg-white focus:outline-none focus:border-indigo-500 font-bold transition-all text-slate-700"
-                                                        value={progressRegionFilter}
-                                                        onChange={(e) => {
-                                                            setProgressRegionFilter(e.target.value);
-                                                            setProgressPage(1);
-                                                        }}
-                                                    >
-                                                        <option value="">All Regions</option>
-                                                        {uniqueRegions.map(r => (
-                                                            <option key={r} value={r}>{r}</option>
-                                                        ))}
-                                                    </select>
-                                                </div>
-
-                                                {/* Country Filter */}
-                                                <div className="w-full sm:w-[150px]">
-                                                    <select
-                                                        className="w-full px-3 py-2.5 text-xs border border-slate-200 rounded-xl bg-slate-50/50 focus:bg-white focus:outline-none focus:border-indigo-500 font-bold transition-all text-slate-700"
-                                                        value={progressCountryFilter}
-                                                        onChange={(e) => {
-                                                            setProgressCountryFilter(e.target.value);
-                                                            setProgressPage(1);
-                                                        }}
-                                                    >
-                                                        <option value="">All Countries</option>
-                                                        {uniqueCountries.map(c => (
-                                                            <option key={c} value={c}>{c}</option>
-                                                        ))}
-                                                    </select>
-                                                </div>
-
-                                                {/* Brand Filter */}
-                                                <div className="w-full sm:w-[150px]">
-                                                    <select
-                                                        className="w-full px-3 py-2.5 text-xs border border-slate-200 rounded-xl bg-slate-50/50 focus:bg-white focus:outline-none focus:border-indigo-500 font-bold transition-all text-slate-700"
-                                                        value={progressBrandFilter}
-                                                        onChange={(e) => {
-                                                            setProgressBrandFilter(e.target.value);
-                                                            setProgressPage(1);
-                                                        }}
-                                                    >
-                                                        <option value="">All Brands</option>
-                                                        {uniqueBrands.map(b => (
-                                                            <option key={b} value={b}>{b}</option>
-                                                        ))}
-                                                    </select>
-                                                </div>
-
-                                                {/* Brand Lead Filter */}
-                                                <div className="w-full sm:w-[170px]">
-                                                    <select
-                                                        className="w-full px-3 py-2.5 text-xs border border-slate-200 rounded-xl bg-slate-50/50 focus:bg-white focus:outline-none focus:border-indigo-500 font-bold transition-all text-slate-700"
-                                                        value={progressBrandLeadFilter}
-                                                        onChange={(e) => {
-                                                            setProgressBrandLeadFilter(e.target.value as any);
-                                                            setProgressPage(1);
-                                                        }}
-                                                    >
-                                                        <option value="all">All Representation</option>
-                                                        <option value="has_lead">Has Brand Lead</option>
-                                                        <option value="no_lead">No Brand Lead</option>
-                                                    </select>
-                                                </div>
-
-                                                {/* Audit Status Filter */}
-                                                <div className="w-full sm:w-[180px]">
-                                                    <select
-                                                        className="w-full px-3 py-2.5 text-xs border border-slate-200 rounded-xl bg-slate-50/50 focus:bg-white focus:outline-none focus:border-indigo-500 font-bold transition-all text-slate-700"
-                                                        value={progressStatusFilter}
-                                                        onChange={(e) => {
-                                                            setProgressStatusFilter(e.target.value as any);
-                                                            setProgressPage(1);
-                                                        }}
-                                                    >
-                                                        <option value="all">All Audit Statuses</option>
-                                                        <option value="finalized">Finalised & Submitted</option>
-                                                        <option value="in_progress">In Progress</option>
-                                                        <option value="not_started">Not Started</option>
-                                                    </select>
-                                                </div>
-
-                                                {/* Clear filters trigger */}
-                                                {(progressRegionFilter || progressCountryFilter || progressBrandFilter || progressSearchQuery || progressBrandLeadFilter !== 'all' || progressStatusFilter !== 'all') && (
-                                                    <button
-                                                        onClick={() => {
-                                                            setProgressRegionFilter('');
-                                                            setProgressCountryFilter('');
-                                                            setProgressBrandFilter('');
-                                                            setProgressSearchQuery('');
-                                                            setProgressBrandLeadFilter('all');
-                                                            setProgressStatusFilter('all');
-                                                            setProgressPage(1);
-                                                        }}
-                                                        className="text-xs text-indigo-600 hover:text-indigo-800 font-black uppercase tracking-wider flex items-center gap-1.5 px-3 py-2.5 hover:bg-indigo-50 rounded-xl transition-all"
-                                                    >
-                                                        <X size={12} /> Reset Filters
-                                                    </button>
-                                                )}
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    {/* LIST TABLE CONTAINING ALL HOTELS AND THEIR PROGRESS */}
-                                    <div className="bg-white border border-slate-150/80 rounded-3xl overflow-hidden shadow-[0_12px_40px_rgba(15,23,42,0.015)]">
-                                        <div className="overflow-x-auto">
-                                            <table className="w-full text-left border-collapse">
-                                                <thead>
-                                                    <tr className="bg-slate-50/70 border-b border-slate-150/50 text-[10px] font-black uppercase text-slate-500 tracking-widest select-none">
-                                                        <th 
-                                                            onClick={() => handleSortToggle('name')}
-                                                            className="px-6 py-4.5 cursor-pointer hover:bg-slate-100/80 transition-colors"
-                                                            title="Click to sort by Hotel Name"
-                                                        >
-                                                            <div className="inline-flex items-center gap-1.5">
-                                                                <span>Hotel Property</span>
-                                                                {progressSortField === 'name' ? (
-                                                                    progressSortDirection === 'asc' ? <ChevronUp size={13} className="text-indigo-600 shrink-0" /> : <ChevronDown size={13} className="text-indigo-600 shrink-0" />
-                                                                ) : (
-                                                                    <ArrowUpDown size={12} className="text-slate-300 opacity-60 shrink-0" />
-                                                                )}
-                                                            </div>
-                                                        </th>
-                                                        <th 
-                                                            onClick={() => handleSortToggle('brand')}
-                                                            className="px-6 py-4.5 cursor-pointer hover:bg-slate-100/80 transition-colors"
-                                                            title="Click to sort by Brand"
-                                                        >
-                                                            <div className="inline-flex items-center gap-1.5">
-                                                                <span>Brand</span>
-                                                                {progressSortField === 'brand' ? (
-                                                                    progressSortDirection === 'asc' ? <ChevronUp size={13} className="text-indigo-600 shrink-0" /> : <ChevronDown size={13} className="text-indigo-600 shrink-0" />
-                                                                ) : (
-                                                                    <ArrowUpDown size={12} className="text-slate-300 opacity-60 shrink-0" />
-                                                                )}
-                                                            </div>
-                                                        </th>
-                                                        <th 
-                                                            onClick={() => handleSortToggle('location')}
-                                                            className="px-6 py-4.5 cursor-pointer hover:bg-slate-100/80 transition-colors"
-                                                            title="Click to sort by Location"
-                                                        >
-                                                            <div className="inline-flex items-center gap-1.5">
-                                                                <span>Location</span>
-                                                                {progressSortField === 'location' ? (
-                                                                    progressSortDirection === 'asc' ? <ChevronUp size={13} className="text-indigo-600 shrink-0" /> : <ChevronDown size={13} className="text-indigo-600 shrink-0" />
-                                                                ) : (
-                                                                    <ArrowUpDown size={12} className="text-slate-300 opacity-60 shrink-0" />
-                                                                )}
-                                                            </div>
-                                                        </th>
-                                                        <th 
-                                                            onClick={() => handleSortToggle('progress')}
-                                                            className="px-6 py-4.5 cursor-pointer hover:bg-slate-100/80 transition-colors"
-                                                            title="Click to sort by Audit Progress"
-                                                        >
-                                                            <div className="inline-flex items-center gap-1.5">
-                                                                <span>Audit Progress</span>
-                                                                {progressSortField === 'progress' ? (
-                                                                    progressSortDirection === 'asc' ? <ChevronUp size={13} className="text-indigo-600 shrink-0" /> : <ChevronDown size={13} className="text-indigo-600 shrink-0" />
-                                                                ) : (
-                                                                    <ArrowUpDown size={12} className="text-slate-300 opacity-60 shrink-0" />
-                                                                )}
-                                                            </div>
-                                                        </th>
-                                                        <th 
-                                                            onClick={() => handleSortToggle('status')}
-                                                            className="px-6 py-4.5 cursor-pointer hover:bg-slate-100/80 transition-colors"
-                                                            title="Click to sort by Status"
-                                                        >
-                                                            <div className="inline-flex items-center gap-1.5">
-                                                                <span>Status</span>
-                                                                {progressSortField === 'status' ? (
-                                                                    progressSortDirection === 'asc' ? <ChevronUp size={13} className="text-indigo-600 shrink-0" /> : <ChevronDown size={13} className="text-indigo-600 shrink-0" />
-                                                                ) : (
-                                                                    <ArrowUpDown size={12} className="text-slate-300 opacity-60 shrink-0" />
-                                                                )}
-                                                            </div>
-                                                        </th>
-                                                        <th className="px-6 py-4.5 text-right">Actions</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody className="divide-y divide-slate-100 text-xs text-slate-700">
-                                                    {paginatedHotels.length > 0 ? (
-                                                        paginatedHotels.map((h, i) => {
-                                                            const { completed, total, percentage, statusText } = getHotelProgressCached(h.id);
-                                                            const finalInfo = getHotelFinalizedInfo(h);
-                                                            
-                                                            let statusStyle = "bg-slate-50 text-slate-600 border-slate-200/50";
-                                                            
-                                                            if (statusText === 'Finalized') {
-                                                                statusStyle = "bg-emerald-50 text-emerald-700 border-emerald-200/60";
-                                                            } else if (statusText === 'Completed') {
-                                                                statusStyle = "bg-indigo-50 text-indigo-700 border-indigo-200/60";
-                                                            } else if (statusText === 'In Progress') {
-                                                                statusStyle = "bg-amber-50 text-amber-700 border-amber-200/60";
-                                                            }
-
-                                                            return (
-                                                                <tr key={h.id || i} className="hover:bg-slate-50/40 transition-colors group">
-                                                                    <td className="px-6 py-4">
-                                                                        <div className="flex items-center gap-3">
-                                                                            <div className="w-9 h-9 rounded-xl bg-indigo-50/80 group-hover:bg-indigo-600 group-hover:text-white text-indigo-600 flex items-center justify-center font-black text-xs shrink-0 transition-all">
-                                                                                {(h.name || '?').charAt(0).toUpperCase()}
-                                                                            </div>
-                                                                            <div>
-                                                                                <span className="font-extrabold text-slate-900 block tracking-tight leading-tight group-hover:text-indigo-600 transition-colors">{h.name}</span>
-                                                                                {h.code && (
-                                                                                    <span className="text-[10px] text-slate-400 font-bold font-mono">ID: {h.code}</span>
-                                                                                )}
-                                                                                {(() => {
-                                                                                    const leads = getBrandLeadsForHotel(h);
-                                                                                    if (leads.length === 0) return null;
-                                                                                    return (
-                                                                                        <div className="mt-1.5 flex flex-wrap gap-1">
-                                                                                            {leads.map(bl => (
-                                                                                                <span key={bl.id} className="inline-flex items-center gap-1 text-[9px] bg-indigo-50 text-indigo-700 border border-indigo-100/50 px-2 py-0.5 rounded-md font-extrabold uppercase tracking-wider shadow-2xs">
-                                                                                                    <ShieldCheck size={10} className="text-indigo-600 shrink-0" />
-                                                                                                    Brand Lead: {bl.display_name || `${bl.first_name || ''} ${bl.last_name || ''}`.trim() || bl.email.split('@')[0]}
-                                                                                                </span>
-                                                                                            ))}
-                                                                                        </div>
-                                                                                    );
-                                                                                })()}
-                                                                            </div>
-                                                                        </div>
-                                                                    </td>
-                                                                    <td className="px-6 py-4 font-extrabold text-slate-600">
-                                                                        {h.brandClass}
-                                                                    </td>
-                                                                    <td className="px-6 py-4 text-slate-500 font-medium">
-                                                                        <div className="flex flex-col">
-                                                                            <span className="font-bold text-slate-800">{h.country || 'Unknown Country'}</span>
-                                                                            <span className="text-[10px] text-slate-400 font-bold">{h.region || 'Unknown Region'}</span>
-                                                                        </div>
-                                                                    </td>
-                                                                    <td className="px-6 py-4">
-                                                                        <div className="w-[180px]">
-                                                                            <div className="flex items-center justify-between text-[10px] font-black text-slate-500 mb-1">
-                                                                                <span>{completed} / {total} Tasks</span>
-                                                                                <span className="text-indigo-600">{percentage}%</span>
-                                                                            </div>
-                                                                            <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden border border-slate-200/20">
-                                                                                <div 
-                                                                                    className={`h-full rounded-full transition-all duration-500 ease-out ${
-                                                                                        percentage === 100 ? 'bg-indigo-600' : 'bg-emerald-500'
-                                                                                    }`}
-                                                                                    style={{ width: `${percentage}%` }}
-                                                                                />
-                                                                            </div>
-                                                                        </div>
-                                                                    </td>
-                                                                    <td className="px-6 py-4">
-                                                                        <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full border text-[9px] font-black uppercase tracking-wider ${statusStyle}`}>
-                                                                            <span className={`w-1.5 h-1.5 rounded-full ${
-                                                                                statusText === 'Finalized' ? 'bg-emerald-500 animate-pulse' :
-                                                                                statusText === 'Completed' ? 'bg-indigo-500' :
-                                                                                statusText === 'In Progress' ? 'bg-amber-500 animate-pulse' : 'bg-slate-400'
-                                                                            }`} />
-                                                                            {statusText}
-                                                                        </span>
-                                                                    </td>
-                                                                    <td className="px-6 py-4 text-right">
-                                                                        <div className="flex items-center justify-end gap-2">
-                                                                            {finalInfo.is_finalized && (
-                                                                                <button
-                                                                                    onClick={() => handleUnlockHotel(h.id)}
-                                                                                    className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-emerald-700 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100/80 px-3 py-2 rounded-xl border border-emerald-200/60 active:scale-95 transition-all shadow-2xs"
-                                                                                    title={`Finalised by ${finalInfo.finalized_by || 'Representative'} on ${finalInfo.finalized_at ? new Date(finalInfo.finalized_at).toLocaleDateString() : ''}. Click to unlock.`}
-                                                                                >
-                                                                                    <Unlock size={11} />
-                                                                                    <span>Unlock Audit</span>
-                                                                                </button>
-                                                                            )}
-                                                                            <button
-                                                                                onClick={() => {
-                                                                                    setHotelToReset(h);
-                                                                                    setIsResetPinModalOpen(true);
-                                                                                    setResetPinValue('');
-                                                                                    setResetPinError('');
-                                                                                }}
-                                                                                className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-rose-600 hover:text-rose-800 bg-rose-50 hover:bg-rose-100/80 px-3 py-2 rounded-xl border border-rose-100/60 active:scale-95 transition-all shadow-2xs"
-                                                                                title="Reset all progress made by this hotel"
-                                                                            >
-                                                                                <RefreshCw size={11} />
-                                                                                <span>Reset Progress</span>
-                                                                            </button>
-                                                                            <button
-                                                                                onClick={() => {
-                                                                                    setSelectedInspectionHotelId(h.id);
-                                                                                    setSubView('inspection');
-                                                                                }}
-                                                                                className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-indigo-600 hover:text-indigo-800 bg-indigo-50/50 hover:bg-indigo-100/80 px-3.5 py-2 rounded-xl border border-indigo-100/60 active:scale-95 transition-all shadow-2xs"
-                                                                            >
-                                                                                <span>Review</span>
-                                                                                <ChevronRight size={12} />
-                                                                            </button>
-                                                                        </div>
-                                                                    </td>
-                                                                </tr>
-                                                            );
-                                                        })
-                                                    ) : (
-                                                        <tr>
-                                                            <td colSpan={6} className="text-center py-16 text-slate-400 font-extrabold text-sm bg-slate-50/20">
-                                                                <AlertCircle className="mx-auto text-slate-300 mb-2" size={24} />
-                                                                No hotel properties match the filter criteria.
-                                                            </td>
-                                                        </tr>
-                                                    )}
-                                                </tbody>
-                                            </table>
-                                        </div>
-
-                                        {/* PAGINATION FOOTER BAR */}
-                                        <div className="px-6 py-4 bg-slate-50/70 border-t border-slate-150/60 flex flex-col sm:flex-row items-center justify-between gap-4">
-                                            <div className="flex flex-wrap items-center gap-4 text-xs font-medium text-slate-500">
-                                                <span>
-                                                    Showing <strong className="text-slate-800 font-bold">{totalHotelsCount === 0 ? 0 : startIndex + 1}</strong> to <strong className="text-slate-800 font-bold">{endIndex}</strong> of <strong className="text-slate-800 font-bold">{totalHotelsCount}</strong> properties
-                                                </span>
-                                                <div className="flex items-center gap-2 pl-3 border-l border-slate-200">
-                                                    <span className="text-[11px] font-bold text-slate-400">Rows per page:</span>
-                                                    <select
-                                                        value={progressPageSize}
-                                                        onChange={(e) => {
-                                                            setProgressPageSize(Number(e.target.value));
-                                                            setProgressPage(1);
-                                                        }}
-                                                        className="px-2 py-1 text-xs border border-slate-200 rounded-lg bg-white font-bold text-slate-700 focus:outline-none focus:border-indigo-500 cursor-pointer shadow-2xs"
-                                                    >
-                                                        <option value={10}>10</option>
-                                                        <option value={25}>25</option>
-                                                        <option value={50}>50</option>
-                                                        <option value={100}>100</option>
-                                                    </select>
-                                                </div>
-                                            </div>
-
-                                            {/* Navigation buttons */}
-                                            {totalPages > 1 && (
-                                                <div className="flex items-center gap-1.5">
-                                                    <button
-                                                        onClick={() => setProgressPage(1)}
-                                                        disabled={safePage === 1}
-                                                        className="p-1.5 text-xs font-bold rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-2xs"
-                                                        title="First Page"
-                                                    >
-                                                        <ChevronsLeft size={14} />
-                                                    </button>
-                                                    <button
-                                                        onClick={() => setProgressPage(p => Math.max(1, p - 1))}
-                                                        disabled={safePage === 1}
-                                                        className="p-1.5 text-xs font-bold rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-2xs"
-                                                        title="Previous Page"
-                                                    >
-                                                        <ChevronLeft size={14} />
-                                                    </button>
-
-                                                    {/* Numeric page buttons */}
-                                                    {(() => {
-                                                        const pages: number[] = [];
-                                                        const maxButtons = 5;
-                                                        let startP = Math.max(1, safePage - 2);
-                                                        let endP = Math.min(totalPages, startP + maxButtons - 1);
-                                                        if (endP - startP + 1 < maxButtons) {
-                                                            startP = Math.max(1, endP - maxButtons + 1);
-                                                        }
-                                                        for (let p = startP; p <= endP; p++) {
-                                                            pages.push(p);
-                                                        }
-
-                                                        return pages.map(pageNum => (
-                                                            <button
-                                                                key={pageNum}
-                                                                onClick={() => setProgressPage(pageNum)}
-                                                                className={`px-3 py-1 text-xs font-extrabold rounded-lg border transition-all ${
-                                                                    pageNum === safePage
-                                                                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
-                                                                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50 shadow-2xs'
-                                                                }`}
-                                                            >
-                                                                {pageNum}
-                                                            </button>
-                                                        ));
-                                                    })()}
-
-                                                    <button
-                                                        onClick={() => setProgressPage(p => Math.min(totalPages, p + 1))}
-                                                        disabled={safePage === totalPages}
-                                                        className="p-1.5 text-xs font-bold rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-2xs"
-                                                        title="Next Page"
-                                                    >
-                                                        <ChevronRight size={14} />
-                                                    </button>
-                                                    <button
-                                                        onClick={() => setProgressPage(totalPages)}
-                                                        disabled={safePage === totalPages}
-                                                        className="p-1.5 text-xs font-bold rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-2xs"
-                                                        title="Last Page"
-                                                    >
-                                                        <ChevronsRight size={14} />
-                                                    </button>
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-                                </div>
-                            );
-                        })()}
-                    </div>
-                ) : (
-                    <div className="space-y-6">
-                        {/* Hotels Layout */}
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                            <div>
-                                <button 
-                                    onClick={() => { setSubView('dashboard'); setSearchQuery(''); }} 
-                                    className="inline-flex items-center gap-1.5 text-xs font-bold text-indigo-600 bg-indigo-50/50 hover:bg-indigo-55/80 px-3.5 py-1.5 rounded-full border border-indigo-100/50 mb-3 hover:shadow-sm active:scale-95 transition-all outline-none"
-                                >
-                                    <ArrowLeft size={12} /> Back to Dashboard
-                                </button>
-                                <h2 className="text-2xl font-extrabold text-slate-900 tracking-tight">Master Hotel Properties</h2>
-                                <p className="text-xs text-slate-500 mt-1">Manage Swiss-Belhotel brand properties list, brands and locations.</p>
-                            </div>
-                            <button 
-                                onClick={handleOpenAddHotel} 
-                                className="bg-indigo-600 hover:bg-indigo-700 text-white transition-all px-4 py-2.5 rounded-full font-bold text-sm flex items-center gap-2 justify-center shadow-lg hover:shadow-indigo-500/10 active:scale-95 outline-none"
-                            >
-                                <Plus size={16} />
-                                <span>Add Hotel Property</span>
-                            </button>
-                        </div>
-
-                        {/* Supabase Connectivity Indicator */}
-                        <div className="bg-white p-4.5 rounded-2xl border border-slate-150/80 shadow-[0_4px_24px_rgba(15,23,42,0.015)] flex flex-col sm:flex-row sm:items-center justify-between gap-3 select-none animate-fadeIn">
-                            <div className="flex items-center gap-2.5">
-                                <div className="relative">
-                                    <span className={`block h-3 w-3 rounded-full ${
-                                        supabaseConnected === true ? 'bg-emerald-500' :
-                                        supabaseConnected === false ? 'bg-red-500' :
-                                        'bg-amber-400'
-                                    }`}></span>
-                                    {supabaseConnected === null && (
-                                        <span className="absolute inset-0 rounded-full bg-amber-400 animate-ping opacity-75"></span>
-                                    )}
-                                    {supabaseConnected === true && (
-                                        <span className="absolute inset-0 rounded-full bg-emerald-500 animate-ping opacity-60"></span>
-                                    )}
-                                </div>
-                                <div>
-                                    <div className="flex items-center gap-2">
-                                        <span className="text-xs font-extrabold text-slate-800 uppercase tracking-wider">Database Status</span>
-                                        <span className="text-[9px] bg-slate-100 text-slate-600 font-bold px-1.5 py-0.5 rounded">Supabase REST</span>
-                                    </div>
-                                    <p className="text-xs text-slate-500 mt-0.5 font-medium">
-                                        {supabaseConnected === true ? (
-                                            <span className="text-emerald-600 font-bold">Connected to main ‚Ä∫ public.hotels</span>
-                                        ) : supabaseConnected === false ? (
-                                            <span className="text-red-500 font-bold">Disconnected/Offline - Utilizing Cached Fallback</span>
-                                        ) : (
-                                            <span className="text-amber-500 font-bold">Verifying database connectivity...</span>
-                                        )}
-                                    </p>
-                                </div>
-                            </div>
-                            
-                            <div className="flex items-center gap-2 shrink-0">
-                                {supabaseErrorMsg && (
-                                    <div className="text-[10px] bg-red-50 border border-red-100 text-red-600 px-2.5 py-1 rounded-lg font-bold max-w-xs truncate animate-pulse" title={supabaseErrorMsg}>
-                                        {supabaseErrorMsg}
-                                    </div>
-                                )}
-                                <button 
-                                    type="button"
-                                    onClick={fetchHotelsFromSupabase}
-                                    disabled={isSupabaseLoading}
-                                    className={`text-xs font-bold px-3 py-1.5 bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-700 hover:text-indigo-605 rounded-xl transition-all flex items-center gap-1.5 ${isSupabaseLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
-                                >
-                                    <Clock size={12} className={isSupabaseLoading ? 'animate-spin' : ''} />
-                                    <span>{isSupabaseLoading ? 'Syncing...' : 'Sync Now'}</span>
-                                </button>
-                            </div>
-                        </div>
-
-                        {/* Search and Filters */}
-                        <div className="flex flex-col lg:flex-row gap-3 items-stretch lg:items-center">
-                            {/* Search Bar */}
-                            <div className="flex-1 bg-white p-4 rounded-2xl border border-slate-150/80 shadow-[0_4px_24px_rgba(15,23,42,0.015)] flex items-center gap-3 hover:border-slate-300 focus-within:border-indigo-400 focus-within:shadow-[0_8px_30px_rgba(99,102,241,0.03)] transition-all">
-                                <Search className="text-slate-400 shrink-0" size={18} />
-                                <input 
-                                    type="text" 
-                                    placeholder="Search by name, code, region, city/country..." 
-                                    className="w-full text-sm text-slate-700 bg-transparent outline-none border-none placeholder-slate-400 focus:ring-0"
-                                    value={searchQuery}
-                                    onChange={(e) => setSearchQuery(e.target.value)}
-                                />
-                                {searchQuery && (
-                                    <button 
-                                        onClick={() => setSearchQuery('')} 
-                                        className="p-1 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100"
-                                    >
-                                        <X size={14} />
-                                    </button>
-                                )}
-                            </div>
-
-                            {/* Filters row */}
-                            <div className="flex flex-wrap sm:flex-nowrap gap-3">
-                                {/* Brand Filter Dropdown */}
-                                <div className="flex items-center gap-1.5 bg-white px-3 py-2 rounded-2xl border border-slate-150/80 shadow-[0_4px_24px_rgba(15,23,42,0.015)] hover:border-slate-300 focus-within:border-indigo-400 transition-all select-none min-w-[145px] flex-1 sm:flex-none">
-                                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider whitespace-nowrap pl-1">Brand:</span>
-                                    <select
-                                        className="text-xs font-bold text-slate-700 bg-transparent border-none focus:ring-0 p-0 cursor-pointer w-full outline-none"
-                                        value={hotelFilterBrand}
-                                        onChange={(e) => setHotelFilterBrand(e.target.value)}
-                                    >
-                                        <option value="All">All Brands</option>
-                                        {uniqueBrands.map(b => (
-                                            <option key={b} value={b}>{b}</option>
-                                        ))}
-                                    </select>
-                                </div>
-
-                                {/* Star Filter Dropdown */}
-                                <div className="flex items-center gap-1.5 bg-white px-3 py-2 rounded-2xl border border-slate-150/80 shadow-[0_4px_24px_rgba(15,23,42,0.015)] hover:border-slate-300 focus-within:border-indigo-400 transition-all select-none min-w-[130px] flex-1 sm:flex-none">
-                                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider whitespace-nowrap pl-1">Stars:</span>
-                                    <select
-                                        className="text-xs font-bold text-slate-700 bg-transparent border-none focus:ring-0 p-0 cursor-pointer w-full outline-none"
-                                        value={hotelFilterStars}
-                                        onChange={(e) => setHotelFilterStars(e.target.value)}
-                                    >
-                                        <option value="All">All Ratings</option>
-                                        {uniqueStars.map(s => (
-                                            <option key={s} value={String(s)}>{s} Star{s > 1 ? 's' : ''}</option>
-                                        ))}
-                                    </select>
-                                </div>
-
-                                {/* Clear Filters button */}
-                                {(hotelFilterBrand !== 'All' || hotelFilterStars !== 'All' || searchQuery) && (
-                                    <button
-                                        onClick={() => {
-                                            setHotelFilterBrand('All');
-                                            setHotelFilterStars('All');
-                                            setSearchQuery('');
-                                        }}
-                                        className="text-xs font-bold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 transition-all px-3.5 py-2.5 rounded-2xl border border-indigo-100/50 hover:shadow-sm active:scale-95 shrink-0 flex items-center justify-center gap-1 w-full sm:w-auto"
-                                    >
-                                        <RefreshCw size={12} />
-                                        <span>Reset</span>
-                                    </button>
-                                )}
-                            </div>
-                        </div>
-
-                        {/* Hotels Grid or Table */}
-                        {filteredHotels.length === 0 ? (
-                            <div className="bg-white/40 backdrop-blur-sm p-12 rounded-[24px] border border-dashed border-slate-200 text-center">
-                                <Search size={28} className="text-slate-300 mx-auto mb-3" />
-                                <h3 className="text-sm font-bold text-slate-800">No hotel properties match your filter</h3>
-                                <p className="text-xs text-slate-400 mt-1">Try resetting the search query or add a brand-new hotel property.</p>
-                            </div>
-                        ) : (
-                            <div className="bg-white rounded-[24px] border border-slate-150/80 shadow-[0_8px_30px_rgba(15,23,42,0.012)] overflow-hidden animate-fadeIn">
-                                <div className="overflow-x-auto">
-                                    <table className="w-full text-left border-collapse">
-                                        <thead>
-                                            <tr className="border-b border-slate-100 bg-slate-50/50 select-none text-[10px] font-extrabold text-slate-400 tracking-wider uppercase">
-                                                <th className="px-6 py-4.5">Hotel Name</th>
-                                                <th className="px-6 py-4.5">Region</th>
-                                                <th className="px-6 py-4.5">Country</th>
-                                                <th className="px-6 py-4.5">Brand</th>
-                                                <th className="px-6 py-4.5">Star Rating</th>
-                                                <th className="px-6 py-4.5 text-right">Actions</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-slate-100">
-                                            {paginatedHotels.map((hotel) => (
-                                                <tr key={hotel.id} className="hover:bg-slate-50/20 transition-colors">
-                                                    <td className="px-6 py-4 whitespace-nowrap">
-                                                        <div className="flex items-center gap-3">
-                                                            <div className="w-9 h-9 rounded-xl bg-indigo-50/80 text-indigo-700 flex items-center justify-center font-black text-xs uppercase shadow-sm shrink-0">
-                                                                <Building size={14} />
-                                                            </div>
-                                                            <div className="flex flex-col">
-                                                                <span className="text-sm font-bold text-slate-800 leading-tight">{hotel.name}</span>
-                                                                {hotel.code && (
-                                                                    <span className="text-[10px] font-extrabold text-slate-400 font-mono uppercase tracking-wider mt-0.5">{hotel.code}</span>
-                                                                )}
-                                                            </div>
-                                                        </div>
-                                                    </td>
-                                                    <td className="px-6 py-4 whitespace-nowrap">
-                                                        <span className="text-xs font-bold text-slate-600 bg-slate-100 px-2 py-1 rounded-md border border-slate-200/50">
-                                                            {hotel.region || 'Asia Pacific'}
-                                                        </span>
-                                                    </td>
-                                                    <td className="px-6 py-4 whitespace-nowrap">
-                                                        <span className="text-sm font-bold text-slate-600">
-                                                            {hotel.country || 'Indonesia'}
-                                                        </span>
-                                                    </td>
-                                                    <td className="px-6 py-4 whitespace-nowrap">
-                                                        <span className="text-xs font-bold text-indigo-600 bg-indigo-50/75 px-2 py-1 rounded-md">
-                                                            {hotel.brandClass}
-                                                        </span>
-                                                    </td>
-                                                    <td className="px-6 py-4 whitespace-nowrap">
-                                                        <div className="flex items-center gap-0.5 text-amber-500">
-                                                            {Array.from({ length: hotel.stars || 4 }).map((_, i) => (
-                                                                <Star key={i} size={14} fill="currentColor" className="shrink-0" />
-                                                            ))}
-                                                        </div>
-                                                    </td>
-                                                    <td className="px-6 py-4 whitespace-nowrap text-right text-xs">
-                                                        {confirmHotelDeleteId === hotel.id ? (
-                                                            <div className="inline-flex items-center gap-2 bg-red-50/85 px-3 py-1.5 rounded-xl border border-red-105 text-left animate-fadeIn">
-                                                                <span className="text-[10px] text-red-600 font-bold whitespace-nowrap">Are you sure?</span>
-                                                                <button 
-                                                                    onClick={() => handleDeleteHotel(hotel.id)}
-                                                                    className="bg-red-600 hover:bg-red-700 text-white px-2.5 py-1 rounded-lg text-[10px] font-bold tracking-wide transition-all"
-                                                                >
-                                                                    Yes, delete
-                                                                </button>
-                                                                <button 
-                                                                    onClick={() => setConfirmHotelDeleteId(null)}
-                                                                    className="bg-slate-200 hover:bg-slate-300 text-slate-700 px-2.5 py-1 rounded-lg text-[10px] font-bold tracking-wide transition-all"
-                                                                >
-                                                                    Cancel
-                                                                </button>
-                                                            </div>
-                                                        ) : (
-                                                            <div className="inline-flex gap-2">
-                                                                <button 
-                                                                    onClick={() => handleOpenEditHotel(hotel)}
-                                                                    className="px-3 py-1.5 text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 border border-slate-200 hover:border-indigo-100 rounded-xl transition-all font-bold flex items-center gap-1.5 active:scale-95"
-                                                                >
-                                                                    <Edit size={13} />
-                                                                    <span>Edit</span>
-                                                                </button>
-                                                                <button 
-                                                                    onClick={() => setConfirmHotelDeleteId(hotel.id)}
-                                                                    className="px-3 py-1.5 text-slate-600 hover:text-red-800 hover:bg-red-50 border border-slate-200 hover:border-red-100 rounded-xl transition-all font-bold flex items-center gap-1.5 active:scale-95"
-                                                                >
-                                                                    <Trash2 size={13} />
-                                                                    <span>Delete</span>
-                                                                </button>
-                                                            </div>
-                                                        )}
-                                                    </td>
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
-                                </div>
-
-                                {/* PAGINATION FOOTER BAR */}
-                                <div className="px-6 py-4 bg-slate-50/70 border-t border-slate-150/60 flex flex-col sm:flex-row items-center justify-between gap-4">
-                                    <div className="flex flex-wrap items-center gap-4 text-xs font-medium text-slate-500">
-                                        <span>
-                                            Showing <strong className="text-slate-800 font-bold">{totalMasterHotelsCount === 0 ? 0 : masterHotelStartIndex + 1}</strong> to <strong className="text-slate-800 font-bold">{masterHotelEndIndex}</strong> of <strong className="text-slate-800 font-bold">{totalMasterHotelsCount}</strong> properties
-                                        </span>
-                                        <div className="flex items-center gap-2 pl-3 border-l border-slate-200">
-                                            <span className="text-[11px] font-bold text-slate-400">Rows per page:</span>
-                                            <select
-                                                value={hotelPageSize}
-                                                onChange={(e) => {
-                                                    setHotelPageSize(Number(e.target.value));
-                                                    setHotelPage(1);
-                                                }}
-                                                className="px-2 py-1 text-xs border border-slate-200 rounded-lg bg-white font-bold text-slate-700 focus:outline-none focus:border-indigo-500 cursor-pointer shadow-2xs"
-                                            >
-                                                <option value={10}>10</option>
-                                                <option value={25}>25</option>
-                                                <option value={50}>50</option>
-                                                <option value={100}>100</option>
-                                            </select>
-                                        </div>
-                                    </div>
-
-                                    {/* Navigation buttons */}
-                                    {totalMasterHotelPages > 1 && (
-                                        <div className="flex items-center gap-1.5">
-                                            <button
-                                                onClick={() => setHotelPage(1)}
-                                                disabled={safeMasterHotelPage === 1}
-                                                className="p-1.5 text-xs font-bold rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-2xs"
-                                                title="First Page"
-                                            >
-                                                <ChevronsLeft size={14} />
-                                            </button>
-                                            <button
-                                                onClick={() => setHotelPage(p => Math.max(1, p - 1))}
-                                                disabled={safeMasterHotelPage === 1}
-                                                className="p-1.5 text-xs font-bold rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-2xs"
-                                                title="Previous Page"
-                                            >
-                                                <ChevronLeft size={14} />
-                                            </button>
-
-                                            {/* Numeric page buttons */}
-                                            {(() => {
-                                                const pages: number[] = [];
-                                                const maxButtons = 5;
-                                                let startP = Math.max(1, safeMasterHotelPage - 2);
-                                                let endP = Math.min(totalMasterHotelPages, startP + maxButtons - 1);
-                                                if (endP - startP + 1 < maxButtons) {
-                                                    startP = Math.max(1, endP - maxButtons + 1);
-                                                }
-                                                for (let p = startP; p <= endP; p++) {
-                                                    pages.push(p);
-                                                }
-
-                                                return pages.map(pageNum => (
-                                                    <button
-                                                        key={pageNum}
-                                                        onClick={() => setHotelPage(pageNum)}
-                                                        className={`px-3 py-1.5 text-xs font-bold rounded-lg border transition-all ${
-                                                            safeMasterHotelPage === pageNum
-                                                                ? 'bg-indigo-600 border-indigo-600 text-white shadow-xs'
-                                                                : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 shadow-2xs'
-                                                        }`}
-                                                    >
-                                                        {pageNum}
-                                                    </button>
-                                                ));
-                                            })()}
-
-                                            <button
-                                                onClick={() => setHotelPage(p => Math.min(totalMasterHotelPages, p + 1))}
-                                                disabled={safeMasterHotelPage === totalMasterHotelPages}
-                                                className="p-1.5 text-xs font-bold rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-2xs"
-                                                title="Next Page"
-                                            >
-                                                <ChevronRight size={14} />
-                                            </button>
-                                            <button
-                                                onClick={() => setHotelPage(totalMasterHotelPages)}
-                                                disabled={safeMasterHotelPage === totalMasterHotelPages}
-                                                className="p-1.5 text-xs font-bold rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-2xs"
-                                                title="Last Page"
-                                            >
-                                                <ChevronsRight size={14} />
-                                            </button>
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        )}
-                    </div>
-                )}
-            </main>
-
-            {/* Department Form Dialog */}
-            {isDeptFormOpen && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-fadeIn">
-                    <div className="bg-white w-full max-w-md p-6 rounded-3xl border border-slate-200 shadow-xl relative animate-scaleUp">
-                        <button 
-                            onClick={() => setIsDeptFormOpen(false)}
-                            className="absolute top-4 right-4 p-2 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100 transition-all"
-                        >
-                            <X size={18} />
-                        </button>
-
-                        <h3 className="text-lg font-bold text-slate-900 mb-1">
-                            {editingDept ? 'Edit Department' : 'Create New Department'}
-                        </h3>
-                        <p className="text-xs text-slate-500 mb-6 font-medium">
-                            {editingDept ? 'Modify the details of your master audit department below.' : 'Add a brand new corporate department to audit.'}
-                        </p>
-
-                        <form onSubmit={handleSaveDept} className="space-y-4">
-                            {deptError && (
-                                <div className="bg-red-50 border border-red-100 p-3 rounded-xl flex items-center gap-2 text-xs text-red-600 font-bold">
-                                    <AlertCircle size={15} />
-                                    <span>{deptError}</span>
-                                </div>
-                            )}
-
-                            <div>
-                                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Department Name</label>
-                                <input 
-                                    type="text" 
-                                    placeholder="e.g. Front Office / Reception"
-                                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all focus:ring-1 focus:ring-indigo-100"
-                                    value={deptName}
-                                    onChange={(e) => setDeptName(e.target.value)}
-                                    required
-                                />
-                            </div>
-
-                            <div>
-                                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Department Head</label>
-                                <input 
-                                    type="text" 
-                                    placeholder="e.g. Rangga Permana"
-                                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all focus:ring-1 focus:ring-indigo-100"
-                                    value={deptHead}
-                                    onChange={(e) => setDeptHead(e.target.value)}
-                                    required
-                                />
-                            </div>
-
-                            <div className="flex gap-3 mt-6 pt-4 border-t border-slate-100">
-                                <button 
-                                    type="submit"
-                                    className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-full font-bold text-sm transition-all shadow-lg hover:shadow-indigo-500/10 active:scale-95 outline-none"
-                                >
-                                    {editingDept ? 'Save Changes' : 'Create Department'}
-                                </button>
-                                <button 
-                                    type="button"
-                                    onClick={() => setIsDeptFormOpen(false)}
-                                    className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-600 py-3 rounded-full font-bold text-sm transition-all active:scale-95 outline-none"
-                                >
-                                    Cancel
-                                </button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
-            )}
-
-            {/* Batch Form Dialog */}
-            {isBatchFormOpen && (() => {
-                const availableHotels = hotels.filter(h => !assignedHotelIds.includes(h.id));
-                const assignedHotels = hotels.filter(h => assignedHotelIds.includes(h.id));
-
-                const filteredAvailable = availableHotels.filter(h => 
-                    h.name.toLowerCase().includes(availableSearchQuery.toLowerCase()) ||
-                    (h.brandClass && h.brandClass.toLowerCase().includes(availableSearchQuery.toLowerCase()))
-                );
-
-                const filteredAssigned = assignedHotels.filter(h => 
-                    h.name.toLowerCase().includes(assignedSearchQuery.toLowerCase()) ||
-                    (h.brandClass && h.brandClass.toLowerCase().includes(assignedSearchQuery.toLowerCase()))
-                );
-
-                return (
-                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/45 backdrop-blur-sm animate-fadeIn">
-                        <div className="bg-white w-full max-w-5xl p-6 md:p-8 rounded-3xl border border-slate-200 shadow-2xl relative animate-scaleUp max-h-[90vh] overflow-y-auto">
-                            <button 
-                                onClick={() => setIsBatchFormOpen(false)}
-                                className="absolute top-6 right-6 p-2 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100 transition-all z-10"
-                            >
-                                <X size={18} />
-                            </button>
-
-                            <div className="mb-6">
-                                <h3 className="text-xl font-bold text-slate-900 mb-1 flex items-center gap-2">
-                                    <Calendar className="text-indigo-600" size={22} />
-                                    <span>{editingBatch ? 'Edit Audit Batch' : 'Create New Audit Batch'}</span>
-                                </h3>
-                                <p className="text-xs text-slate-500 font-medium">
-                                    {editingBatch ? 'Modify details and assign Swiss-Belhotel properties to this audit batch.' : 'Add a brand new audit batch cycle and assign Swiss-Belhotel properties.'}
-                                </p>
-                            </div>
-
-                            <form onSubmit={handleSaveBatch} className="space-y-6">
-                                {batchError && (
-                                    <div className="bg-red-50 border border-red-100 p-4 rounded-2xl flex items-center gap-2 text-xs text-red-600 font-bold">
-                                        <AlertCircle size={15} />
-                                        <span>{batchError}</span>
-                                    </div>
-                                )}
-
-                                {/* Compact metadata grid */}
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-slate-50/50 p-4 rounded-2xl border border-slate-200/50">
-                                    <div>
-                                        <label className="block text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-1.5">Batch Name</label>
-                                        <input 
-                                            type="text" 
-                                            placeholder="e.g. Q3 2026 Inspection"
-                                            className="w-full px-4 py-2.5 bg-white border border-slate-200 hover:border-slate-300 focus:border-indigo-500 rounded-xl text-xs text-slate-800 outline-none transition-all font-semibold"
-                                            value={batchName}
-                                            onChange={(e) => setBatchName(e.target.value)}
-                                            required
-                                        />
-                                    </div>
-
-                                    <div>
-                                        <label className="block text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-1.5">Status</label>
-                                        <select 
-                                            className="w-full px-4 py-2.5 bg-white border border-slate-200 hover:border-slate-300 focus:border-indigo-500 rounded-xl text-xs text-slate-800 outline-none transition-all font-semibold"
-                                            value={batchStatus}
-                                            onChange={(e: any) => setBatchStatus(e.target.value)}
-                                        >
-                                            <option value="Active">Active</option>
-                                            <option value="Completed">Completed</option>
-                                            <option value="Upcoming">Upcoming</option>
-                                        </select>
-                                    </div>
-                                </div>
-
-                                {/* Dual Transfer List Box */}
-                                <div>
-                                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">Assign Hotel Properties</label>
-                                    <div className="flex flex-col md:flex-row items-stretch gap-4">
-                                        
-                                        {/* AVAILABLE COLUMN */}
-                                        <div className="flex-1 min-w-0 bg-white border border-slate-200 rounded-2xl p-4 flex flex-col h-[420px] shadow-sm hover:shadow-md/50 transition-shadow">
-                                            <div className="flex items-center justify-between mb-2">
-                                                <h4 className="text-xs font-bold text-slate-700 tracking-wide select-none">
-                                                    AVAILABLE HOTELS ({filteredAvailable.length})
-                                                </h4>
-                                            </div>
-                                            <div className="relative mb-3">
-                                                <Search className="absolute left-3 top-2.5 text-slate-400 shrink-0" size={14} />
-                                                <input 
-                                                    type="text" 
-                                                    placeholder="Search available..." 
-                                                    value={availableSearchQuery}
-                                                    onChange={(e) => setAvailableSearchQuery(e.target.value)}
-                                                    className="w-full pl-9 pr-8 py-2 bg-slate-50 hover:bg-slate-100/50 border border-slate-200/80 focus:border-indigo-500 focus:bg-white rounded-xl text-xs outline-none transition-all placeholder:text-slate-400 font-medium"
-                                                />
-                                                {availableSearchQuery && (
-                                                    <button 
-                                                        type="button" 
-                                                        onClick={() => setAvailableSearchQuery('')}
-                                                        className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600"
-                                                    >
-                                                        <X size={14} />
-                                                    </button>
-                                                )}
-                                            </div>
-                                            <div className="flex-1 overflow-y-auto pr-1 space-y-1.5 scrollbar-thin scrollbar-thumb-slate-200">
-                                                {filteredAvailable.map(hotel => {
-                                                    const code = getHotelCode(hotel);
-                                                    const isChecked = selectedAvailableIds.includes(hotel.id);
-                                                    return (
-                                                        <label 
-                                                            key={hotel.id} 
-                                                            className={`flex items-start gap-3 p-2.5 rounded-xl border cursor-pointer transition-all ${
-                                                                isChecked 
-                                                                ? 'bg-indigo-50/50 border-indigo-200/80' 
-                                                                : 'border-slate-100 hover:border-slate-200 bg-slate-50/25 hover:bg-slate-50'
-                                                            }`}
-                                                        >
-                                                            <input 
-                                                                type="checkbox" 
-                                                                checked={isChecked}
-                                                                onChange={() => toggleAvailableSelected(hotel.id)}
-                                                                className="mt-0.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 h-3.5 w-3.5 cursor-pointer"
-                                                            />
-                                                            <div className="min-w-0 flex-1">
-                                                                <span className="block text-xs font-bold text-slate-800 leading-tight">
-                                                                    {hotel.name}
-                                                                </span>
-                                                                <span className="block text-[9px] font-extrabold text-slate-400 tracking-wide font-mono uppercase mt-0.5">
-                                                                    {code} ‚Ä¢ {hotel.brandClass}
-                                                                </span>
-                                                            </div>
-                                                        </label>
-                                                    );
-                                                })}
-                                                {filteredAvailable.length === 0 && (
-                                                    <div className="h-full flex flex-col items-center justify-center text-slate-400 text-xs py-12">
-                                                        <Search size={22} className="mb-2 text-slate-300" />
-                                                        <span className="font-semibold">No available hotels match</span>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </div>
-
-                                        {/* TRANSFER OPERATIONS MIDDLE */}
-                                        <div className="flex flex-row md:flex-col justify-center gap-2.5 py-2 shrink-0 md:h-full self-center">
-                                            <button 
-                                                type="button"
-                                                onClick={moveAllToAssigned}
-                                                title="Move all filtered to assigned"
-                                                className="w-10 h-10 rounded-xl bg-slate-50 hover:bg-indigo-600 hover:text-white transition-all flex items-center justify-center font-black border border-slate-200 text-slate-600 hover:border-indigo-600 shadow-xs hover:scale-105 active:scale-95"
-                                            >
-                                                &gt;&gt;
-                                            </button>
-                                            <button 
-                                                type="button"
-                                                onClick={moveSelectedToAssigned}
-                                                disabled={selectedAvailableIds.length === 0}
-                                                title="Move checked available to assigned"
-                                                className={`w-10 h-10 rounded-xl transition-all flex items-center justify-center font-black border shadow-xs ${
-                                                    selectedAvailableIds.length === 0 
-                                                    ? 'bg-slate-50/50 text-slate-300 border-slate-100 cursor-not-allowed' 
-                                                    : 'bg-slate-50 hover:bg-indigo-600 hover:text-white text-slate-600 border-slate-200 hover:border-indigo-600 hover:scale-105 active:scale-95'
-                                                }`}
-                                            >
-                                                &gt;
-                                            </button>
-                                            <button 
-                                                type="button"
-                                                onClick={moveSelectedToAvailable}
-                                                disabled={selectedAssignedIds.length === 0}
-                                                title="Remove checked assigned from batch"
-                                                className={`w-10 h-10 rounded-xl transition-all flex items-center justify-center font-black border shadow-xs ${
-                                                    selectedAssignedIds.length === 0 
-                                                    ? 'bg-slate-50/50 text-slate-300 border-slate-100 cursor-not-allowed' 
-                                                    : 'bg-slate-50 hover:bg-indigo-600 hover:text-white text-slate-600 border-slate-200 hover:border-indigo-600 hover:scale-105 active:scale-95'
-                                                }`}
-                                            >
-                                                &lt;
-                                            </button>
-                                            <button 
-                                                type="button"
-                                                onClick={moveAllToAvailable}
-                                                title="Remove all filtered from batch"
-                                                className="w-10 h-10 rounded-xl bg-slate-50 hover:bg-indigo-600 hover:text-white transition-all flex items-center justify-center font-black border border-slate-200 text-slate-600 hover:border-indigo-600 shadow-xs hover:scale-105 active:scale-95"
-                                            >
-                                                &lt;&lt;
-                                            </button>
-                                        </div>
-
-                                        {/* ASSIGNED COLUMN */}
-                                        <div className="flex-1 min-w-0 bg-white border border-slate-200 rounded-2xl p-4 flex flex-col h-[420px] shadow-sm hover:shadow-md/50 transition-shadow">
-                                            <div className="flex items-center justify-between mb-2">
-                                                <h4 className="text-xs font-bold text-slate-700 tracking-wide select-none">
-                                                    ASSIGNED HOTELS ({filteredAssigned.length})
-                                                </h4>
-                                            </div>
-                                            <div className="relative mb-3">
-                                                <Search className="absolute left-3 top-2.5 text-slate-400 shrink-0" size={14} />
-                                                <input 
-                                                    type="text" 
-                                                    placeholder="Search assigned..." 
-                                                    value={assignedSearchQuery}
-                                                    onChange={(e) => setAssignedSearchQuery(e.target.value)}
-                                                    className="w-full pl-9 pr-8 py-2 bg-slate-50 hover:bg-slate-100/50 border border-slate-200/80 focus:border-indigo-500 focus:bg-white rounded-xl text-xs outline-none transition-all placeholder:text-slate-400 font-medium"
-                                                />
-                                                {assignedSearchQuery && (
-                                                    <button 
-                                                        type="button" 
-                                                        onClick={() => setAssignedSearchQuery('')}
-                                                        className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600"
-                                                    >
-                                                        <X size={14} />
-                                                    </button>
-                                                )}
-                                            </div>
-                                            <div className="flex-1 overflow-y-auto pr-1 space-y-1.5 scrollbar-thin scrollbar-thumb-slate-200">
-                                                {filteredAssigned.map(hotel => {
-                                                    const code = getHotelCode(hotel);
-                                                    const isChecked = selectedAssignedIds.includes(hotel.id);
-                                                    return (
-                                                        <label 
-                                                            key={hotel.id} 
-                                                            className={`flex items-start gap-3 p-2.5 rounded-xl border cursor-pointer transition-all ${
-                                                                isChecked 
-                                                                ? 'bg-indigo-50/50 border-indigo-200/80' 
-                                                                : 'border-slate-100 hover:border-slate-200 bg-slate-50/25 hover:bg-slate-50'
-                                                            }`}
-                                                        >
-                                                            <input 
-                                                                type="checkbox" 
-                                                                checked={isChecked}
-                                                                onChange={() => toggleAssignedSelected(hotel.id)}
-                                                                className="mt-0.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 h-3.5 w-3.5 cursor-pointer"
-                                                            />
-                                                            <div className="min-w-0 flex-1">
-                                                                <span className="block text-xs font-bold text-slate-800 leading-tight">
-                                                                    {hotel.name}
-                                                                </span>
-                                                                <span className="block text-[9px] font-extrabold text-slate-400 tracking-wide font-mono uppercase mt-0.5">
-                                                                    {code} ‚Ä¢ {hotel.brandClass}
-                                                                </span>
-                                                            </div>
-                                                        </label>
-                                                    );
-                                                })}
-                                                {filteredAssigned.length === 0 && (
-                                                    <div className="h-full flex flex-col items-center justify-center text-slate-400 p-6 text-center select-none py-12 bg-slate-50/25 border border-dashed border-slate-100 rounded-2xl">
-                                                        <div className="w-10 h-10 rounded-full border-2 border-slate-200 flex items-center justify-center text-slate-300 mb-2">
-                                                            <CheckCircle size={16} />
-                                                        </div>
-                                                        <span className="text-xs text-slate-400 font-semibold">No hotels assigned</span>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </div>
-
-                                    </div>
-                                </div>
-
-                                <div className="flex gap-3 justify-end pt-5 border-t border-slate-100">
-                                    <button 
-                                        type="button"
-                                        onClick={() => setIsBatchFormOpen(false)}
-                                        className="px-6 py-3 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-full font-bold text-xs tracking-wider transition-all uppercase outline-none active:scale-95"
-                                    >
-                                        Cancel
-                                    </button>
-                                    <button 
-                                        type="submit"
-                                        className="px-7 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full font-bold text-xs tracking-wider transition-all uppercase shadow-lg hover:shadow-indigo-500/10 flex items-center gap-2 outline-none active:scale-95"
-                                    >
-                                        <CheckCircle size={14} />
-                                        <span>Save Changes</span>
-                                    </button>
-                                </div>
-                            </form>
-                        </div>
-                    </div>
-                );
-            })()}
-
-            {/* Hotel Form Dialog */}
-            {isHotelFormOpen && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-fadeIn">
-                    <div className="bg-white w-full max-w-md p-6 rounded-3xl border border-slate-200 shadow-xl relative animate-scaleUp">
-                        <button 
-                            onClick={() => setIsHotelFormOpen(false)}
-                            className="absolute top-4 right-4 p-2 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100 transition-all"
-                        >
-                            <X size={18} />
-                        </button>
-
-                        <h3 className="text-lg font-bold text-slate-900 mb-1">
-                            {editingHotel ? 'Edit Hotel Property' : 'Create New Hotel Property'}
-                        </h3>
-                        <p className="text-xs text-slate-500 mb-6 font-medium">
-                            {editingHotel ? 'Modify the details of your Swiss-Belhotel brand property below.' : 'Add a brand new Swiss-Belhotel corporate brand property.'}
-                        </p>
-
-                        <form onSubmit={handleSaveHotel} className="space-y-4">
-                            {hotelError && (
-                                <div className="bg-red-50 border border-red-100 p-3 rounded-xl flex items-center gap-2 text-xs text-red-600 font-bold">
-                                    <AlertCircle size={15} />
-                                    <span>{hotelError}</span>
-                                </div>
-                            )}
-
-                            <div>
-                                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Hotel Name</label>
-                                <input 
-                                    type="text" 
-                                    placeholder="e.g. Swiss-Belhotel Seef"
-                                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all focus:ring-1 focus:ring-indigo-100 font-semibold"
-                                    value={hotelName}
-                                    onChange={(e) => setHotelName(e.target.value)}
-                                    required
-                                />
-                            </div>
-
-                            <div>
-                                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Hotel Code</label>
-                                <input 
-                                    type="text" 
-                                    placeholder="e.g. CWS"
-                                    maxLength={8}
-                                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all focus:ring-1 focus:ring-indigo-100 font-mono uppercase font-bold"
-                                    value={hotelCode}
-                                    onChange={(e) => setHotelCode(e.target.value)}
-                                    required
-                                />
-                            </div>
-
-                            <div>
-                                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Brand Segment</label>
-                                <select 
-                                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all focus:ring-1 focus:ring-indigo-100"
-                                    value={hotelBrandClass}
-                                    onChange={(e) => setHotelBrandClass(e.target.value)}
-                                >
-                                    {HOTEL_BRANDS.map((brand) => (
-                                        <option key={brand} value={brand}>{brand}</option>
-                                    ))}
-                                </select>
-                            </div>
-
-                            <div className="grid grid-cols-2 gap-4">
-                                <div>
-                                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Region</label>
-                                    <select 
-                                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all focus:ring-1 focus:ring-indigo-100"
-                                        value={hotelRegion}
-                                        onChange={(e) => setHotelRegion(e.target.value)}
-                                    >
-                                        <option value="ANZPAC">ANZPAC</option>
-                                        <option value="Indonesia">Indonesia</option>
-                                        <option value="Philippines">Philippines</option>
-                                        <option value="Central Asia">Central Asia</option>
-                                        <option value="EMEA">EMEA</option>
-                                    </select>
-                                </div>
-
-                                <div>
-                                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Country</label>
-                                    <input 
-                                        type="text" 
-                                        placeholder="e.g. Bahrain"
-                                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all focus:ring-1 focus:ring-indigo-100"
-                                        value={hotelCountry}
-                                        onChange={(e) => setHotelCountry(e.target.value)}
-                                        required
-                                    />
-                                </div>
-                            </div>
-
-                            <div>
-                                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Star Rating</label>
-                                <div className="flex items-center gap-2 bg-slate-50 px-4 py-2 rounded-xl border border-slate-200 select-none">
-                                    <div className="flex gap-1">
-                                        {[1, 2, 3, 4, 5].map((star) => (
-                                            <button
-                                                type="button"
-                                                key={star}
-                                                onClick={() => setHotelStars(star)}
-                                                className="p-1 hover:scale-110 transition-transform"
-                                            >
-                                                <Star 
-                                                    size={18} 
-                                                    fill={star <= hotelStars ? "currentColor" : "none"} 
-                                                    className={star <= hotelStars ? "text-amber-500" : "text-slate-300"} 
-                                                />
-                                            </button>
-                                        ))}
-                                    </div>
-                                    <span className="text-xs font-bold text-slate-500 ml-auto">
-                                        {hotelStars} {hotelStars === 1 ? 'Star' : 'Stars'}
-                                    </span>
-                                </div>
-                            </div>
-
-                            <div>
-                                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Location / City & Country</label>
-                                <input 
-                                    type="text" 
-                                    placeholder="e.g. Manama, Bahrain"
-                                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all focus:ring-1 focus:ring-indigo-100"
-                                    value={hotelLocation}
-                                    onChange={(e) => setHotelLocation(e.target.value)}
-                                    required
-                                />
-                            </div>
-
-                            <div className="flex gap-3 mt-6 pt-4 border-t border-slate-100">
-                                <button 
-                                    type="submit"
-                                    className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-full font-bold text-sm transition-all shadow-lg hover:shadow-indigo-500/10 active:scale-95 outline-none"
-                                >
-                                    {editingHotel ? 'Save Changes' : 'Create Property'}
-                                </button>
-                                <button 
-                                    type="button"
-                                    onClick={() => setIsHotelFormOpen(false)}
-                                    className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-600 py-3 rounded-full font-bold text-sm transition-all active:scale-95 outline-none"
-                                >
-                                    Cancel
-                                </button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
-            )}
-
-            {/* Category Form Dialog */}
-            {isCatFormOpen && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-fadeIn">
-                    <div className="bg-white w-full max-w-md p-6 rounded-3xl border border-slate-200 shadow-xl relative animate-scaleUp">
-                        <button 
-                            onClick={() => setIsCatFormOpen(false)}
-                            className="absolute top-4 right-4 p-2 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100 transition-all"
-                        >
-                            <X size={18} />
-                        </button>
-
-                        <h3 className="text-lg font-bold text-slate-900 mb-1">
-                            {editingCat ? 'Edit Audit Category' : 'Create New Audit Category'}
-                        </h3>
-                        <p className="text-xs text-slate-500 mb-6 font-medium">
-                            {editingCat ? 'Modify the details of your master audit category group below.' : 'Add a brand-new master audit checklist category.'}
-                        </p>
-
-                        <form onSubmit={handleSaveCat} className="space-y-4">
-                            {catError && (
-                                <div className="bg-red-50 border border-red-100 p-3 rounded-xl flex items-center gap-2 text-xs text-red-600 font-bold">
-                                    <AlertCircle size={15} />
-                                    <span>{catError}</span>
-                                </div>
-                            )}
-
-                            <div>
-                                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Category Name</label>
-                                <input 
-                                    type="text" 
-                                    placeholder="e.g. XI. BRAND CUSTOMS & ACCENTS"
-                                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all focus:ring-1 focus:ring-indigo-100"
-                                    value={catName}
-                                    onChange={(e) => setCatName(e.target.value)}
-                                    required
-                                />
-                            </div>
-
-                            <div>
-                                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Department Link (Optional)</label>
-                                <select
-                                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all focus:ring-1 focus:ring-indigo-100"
-                                    value={catDepartmentId}
-                                    onChange={(e) => setCatDepartmentId(e.target.value)}
-                                >
-                                    <option value="">-- No specific department --</option>
-                                    {departments.map((dept) => (
-                                        <option key={dept.id} value={dept.id}>
-                                            {dept.name} ({dept.head})
-                                        </option>
-                                    ))}
-                                </select>
-                            </div>
-
-                            <div className="flex gap-3 mt-6 pt-4 border-t border-slate-100">
-                                <button 
-                                    type="submit"
-                                    className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-full font-bold text-sm transition-all shadow-lg hover:shadow-indigo-500/10 active:scale-95 outline-none"
-                                >
-                                    {editingCat ? 'Save Changes' : 'Create Category'}
-                                </button>
-                                <button 
-                                    type="button"
-                                    onClick={() => setIsCatFormOpen(false)}
-                                    className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-600 py-3 rounded-full font-bold text-sm transition-all active:scale-95 outline-none"
-                                >
-                                    Cancel
-                                </button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
-            )}
-
-            {/* Item Form Dialog */}
-            {isItemFormOpen && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-fadeIn">
-                    <div className="bg-white w-full max-w-4xl p-6 rounded-3xl border border-slate-200 shadow-xl relative animate-scaleUp max-h-[90vh] flex flex-col">
-                        <button 
-                            onClick={() => setIsItemFormOpen(false)}
-                            className="absolute top-4 right-4 p-2 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100 transition-all z-10"
-                        >
-                            <X size={18} />
-                        </button>
-
-                        <div className="shrink-0 mb-6 pr-6">
-                            <h3 className="text-xl font-bold text-slate-900 mb-1">
-                                {editingItem ? 'Edit Audit Item' : 'Create New Audit Item'}
-                            </h3>
-                            <p className="text-sm text-slate-500 font-medium">
-                                {editingItem ? 'Modify the details of your audit checklist item below.' : 'Add a brand-new audit checklist item.'}
-                            </p>
-                        </div>
-
-                        <div className="flex-1 overflow-y-auto pr-2 pb-2 scrollbar-thin">
-                            <form onSubmit={handleSaveItem} className="flex flex-col h-full">
-                                {itemError && (
-                                    <div className="bg-red-50 border border-red-100 p-3 rounded-xl flex items-center gap-2 text-xs text-red-600 font-bold mb-4 shrink-0">
-                                        <AlertCircle size={15} />
-                                        <span>{itemError}</span>
-                                    </div>
-                                )}
-
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-5">
-                                    {/* Left Column */}
-                                    <div className="space-y-5">
-                                        <div>
-                                            <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Item Name</label>
-                                            <input 
-                                                type="text" 
-                                                placeholder="e.g. Ensure logo is visible"
-                                                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all focus:ring-1 focus:ring-indigo-100"
-                                                value={itemName}
-                                                onChange={(e) => setItemName(e.target.value)}
-                                                required
-                                            />
-                                        </div>
-
-                                        <div className="grid grid-cols-2 gap-4">
-                                            <div>
-                                                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Department</label>
-                                                <select
-                                                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all focus:ring-1 focus:ring-indigo-100"
-                                                    value={itemDepartmentId}
-                                                    onChange={(e) => setItemDepartmentId(e.target.value)}
-                                                    required
-                                                >
-                                                    <option value="">-- Select Dept --</option>
-                                                    {departments.map((dept) => (
-                                                        <option key={dept.id} value={dept.id}>
-                                                            {dept.name}
-                                                        </option>
-                                                    ))}
-                                                </select>
-                                            </div>
-                                            <div>
-                                                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Category</label>
-                                                <select
-                                                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all focus:ring-1 focus:ring-indigo-100"
-                                                    value={itemCategoryId}
-                                                    onChange={(e) => setItemCategoryId(e.target.value)}
-                                                    required
-                                                >
-                                                    <option value="">-- Select Cat --</option>
-                                                    {[...catList]
-                                                        .sort((a, b) => {
-                                                            const idA = Number(a.id);
-                                                            const idB = Number(b.id);
-                                                            if (!isNaN(idA) && !isNaN(idB)) {
-                                                                return idA - idB;
-                                                            }
-                                                            return a.id.localeCompare(b.id);
-                                                        })
-                                                        .map((cat) => (
-                                                            <option key={cat.id} value={cat.id}>
-                                                                {cat.name}
-                                                            </option>
-                                                        ))}
-                                                </select>
-                                            </div>
-                                        </div>
-
-                                        <div>
-                                            <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Point (Weight)</label>
-                                            <input 
-                                                type="number" 
-                                                min="0"
-                                                max="1000"
-                                                placeholder="e.g. 5"
-                                                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all focus:ring-1 focus:ring-indigo-100"
-                                                value={itemPoints}
-                                                onChange={(e) => setItemPoints(Number(e.target.value))}
-                                                required
-                                            />
-                                        </div>
-
-                                        <div className="flex items-center justify-between bg-slate-50 border border-slate-200 hover:border-slate-300 p-4 rounded-2xl">
-                                            <div className="pr-4">
-                                                <label className="block text-xs font-bold text-slate-800 uppercase tracking-wider mb-0.5">Filled by Hotel</label>
-                                                <p className="text-[10px] text-slate-400 font-bold leading-tight">True if the hotel property fills this checklist item as part of self-audit</p>
-                                            </div>
-                                            <button
-                                                type="button"
-                                                onClick={() => setItemFilledByHotel(!itemFilledByHotel)}
-                                                className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                                                    itemFilledByHotel ? 'bg-indigo-600' : 'bg-slate-300'
-                                                }`}
-                                            >
-                                                <span
-                                                    className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                                                        itemFilledByHotel ? 'translate-x-5' : 'translate-x-0'
-                                                    }`}
-                                                />
-                                            </button>
-                                        </div>
-                                    </div>
-
-                                    {/* Right Column */}
-                                    <div className="space-y-5">
-                                        <div>
-                                            <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Input Type</label>
-                                            <div className="grid grid-cols-3 gap-2">
-                                                {[
-                                                    { id: 'camera', label: 'Camera', icon: Camera },
-                                                    { id: 'image', label: 'Image', icon: ImageIcon },
-                                                    { id: 'document', label: 'Document', icon: FileText },
-                                                    { id: 'numeric', label: 'Numeric', icon: Hash },
-                                                    { id: 'text', label: 'Text', icon: Type },
-                                                    { id: 'checkbox', label: 'Checkbox', icon: CheckSquare }
-                                                ].map((type) => (
-                                                    <button
-                                                        type="button"
-                                                        key={type.id}
-                                                        onClick={() => setItemInputType(type.id as AuditItem['inputType'])}
-                                                        className={`flex flex-col items-center justify-center p-3 rounded-xl border transition-all ${
-                                                            itemInputType === type.id 
-                                                                ? 'bg-indigo-50 border-indigo-500 text-indigo-700' 
-                                                                : 'bg-slate-50 border-slate-200 text-slate-600 hover:border-slate-300'
-                                                        }`}
-                                                    >
-                                                        <type.icon size={20} />
-                                                        <span className="text-[10px] font-bold mt-1 uppercase">{type.label}</span>
-                                                    </button>
-                                                ))}
-                                            </div>
-                                        </div>
-
-                                        {itemInputType === 'numeric' && (
-                                            <div className="animate-fadeIn">
-                                                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Minimum Value</label>
-                                                <input 
-                                                    type="number" 
-                                                    placeholder="e.g. 10"
-                                                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all focus:ring-1 focus:ring-indigo-100"
-                                                    value={itemMinValue}
-                                                    onChange={(e) => setItemMinValue(e.target.value === '' ? '' : Number(e.target.value))}
-                                                    required
-                                                />
-                                                <p className="text-[10px] text-slate-500 mt-1">
-                                                    The audit will require the inputted number to be at least this minimum value.
-                                                </p>
-                                            </div>
-                                        )}
-
-                                        <div>
-                                            <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Item Description (Optional)</label>
-                                            <textarea 
-                                                placeholder="Add item description..."
-                                                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all focus:ring-1 focus:ring-indigo-100"
-                                                value={itemItemDescription}
-                                                onChange={(e) => setItemItemDescription(e.target.value)}
-                                                rows={2}
-                                            />
-                                        </div>
-
-                                        <div>
-                                            <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Instruction (Optional)</label>
-                                            <textarea 
-                                                placeholder="Add instruction..."
-                                                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all focus:ring-1 focus:ring-indigo-100"
-                                                value={itemInstruction}
-                                                onChange={(e) => setItemInstruction(e.target.value)}
-                                                rows={2}
-                                            />
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div className="flex gap-3 mt-auto pt-6 border-t border-slate-100 shrink-0">
-                                    <button 
-                                        type="submit"
-                                        className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white py-3.5 rounded-full font-bold text-sm transition-all shadow-lg hover:shadow-indigo-500/20 active:scale-95 outline-none"
-                                    >
-                                        {editingItem ? 'Save Changes' : 'Create Item'}
-                                    </button>
-                                    <button 
-                                        type="button"
-                                        onClick={() => setIsItemFormOpen(false)}
-                                        className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-600 py-3.5 rounded-full font-bold text-sm transition-all active:scale-95 outline-none"
-                                    >
-                                        Cancel
-                                    </button>
-                                </div>
-                            </form>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* Audit Group Form Dialog */}
-            {isGroupFormOpen && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-fadeIn">
-                    <div className="bg-white w-full max-w-4xl p-6 sm:p-8 rounded-[28px] border border-slate-200 shadow-2xl relative animate-scaleUp max-h-[90vh] flex flex-col overflow-hidden">
-                        <button 
-                            type="button"
-                            onClick={() => setIsGroupFormOpen(false)}
-                            className="absolute top-5 right-5 p-2 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100 transition-all outline-none"
-                        >
-                            <X size={18} />
-                        </button>
-
-                        <div className="mb-4">
-                            <h3 className="text-xl font-bold text-slate-900">
-                                {editingGroup ? 'Edit Audit Checklist Group' : 'Create New Audit Checklist Group'}
-                            </h3>
-                            <p className="text-xs text-slate-500 font-medium mt-1">
-                                Configure the group information and build your checklist by dragging entire Audit Categories, then check/uncheck individual checklist items.
-                            </p>
-                        </div>
-
-                        <form onSubmit={handleSaveGroup} className="flex-1 flex flex-col overflow-hidden gap-5">
-                            {groupError && (
-                                <div className="bg-red-50 border border-red-100 p-3 rounded-xl flex items-center gap-2 text-xs text-red-600 font-bold">
-                                    <AlertCircle size={15} />
-                                    <span>{groupError}</span>
-                                </div>
-                            )}
-
-                            {/* Group Information Fields */}
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 col-span-full">
-                                <div className="md:col-span-1">
-                                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Group Title</label>
-                                    <input 
-                                        type="text" 
-                                        placeholder="e.g. Front Office SOP Group"
-                                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all focus:ring-1 focus:ring-indigo-100"
-                                        value={groupName}
-                                        onChange={(e) => setGroupName(e.target.value)}
-                                        required
-                                    />
-                                </div>
-                                <div className="md:col-span-2">
-                                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Group Description</label>
-                                    <input 
-                                        type="text" 
-                                        placeholder="Brief summary of the checklist grouped criteria..."
-                                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all focus:ring-1 focus:ring-indigo-100"
-                                        value={groupDescription}
-                                        onChange={(e) => setGroupDescription(e.target.value)}
-                                    />
-                                </div>
-                            </div>
-
-                            {/* Drag and Drop Workspace */}
-                            <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-2 gap-6 pb-2">
-                                {/* Left Panel: Available Master Categories */}
-                                <div className="flex flex-col bg-slate-50/60 rounded-2xl border border-slate-150 p-4 min-h-0"
-                                     onDragOver={(e) => e.preventDefault()}
-                                     onDrop={handleDropOnAvailableCatZone}>
-                                    <div className="flex items-center justify-between gap-2 mb-3 shrink-0">
-                                        <h4 className="text-xs font-extrabold text-slate-700 uppercase tracking-widest">Available Audit Categories ({catList.filter(cat => !groupCategoryIds.includes(cat.id)).length})</h4>
-                                        <span className="text-[10px] text-indigo-600 bg-indigo-50 px-2.5 py-0.5 rounded-full font-bold">Drag card to assign</span>
-                                    </div>
-                                    
-                                    {/* Dialog Search box */}
-                                    <div className="bg-white px-3 py-2 rounded-xl border border-slate-200 flex items-center gap-2 mb-3 focus-within:border-indigo-300 transition-all select-none shrink-0">
-                                        <Search className="text-slate-400 shrink-0" size={14} />
-                                        <input
-                                            type="text"
-                                            placeholder="Look up categories..."
-                                            className="w-full text-xs text-slate-700 bg-transparent outline-none border-none placeholder-slate-400 p-0 focus:ring-0"
-                                            value={dialogSearchQuery}
-                                            onChange={(e) => setDialogSearchQuery(e.target.value)}
-                                        />
-                                        {dialogSearchQuery && (
-                                            <button type="button" onClick={() => setDialogSearchQuery('')} className="p-0.5 text-slate-300 hover:text-slate-500">
-                                                <X size={12} />
-                                            </button>
-                                        )}
-                                    </div>
-
-                                    {/* Draggable available list */}
-                                    <div className="flex-grow overflow-y-auto space-y-2 pr-1 scrollbar-thin">
-                                        {catList.filter(cat => !groupCategoryIds.includes(cat.id) && (
-                                            cat.name.toLowerCase().includes(dialogSearchQuery.toLowerCase())
-                                        )).length === 0 ? (
-                                            <div className="h-full flex flex-col items-center justify-center p-8 text-center text-slate-400 border border-dashed border-slate-200 rounded-xl bg-white/50">
-                                                <Search size={22} className="text-slate-300 mb-1.5" />
-                                                <p className="text-xs font-bold text-slate-700">No categories found</p>
-                                                <p className="text-[10px] text-slate-400 mt-0.5">All categories assigned or none match query</p>
-                                            </div>
-                                        ) : (
-                                            catList.filter(cat => !groupCategoryIds.includes(cat.id) && (
-                                                cat.name.toLowerCase().includes(dialogSearchQuery.toLowerCase())
-                                            )).map((cat) => {
-                                                const catItemsCount = items.filter(i => i.categoryId === cat.id).length;
-                                                return (
-                                                    <div 
-                                                        key={`available-cat-${cat.id}`}
-                                                        draggable
-                                                        onDragStart={(e) => handleDragStartAvailableCat(e, cat.id)}
-                                                        className="bg-white p-3 rounded-xl border border-slate-200 hover:border-indigo-200 cursor-grab active:cursor-grabbing hover:shadow-sm transition-all flex items-center justify-between gap-2.5 group select-none relative"
-                                                    >
-                                                        <div className="flex items-center gap-2 min-w-0 flex-1">
-                                                            <div className="w-5 h-5 rounded hover:bg-slate-100 text-slate-400 shrink-0 cursor-grab active:cursor-grabbing flex items-center justify-center pointer-events-none">
-                                                                <GripVertical size={13} />
-                                                            </div>
-                                                            <div className="min-w-0 pr-1 pointer-events-none flex-1">
-                                                                <p className="text-xs font-bold text-slate-800 leading-tight block truncate pr-2" title={cat.name}>{cat.name}</p>
-                                                                <p className="text-[10px] text-slate-400 mt-0.5 font-medium">{catItemsCount} checklist items</p>
-                                                            </div>
-                                                        </div>
-                                                        <button 
-                                                            type="button"
-                                                            onClick={() => handleQuickAddCat(cat.id)}
-                                                            className="p-1.5 text-indigo-600 hover:text-white bg-indigo-50 hover:bg-indigo-600 border border-indigo-100 rounded-lg transition-all shadow-sm flex items-center justify-center outline-none shrink-0"
-                                                            title="Add Category"
-                                                        >
-                                                            <Plus size={12} />
-                                                        </button>
-                                                    </div>
-                                                );
-                                            })
-                                        )}
-                                    </div>
-                                </div>
-
-                                {/* Right Panel: Assigned checkbox checklist dropzone */}
-                                <div className={`flex flex-col rounded-2xl border-2 p-4 min-h-0 transition-all ${
-                                         isDragOverAssigned 
-                                             ? 'bg-indigo-50/50 border-dashed border-indigo-500 scale-[1.002]' 
-                                             : 'bg-indigo-50/10 border-indigo-100/50 border'
-                                     }`}
-                                     onDragOver={(e) => { e.preventDefault(); setIsDragOverAssigned(true); }}
-                                     onDragLeave={() => setIsDragOverAssigned(false)}
-                                     onDrop={handleDropOnAssignedCatZone}>
-                                    <div className="flex items-center justify-between gap-2 mb-3 shrink-0">
-                                        <div className="flex items-center gap-1.5">
-                                            <h4 className="text-xs font-extrabold text-indigo-900 uppercase tracking-widest">Assigned Categories ({groupCategoryIds.length})</h4>
-                                            <span className="text-[10px] bg-indigo-100 text-indigo-700 rounded-md px-1.5 py-0.5 font-extrabold">{groupItemIds.length} items checked</span>
-                                        </div>
-                                        <span className="text-[10px] text-indigo-500 font-bold bg-indigo-100/50 px-2 py-0.5 rounded-full">Drop cards here</span>
-                                    </div>
-
-                                    {/* Draggable assigned category elements */}
-                                    <div className="flex-grow overflow-y-auto space-y-3 pr-1 scrollbar-thin">
-                                        {groupCategoryIds.length === 0 ? (
-                                            <div className="h-full flex flex-col items-center justify-center p-8 text-center text-slate-400 border border-dashed border-slate-250 rounded-xl bg-white/50 select-none">
-                                                <Layers size={26} className="text-slate-300 mb-1.5 animate-bounce" />
-                                                <p className="text-xs font-bold text-slate-700">No categories assigned yet</p>
-                                                <p className="text-[10px] text-slate-400 mt-0.5">Drag an Audit Category from the left and drop it here. You can then expand it to select/deselect specific items!</p>
-                                            </div>
-                                        ) : (
-                                            groupCategoryIds.map((catId, index) => {
-                                                const catObj = catList.find(c => c.id === catId);
-                                                if (!catObj) return null;
-                                                
-                                                const categoryItems = items.filter(i => i.categoryId === catId);
-                                                const selectedCatItemsCount = categoryItems.filter(i => groupItemIds.includes(i.id)).length;
-                                                const isExpanded = expandedCategoryIds.includes(catId);
-                                                const isAllChecked = categoryItems.length > 0 && categoryItems.every(i => groupItemIds.includes(i.id));
-                                                const isSomeChecked = categoryItems.length > 0 && categoryItems.some(i => groupItemIds.includes(i.id)) && !isAllChecked;
-
-                                                return (
-                                                    <div 
-                                                        key={`assigned-cat-${catId}-${index}`}
-                                                        draggable
-                                                        onDragStart={(e) => handleDragStartAssignedCat(e, catId, index)}
-                                                        onDragOver={(e) => e.preventDefault()}
-                                                        onDrop={(e) => handleDropOnAssignedCatItem(e, index)}
-                                                        className="bg-white rounded-xl border border-indigo-100 hover:border-indigo-250 shadow-sm hover:shadow transition-all overflow-hidden flex flex-col"
-                                                    >
-                                                        {/* Category Card Header */}
-                                                        <div className="px-3 py-2.5 bg-slate-50/50 flex items-center justify-between gap-1.5 border-b border-indigo-50/30">
-                                                            <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                                                                <div className="w-5 h-5 rounded text-slate-400 shrink-0 cursor-grab active:cursor-grabbing flex items-center justify-center hover:bg-slate-100">
-                                                                    <GripVertical size={13} />
-                                                                </div>
-                                                                
-                                                                <input 
-                                                                    type="checkbox"
-                                                                    checked={isAllChecked}
-                                                                    ref={el => {
-                                                                        if (el) el.indeterminate = isSomeChecked;
-                                                                    }}
-                                                                    onChange={(e) => handleToggleCategoryAllItems(catId, e.target.checked)}
-                                                                    className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300 cursor-pointer shrink-0"
-                                                                    title="Select/Deselect All items in Category"
-                                                                />
-
-                                                                <div className="min-w-0 pr-1 cursor-pointer flex-1" onClick={() => toggleExpandCategory(catId)}>
-                                                                    <p className="text-xs font-bold text-slate-800 leading-snug truncate hover:text-indigo-600 transition-colors" title={catObj.name}>
-                                                                        {catObj.name}
-                                                                    </p>
-                                                                    <p className="text-[10px] text-indigo-600 font-extrabold mt-0.5">
-                                                                        {selectedCatItemsCount} of {categoryItems.length} items checked
-                                                                    </p>
-                                                                </div>
-                                                            </div>
-
-                                                            {/* Action buttons */}
-                                                            <div className="flex items-center gap-1 shrink-0">
-                                                                <button 
-                                                                    type="button"
-                                                                    onClick={() => handleMoveCatUp(index)}
-                                                                    disabled={index === 0}
-                                                                    className={`p-1 rounded hover:bg-slate-100 ${index === 0 ? 'text-slate-200' : 'text-slate-500 hover:text-slate-800'}`}
-                                                                    title="Move Up"
-                                                                >
-                                                                    <ChevronUp size={14} />
-                                                                </button>
-                                                                <button 
-                                                                    type="button"
-                                                                    onClick={() => handleMoveCatDown(index)}
-                                                                    disabled={index === groupCategoryIds.length - 1}
-                                                                    className={`p-1 rounded hover:bg-slate-100 ${index === groupCategoryIds.length - 1 ? 'text-slate-200' : 'text-slate-500 hover:text-slate-800'}`}
-                                                                    title="Move Down"
-                                                                >
-                                                                    <ChevronDown size={14} />
-                                                                </button>
-
-                                                                {/* Expansion Control */}
-                                                                <button 
-                                                                    type="button"
-                                                                    onClick={() => toggleExpandCategory(catId)}
-                                                                    className="p-1 hover:bg-indigo-50 text-slate-500 rounded transition-all"
-                                                                    title={isExpanded ? "Collapse" : "Expand"}
-                                                                >
-                                                                    {isExpanded ? (
-                                                                        <ChevronUp size={15} className="text-indigo-600 font-bold" />
-                                                                    ) : (
-                                                                        <ChevronDown size={15} />
-                                                                    )}
-                                                                </button>
-
-                                                                <button 
-                                                                    type="button"
-                                                                    onClick={() => handleQuickRemoveCat(catId)}
-                                                                    className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
-                                                                    title="Remove category"
-                                                                >
-                                                                    <Trash2 size={13} />
-                                                                </button>
-                                                            </div>
-                                                        </div>
-
-                                                        {/* Expandable Item Checkbox List */}
-                                                        {isExpanded && (
-                                                            <div className="p-3 bg-white border-t border-slate-50 space-y-1.5 max-h-52 overflow-y-auto scrollbar-thin divide-y divide-slate-100/40 animate-fadeIn">
-                                                                {categoryItems.length === 0 ? (
-                                                                    <p className="text-[10px] italic text-slate-400 py-1">No checklist items configured for this category.</p>
-                                                                ) : (
-                                                                    categoryItems.map((item) => {
-                                                                        const isChecked = groupItemIds.includes(item.id);
-                                                                        return (
-                                                                            <label 
-                                                                                key={item.id}
-                                                                                className="flex items-start gap-2 py-1.5 cursor-pointer group hover:bg-slate-50/50 rounded transition-colors"
-                                                                            >
-                                                                                <input 
-                                                                                    type="checkbox"
-                                                                                    checked={isChecked}
-                                                                                    onChange={() => handleToggleItemCheckbox(item.id)}
-                                                                                    className="w-3.5 h-3.5 rounded text-indigo-600 focus:ring-indigo-450 border-slate-300 mt-0.5 cursor-pointer shrink-0"
-                                                                                />
-                                                                                <div className="flex-1 min-w-0 ml-1">
-                                                                                    <p className="text-xs text-slate-700 font-semibold leading-normal group-hover:text-indigo-600 transition-colors whitespace-normal break-words">
-                                                                                        {item.name}
-                                                                                    </p>
-                                                                                    {item.description && (
-                                                                                        <p className="text-[10px] text-slate-400 mt-0.5 block truncate whitespace-normal line-clamp-1 leading-tight">
-                                                                                            {item.description}
-                                                                                        </p>
-                                                                                    )}
-                                                                                </div>
-                                                                            </label>
-                                                                        );
-                                                                    })
-                                                                )}
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                );
-                                            })
-                                        )}
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* Footer Submit Buttons */}
-                            <div className="flex gap-3 justify-end pt-4 border-t border-slate-100 shrink-0">
-                                <button 
-                                    type="button"
-                                    onClick={() => setIsGroupFormOpen(false)}
-                                    className="px-6 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-full font-bold text-sm transition-all active:scale-95 outline-none"
-                                >
-                                    Cancel
-                                </button>
-                                <button 
-                                    type="submit"
-                                    className="px-8 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full font-bold text-sm transition-all shadow-lg hover:shadow-indigo-500/10 active:scale-95 outline-none"
-                                >
-                                    {editingGroup ? 'Save Changes' : 'Create Group'}
-                                </button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
-            )}
-
-            {/* User Form Modal */}
-            {isUserFormOpen && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-fadeIn">
-                    <div className="bg-white w-full max-w-lg p-6 sm:p-8 rounded-[28px] border border-slate-200 shadow-2xl relative animate-scaleUp max-h-[90vh] flex flex-col overflow-y-auto">
-                        <button 
-                            type="button"
-                            onClick={() => setIsUserFormOpen(false)}
-                            className="absolute top-5 right-5 p-2 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100 transition-all outline-none"
-                        >
-                            <X size={18} />
-                        </button>
-
-                        <div className="mb-6">
-                            <h3 className="text-xl font-bold text-slate-900">
-                                {editingUser ? 'Edit User Profile' : 'Create New User Profile'}
-                            </h3>
-                            <p className="text-xs text-slate-500 font-medium mt-1">
-                                {editingUser ? 'Update role, property bindings, and brand audit privileges.' : 'Manually provision a new user profile with specific access rights.'}
-                            </p>
-                        </div>
-
-                        <form onSubmit={handleSaveUser} className="space-y-4">
-                            {userFormError && (
-                                <div className="bg-red-50 border border-red-100 p-3 rounded-xl flex items-center gap-2 text-xs text-red-600 font-bold">
-                                    <AlertCircle size={15} />
-                                    <span>{userFormError}</span>
-                                </div>
-                            )}
-
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                <div>
-                                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">First Name</label>
-                                    <input 
-                                        type="text" 
-                                        placeholder="e.g. John"
-                                        className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all focus:ring-1 focus:ring-indigo-100"
-                                        value={userFormFirstName}
-                                        onChange={(e) => {
-                                            setUserFormFirstName(e.target.value);
-                                            if (!userFormDisplayName) {
-                                                setUserFormDisplayName(`${e.target.value} ${userFormLastName}`.trim());
-                                            }
-                                        }}
-                                        required
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Last Name</label>
-                                    <input 
-                                        type="text" 
-                                        placeholder="e.g. Doe"
-                                        className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all focus:ring-1 focus:ring-indigo-100"
-                                        value={userFormLastName}
-                                        onChange={(e) => {
-                                            setUserFormLastName(e.target.value);
-                                            if (!userFormDisplayName) {
-                                                setUserFormDisplayName(`${userFormFirstName} ${e.target.value}`.trim());
-                                            }
-                                        }}
-                                    />
-                                </div>
-                            </div>
-
-                            <div>
-                                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Display Name</label>
-                                <input 
-                                    type="text" 
-                                    placeholder="e.g. John Doe (Internal)"
-                                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all focus:ring-1 focus:ring-indigo-100"
-                                    value={userFormDisplayName}
-                                    onChange={(e) => setUserFormDisplayName(e.target.value)}
-                                />
-                            </div>
-
-                            <div>
-                                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Email Address</label>
-                                <input 
-                                    type="email" 
-                                    placeholder="e.g. johndoe@swiss-belhotel.com"
-                                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all focus:ring-1 focus:ring-indigo-100"
-                                    value={userFormEmail}
-                                    onChange={(e) => setUserFormEmail(e.target.value)}
-                                    disabled={!!editingUser}
-                                    required
-                                />
-                            </div>
-
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                <div>
-                                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Access Level</label>
-                                    <select 
-                                        className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all focus:ring-1 focus:ring-indigo-100"
-                                        value={userFormAccessLevel}
-                                        onChange={(e) => setUserFormAccessLevel(e.target.value as any)}
-                                    >
-                                        <option value="admin">Admin</option>
-                                        <option value="auditor">Auditor</option>
-                                        <option value="auditee">Auditee</option>
-                                    </select>
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Role / Title</label>
-                                    <select
-                                        className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all focus:ring-1 focus:ring-indigo-100"
-                                        value={userFormRole}
-                                        onChange={(e) => setUserFormRole(e.target.value)}
-                                    >
-                                        {['General Manager', 'Hotel Manager', 'GM Secretary', 'Marcomm/PR', 'Graphic Design', 'Housekeeping', 'Room Division', 'Front Office', 'Sales & Marketing', 'Auditor', 'Director of Finance', 'Executive Housekeeper', 'Admin'].map(r => (
-                                            <option key={r} value={r}>{r}</option>
-                                        ))}
-                                    </select>
-                                </div>
-                            </div>
-
-                            <div>
-                                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 flex justify-between items-center">
-                                    <span>Assigned Hotel Properties</span>
-                                    <span className="text-[10px] text-indigo-600 font-extrabold normal-case">
-                                        {userFormHotelIds.length} properties selected
-                                    </span>
-                                </label>
-                                
-                                <div className="space-y-2">
-                                    {/* Quick Search */}
-                                    <input 
-                                        type="text"
-                                        placeholder="Filter properties... (e.g. Seef, Zest)"
-                                        className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-lg outline-none transition-all placeholder:text-slate-450"
-                                        value={adminHotelSearch}
-                                        onChange={(e) => setAdminHotelSearch(e.target.value)}
-                                    />
-                                    
-                                    {/* Scrollable multi-select container */}
-                                    <div className="max-h-[160px] overflow-y-auto border border-slate-200 rounded-xl p-2.5 space-y-1 bg-slate-50 divide-y divide-slate-100">
-                                        {hotels.filter(h => 
-                                            h.name.toLowerCase().includes(adminHotelSearch.toLowerCase()) ||
-                                            (h.code && h.code.toLowerCase().includes(adminHotelSearch.toLowerCase()))
-                                        ).map(h => {
-                                            const isChecked = userFormHotelIds.includes(h.id);
-                                            return (
-                                                <label 
-                                                    key={h.id} 
-                                                    className="flex items-start gap-2.5 py-2 px-1.5 hover:bg-white rounded-lg cursor-pointer transition-colors"
-                                                >
-                                                    <input 
-                                                        type="checkbox"
-                                                        className="mt-0.5 rounded text-indigo-600 focus:ring-indigo-500 h-3.5 w-3.5 cursor-pointer"
-                                                        checked={isChecked}
-                                                        onChange={() => {
-                                                            if (isChecked) {
-                                                                setUserFormHotelIds(userFormHotelIds.filter(id => id !== h.id));
-                                                            } else {
-                                                                setUserFormHotelIds([...userFormHotelIds, h.id]);
-                                                            }
-                                                        }}
-                                                    />
-                                                    <div className="min-w-0 leading-none">
-                                                        <p className="text-xs font-black text-slate-750 truncate">{h.name}</p>
-                                                        <p className="text-[9px] text-slate-400 font-bold uppercase tracking-tight mt-0.5">
-                                                            {h.code || 'N/A'} - {h.region || 'Region'} - {h.brandClass || 'Brand'}
-                                                        </p>
-                                                    </div>
-                                                </label>
-                                            );
-                                        })}
-                                        {hotels.filter(h => 
-                                            h.name.toLowerCase().includes(adminHotelSearch.toLowerCase()) ||
-                                            (h.code && h.code.toLowerCase().includes(adminHotelSearch.toLowerCase()))
-                                        ).length === 0 && (
-                                            <p className="text-center py-4 text-slate-400 text-xs font-bold">No property matches search</p>
-                                        )}
-                                    </div>
-
-                                    {/* Tag pills */}
-                                    {userFormHotelIds.length > 0 && (
-                                        <div className="flex flex-wrap gap-1.5 pt-1.5">
-                                            {hotels.filter(h => userFormHotelIds.includes(h.id)).map(h => (
-                                                <span 
-                                                    key={h.id}
-                                                    className="inline-flex items-center gap-1 pl-2 pr-1.5 py-0.5 bg-indigo-50 border border-indigo-100 rounded-md text-[10px] font-bold text-indigo-950"
-                                                >
-                                                    <span>{h.code || h.name.slice(0, 8)}</span>
-                                                    <button 
-                                                        type="button"
-                                                        onClick={() => setUserFormHotelIds(userFormHotelIds.filter(id => id !== h.id))}
-                                                        className="p-0.5 hover:bg-indigo-100 rounded text-indigo-500 hover:text-indigo-800 transition-colors"
-                                                    >
-                                                        <span className="text-[8px] font-black">√ó</span>
-                                                    </button>
-                                                </span>
-                                            ))}
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-
-                            <div className="flex flex-col gap-2.5 pt-2">
-                                <div className="flex items-center gap-2.5">
-                                    <input 
-                                        type="checkbox" 
-                                        id="userFormIsBrandAuditLead"
-                                        checked={userFormIsBrandAuditLead}
-                                        onChange={(e) => setUserFormIsBrandAuditLead(e.target.checked)}
-                                        className="w-4 h-4 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500"
-                                    />
-                                    <label htmlFor="userFormIsBrandAuditLead" className="text-xs font-bold text-slate-600 select-none cursor-pointer">
-                                        Brand Audit Lead Designation
-                                    </label>
-                                </div>
-
-                                {(!editingUser || editingUser.email !== 'brandaudit@swiss-belhotel.com') && (
-                                    <div className="flex items-center gap-2.5">
-                                        <input 
-                                            type="checkbox" 
-                                            id="userFormIsApproved"
-                                            checked={userFormIsApproved}
-                                            onChange={(e) => setUserFormIsApproved(e.target.checked)}
-                                            className="w-4 h-4 text-emerald-600 border-slate-300 rounded focus:ring-emerald-500"
-                                        />
-                                        <label htmlFor="userFormIsApproved" className="text-xs font-bold text-slate-600 select-none cursor-pointer">
-                                            Approved and Active (Access Allowed)
-                                        </label>
-                                    </div>
-                                )}
-                            </div>
-
-                            <div className="flex gap-3 justify-end pt-4 border-t border-slate-100">
-                                <button 
-                                    type="button"
-                                    onClick={() => setIsUserFormOpen(false)}
-                                    className="px-6 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-full font-bold text-sm transition-all active:scale-95 outline-none"
-                                >
-                                    Cancel
-                                </button>
-                                <button 
-                                    type="submit"
-                                    className="px-8 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full font-bold text-sm transition-all shadow-lg hover:shadow-indigo-500/10 active:scale-95 outline-none"
-                                >
-                                    {editingUser ? 'Save Changes' : 'Create Profile'}
-                                </button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
-            )}
-
-            {/* Confirm User Delete Dialog */}
-            {confirmUserDeleteId && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-fadeIn">
-                    <div className="bg-white w-full max-w-sm p-6 rounded-3xl border border-slate-200 shadow-xl relative animate-scaleUp">
-                        <div className="w-12 h-12 rounded-full bg-red-50 text-red-600 flex items-center justify-center mb-4">
-                            <Trash2 size={24} />
-                        </div>
-                        <h3 className="text-lg font-bold text-slate-900 mb-2">Delete User Profile?</h3>
-                        <p className="text-xs text-slate-500 leading-relaxed mb-6 font-medium">
-                            Are you absolutely sure you want to permanently delete this user registry profile? This action cannot be undone.
-                        </p>
-                        <div className="flex gap-3">
-                            <button 
-                                onClick={() => handleDeleteUser(confirmUserDeleteId)}
-                                className="flex-1 bg-red-600 hover:bg-red-700 text-white py-2.5 rounded-full font-bold text-sm transition-all shadow-md active:scale-95"
-                            >
-                                Delete User
-                            </button>
-                            <button 
-                                onClick={() => setConfirmUserDeleteId(null)}
-                                className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-600 py-2.5 rounded-full font-bold text-sm transition-all active:scale-95"
-                            >
-                                Cancel
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* Confirm Approval & Send Webhook Modal */}
-            {confirmApprovalUser && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-fadeIn">
-                    <div className="bg-white w-full max-w-lg p-6 sm:p-8 rounded-[28px] border border-slate-200 shadow-2xl relative animate-scaleUp max-h-[90vh] flex flex-col overflow-y-auto">
-                        <button 
-                            onClick={() => setConfirmApprovalUser(null)}
-                            className="absolute top-5 right-5 p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-50 rounded-xl transition-all"
-                        >
-                            <X size={18} />
-                        </button>
-
-                        <div className="flex items-center gap-4 mb-6">
-                            <div className="w-12 h-12 rounded-full bg-emerald-50 text-emerald-600 border border-emerald-100 flex items-center justify-center shrink-0">
-                                <ShieldCheck size={26} />
-                            </div>
-                            <div>
-                                <h3 className="text-lg font-extrabold text-slate-900">Confirm User Approval</h3>
-                                <p className="text-xs text-slate-500 font-medium">Verify credentials and trigger notifications upon approval.</p>
-                            </div>
-                        </div>
-
-                        {/* User Details */}
-                        <div className="bg-slate-50 border border-slate-150 rounded-2xl p-4 mb-5 space-y-3">
-                            <h4 className="text-[10px] font-black uppercase text-slate-400 tracking-wider">User Details</h4>
-                            <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
-                                <div>
-                                    <p className="text-slate-400 font-bold">Full Name</p>
-                                    <p className="text-slate-800 font-black">
-                                        {confirmApprovalUser.display_name || `${confirmApprovalUser.first_name || ''} ${confirmApprovalUser.last_name || ''}`.trim() || 'N/A'}
-                                    </p>
-                                </div>
-                                <div>
-                                    <p className="text-slate-400 font-bold">Email Address</p>
-                                    <p className="text-slate-800 font-mono font-bold break-all">{confirmApprovalUser.email}</p>
-                                </div>
-                                <div className="mt-1">
-                                    <p className="text-slate-400 font-bold">Property Role / Level</p>
-                                    <p className="text-slate-800 font-black">{confirmApprovalUser.role || 'N/A'}</p>
-                                </div>
-                                <div>
-                                    <p className="text-slate-400 font-bold">Access Level</p>
-                                    <span className="inline-flex items-center px-2 py-0.5 mt-0.5 rounded-md text-[10px] font-black uppercase bg-indigo-50 text-indigo-700 border border-indigo-150/50">
-                                        {confirmApprovalUser.access_level || 'auditee'}
-                                    </span>
-                                </div>
-                                <div className="col-span-2 mt-1">
-                                    <p className="text-slate-400 font-bold">Assigned Hotel Property</p>
-                                    <p className="text-slate-800 font-black">{confirmApprovalUser.hotel_name || 'N/A'}</p>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Zapier Config Section */}
-                        <div className="border border-indigo-100 bg-indigo-50/20 rounded-2xl p-4 sm:p-5 mb-6 space-y-3">
-                            <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-1.5">
-                                    <span className="w-1.5 h-1.5 rounded-full bg-indigo-600 animate-pulse"></span>
-                                    <h4 className="text-[10px] font-black uppercase text-indigo-800 tracking-wider">Zapier Webhook Notification</h4>
-                                </div>
-                                <button 
-                                    onClick={() => setIsEditingWebhookUrl(!isEditingWebhookUrl)}
-                                    className="text-[10px] text-indigo-600 hover:text-indigo-800 font-extrabold uppercase tracking-wide flex items-center gap-1"
-                                >
-                                    {isEditingWebhookUrl ? 'Cancel Edit' : (webhookUrl ? 'Change URL' : 'Configure')}
-                                </button>
-                            </div>
-
-                            {isEditingWebhookUrl ? (
-                                <div className="space-y-2">
-                                    <input 
-                                        type="url"
-                                        placeholder="https://hooks.zapier.com/hooks/catch/..."
-                                        value={webhookUrl}
-                                        onChange={(e) => {
-                                            setWebhookUrl(e.target.value);
-                                            localStorage.setItem('sbi_zapier_webhook_url', e.target.value);
-                                        }}
-                                        className="w-full px-3 py-2 text-xs border border-indigo-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 font-mono"
-                                    />
-                                    <p className="text-[10px] text-indigo-600 font-medium leading-normal">
-                                        Webhook URL is saved automatically to local storage for persistent testing.
-                                    </p>
-                                </div>
-                            ) : (
-                                <div className="space-y-1.5">
-                                    {webhookUrl ? (
-                                        <div className="flex items-center justify-between gap-2 bg-white px-3 py-2 rounded-xl border border-indigo-100">
-                                            <span className="text-[11px] font-mono font-medium text-slate-600 truncate flex-1">
-                                                {webhookUrl}
-                                            </span>
-                                            <span className="text-[9px] font-black uppercase bg-emerald-100 text-emerald-800 border border-emerald-200 px-1.5 py-0.5 rounded">
-                                                Connected
-                                            </span>
-                                        </div>
-                                    ) : (
-                                        <div className="bg-amber-50 border border-amber-200/60 rounded-xl p-3 text-xs text-amber-800 flex gap-2">
-                                            <AlertCircle size={16} className="text-amber-600 shrink-0 mt-0.5" />
-                                            <div>
-                                                <p className="font-extrabold">No webhook URL configured yet</p>
-                                                <p className="text-[11px] text-amber-700/90 leading-relaxed mt-0.5">
-                                                    Approval notifications will be skipped. Click <strong className="cursor-pointer underline hover:text-amber-900" onClick={() => setIsEditingWebhookUrl(true)}>Configure</strong> to add your Zapier Catch Hook URL.
-                                                </p>
-                                            </div>
-                                        </div>
-                                    )}
-                                </div>
-                            )}
-
-                            <div className="text-[10px] text-slate-500 leading-relaxed">
-                                Once approved, a secure JSON payload with the user's role, hotel, and approval metadata is posted to Zapier to automate email notifications.
-                            </div>
-                        </div>
-
-                        {/* Action Buttons */}
-                        <div className="flex gap-3 mt-2">
-                            <button 
-                                onClick={async () => {
-                                    const userId = confirmApprovalUser.id;
-                                    setConfirmApprovalUser(null);
-                                    await executeApprovalStatusChange(userId, true);
-                                }}
-                                disabled={isSendingWebhook}
-                                className="flex-1 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white py-3 rounded-full font-bold text-sm transition-all shadow-lg shadow-emerald-500/10 active:scale-95 flex items-center justify-center gap-2"
-                            >
-                                {isSendingWebhook ? 'Processing...' : 'Confirm & Approve'}
-                            </button>
-                            <button 
-                                onClick={() => setConfirmApprovalUser(null)}
-                                className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-600 py-3 rounded-full font-bold text-sm transition-all active:scale-95"
-                            >
-                                Cancel
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* RESET PROGRESS SUPER ADMIN PIN MODAL */}
-            {isResetPinModalOpen && hotelToReset && (
-                <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-slate-950/65 backdrop-blur-md animate-fadeIn">
-                    <div className="bg-white w-full max-w-md p-6 rounded-3xl border border-slate-100 shadow-2xl relative animate-scaleUp">
-                        {/* Close button */}
-                        <button 
-                            onClick={() => {
-                                setIsResetPinModalOpen(false);
-                                setResetPinValue('');
-                                setResetPinError('');
-                                setHotelToReset(null);
-                            }}
-                            className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-50 rounded-xl transition-all animate-fadeIn"
-                        >
-                            <X size={18} />
-                        </button>
-
-                        <div className="text-center space-y-2 mb-6">
-                            <div className="w-12 h-12 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center mx-auto border border-rose-100">
-                                <AlertCircle size={24} />
-                            </div>
-                            <h3 className="text-lg font-black text-slate-900">Reset Audit Progress</h3>
-                            <p className="text-xs text-rose-600 font-extrabold max-w-sm mx-auto uppercase tracking-wider bg-rose-50/50 py-1 px-3 rounded-lg border border-rose-100/50">
-                                Warning: Highly Destructive
-                            </p>
-                            <p className="text-xs text-slate-500 leading-relaxed font-semibold">
-                                This will permanently delete all completed task responses and uploaded evidence files for <span className="text-slate-900 font-extrabold">{hotelToReset.name}</span>.
-                            </p>
-                            <p className="text-[11px] text-slate-400 font-bold">
-                                Please enter the <span className="text-indigo-600">Super Admin PIN</span> to proceed.
-                            </p>
-                        </div>
-
-                        {/* PIN Entry Display */}
-                        <div className="space-y-4">
-                            {resetPinError && (
-                                <p className="text-rose-500 text-xs text-center font-extrabold bg-rose-50/70 border border-rose-100 py-2 rounded-xl animate-pulse">
-                                    {resetPinError}
-                                </p>
-                            )}
-
-                            <div className="flex justify-center gap-2.5">
-                                {[0, 1, 2, 3, 4, 5].map((i) => (
-                                    <div 
-                                        key={i} 
-                                        className={`w-11 h-11 rounded-2xl border-2 flex items-center justify-center text-xl font-bold transition-all ${
-                                            resetPinValue[i] 
-                                                ? 'border-rose-500 bg-rose-50/40 text-rose-900 scale-105 shadow-xs' 
-                                                : 'border-slate-200 bg-slate-50/30'
-                                        }`}
-                                    >
-                                        {resetPinValue[i] ? '‚Ä¢' : ''}
-                                    </div>
-                                ))}
-                            </div>
-
-                            {/* PIN Virtual Keyboard */}
-                            <div className="grid grid-cols-3 gap-2.5 max-w-[280px] mx-auto pt-2">
-                                {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((digit) => (
-                                    <button
-                                        key={digit}
-                                        type="button"
-                                        onClick={() => {
-                                            if (resetPinValue.length < 6) {
-                                                setResetPinValue(prev => prev + digit.toString());
-                                                setResetPinError('');
-                                            }
-                                        }}
-                                        className="h-12 bg-slate-50 hover:bg-slate-100/80 active:scale-95 border border-slate-150/40 text-slate-800 font-extrabold text-base rounded-2xl transition-all shadow-3xs"
-                                    >
-                                        {digit}
-                                    </button>
-                                ))}
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        setResetPinValue('');
-                                        setResetPinError('');
-                                    }}
-                                    className="h-12 bg-slate-100/60 hover:bg-slate-200 text-slate-600 hover:text-slate-800 font-extrabold text-[10px] uppercase tracking-wider rounded-2xl transition-all active:scale-95"
-                                >
-                                    Clear
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        if (resetPinValue.length < 6) {
-                                            setResetPinValue(prev => prev + '0');
-                                            setResetPinError('');
-                                        }
-                                    }}
-                                    className="h-12 bg-slate-50 hover:bg-slate-100/80 active:scale-95 border border-slate-150/40 text-slate-800 font-extrabold text-base rounded-2xl transition-all shadow-3xs"
-                                >
-                                    0
-                                </button>
-                                <button
-                                    type="button"
-                                    disabled={resetPinValue.length < 6 || isResetting}
-                                    onClick={handleVerifyResetPin}
-                                    className={`h-12 font-extrabold text-[10px] uppercase tracking-widest rounded-2xl transition-all active:scale-95 flex items-center justify-center ${
-                                        resetPinValue.length === 6 && !isResetting
-                                            ? 'bg-rose-600 hover:bg-rose-700 text-white shadow-md shadow-rose-200'
-                                            : 'bg-slate-100 text-slate-400 cursor-not-allowed'
-                                    }`}
-                                >
-                                    {isResetting ? (
-                                        <div className="w-4 h-4 border-2 border-rose-600 border-t-transparent rounded-full animate-spin" />
-                                    ) : (
-                                        "Confirm"
-                                    )}
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* ENLARGED IMAGE LIGHTBOX MODAL */}
-            {enlargedImage && (
-                <div 
-                    className="fixed inset-0 z-[999] bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-3 sm:p-6 animate-fadeIn"
-                    onClick={() => setEnlargedImage(null)}
-                >
-                    <div 
-                        className="relative max-w-5xl w-full max-h-[92vh] bg-slate-900 border border-slate-700/80 rounded-3xl overflow-hidden shadow-2xl flex flex-col"
-                        onClick={(e) => e.stopPropagation()}
-                    >
-                        {/* Modal Header */}
-                        <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-800 bg-slate-950/60 shrink-0">
-                            <div className="flex items-center gap-3 min-w-0">
-                                <div className="w-8 h-8 rounded-xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center shrink-0 border border-indigo-500/30">
-                                    <Maximize2 size={16} />
-                                </div>
-                                <div className="min-w-0">
-                                    <h4 className="text-sm font-black text-white truncate">{enlargedImage.title || "Evidence Photo Preview"}</h4>
-                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">Click outside or press Esc to close</p>
-                                </div>
-                            </div>
-                            <div className="flex items-center gap-2 shrink-0">
-                                <a 
-                                    href={enlargedImage.url} 
-                                    target="_blank" 
-                                    rel="noreferrer" 
-                                    className="p-2 text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-xl transition-all border border-slate-700"
-                                    title="Open original file in new tab"
-                                >
-                                    <ExternalLink size={16} />
-                                </a>
-                                <button 
-                                    onClick={() => setEnlargedImage(null)} 
-                                    className="p-2 text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-xl transition-all border border-slate-700"
-                                    title="Close Lightbox"
-                                >
-                                    <X size={16} />
-                                </button>
-                            </div>
-                        </div>
-
-                        {/* Modal Body: Large Image View */}
-                        <div className="p-4 sm:p-6 flex-1 flex items-center justify-center overflow-auto bg-slate-950/40 min-h-[300px]">
-                            <img 
-                                src={enlargedImage.url} 
-                                alt="Enlarged Evidence" 
-                                referrerPolicy={enlargedImage.url?.startsWith('blob:') || enlargedImage.url?.startsWith('data:') ? undefined : 'no-referrer'} 
-                                className="max-h-[75vh] w-auto max-w-full object-contain rounded-2xl shadow-2xl border border-slate-800" 
-                            />
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* SUPABASE SQL MIGRATION MODAL */}
-            {showSqlModal && (
-                <div 
-                    className="fixed inset-0 z-[999] bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 animate-fadeIn"
-                    onClick={() => setShowSqlModal(false)}
-                >
-                    <div 
-                        className="bg-slate-900 border border-slate-800 w-full max-w-2xl rounded-3xl overflow-hidden shadow-2xl animate-scaleUp text-white flex flex-col max-h-[90vh]"
-                        onClick={(e) => e.stopPropagation()}
-                    >
-                        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-950/60">
-                            <div className="flex items-center gap-3">
-                                <div className="w-9 h-9 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center border border-emerald-500/30">
-                                    <Database size={18} />
-                                </div>
-                                <div>
-                                    <h3 className="font-bold text-sm text-white">Supabase Schema Migration</h3>
-                                    <p className="text-[10px] text-slate-400 font-medium">SQL scripts to align database schemas with feature configurations</p>
-                                </div>
-                            </div>
-                            <button 
-                                onClick={() => setShowSqlModal(false)}
-                                className="p-2 text-slate-400 hover:text-white bg-slate-800/80 rounded-xl transition-all"
-                            >
-                                <X size={16} />
-                            </button>
-                        </div>
-
-                        {/* TAB CONTROLLERS */}
-                        <div className="flex bg-slate-950/40 border-b border-slate-800/80 p-2">
-                            <button
-                                onClick={() => setSqlModalTab('checklist')}
-                                className={`flex-1 py-2 text-center text-xs font-black rounded-xl transition-all ${
-                                    sqlModalTab === 'checklist'
-                                        ? 'bg-slate-800 text-white shadow-2xs'
-                                        : 'text-slate-400 hover:text-white'
-                                }`}
-                            >
-                                Checklist Groups SQL
-                            </button>
-                            <button
-                                onClick={() => setSqlModalTab('auditor')}
-                                className={`flex-1 py-2 text-center text-xs font-black rounded-xl transition-all ${
-                                    sqlModalTab === 'auditor'
-                                        ? 'bg-slate-800 text-white shadow-2xs'
-                                        : 'text-slate-400 hover:text-white'
-                                }`}
-                            >
-                                Auditor Category Assignments SQL
-                            </button>
-                            <button
-                                onClick={() => setSqlModalTab('finalize')}
-                                className={`flex-1 py-2 text-center text-xs font-black rounded-xl transition-all ${
-                                    sqlModalTab === 'finalize'
-                                        ? 'bg-slate-800 text-white shadow-2xs'
-                                        : 'text-slate-400 hover:text-white'
-                                }`}
-                            >
-                                Finalise & Submit Lock SQL
-                            </button>
-                            <button
-                                onClick={() => setSqlModalTab('photolock')}
-                                className={`flex-1 py-2 text-center text-xs font-black rounded-xl transition-all ${
-                                    sqlModalTab === 'photolock'
-                                        ? 'bg-slate-800 text-white shadow-2xs'
-                                        : 'text-slate-400 hover:text-white'
-                                }`}
-                            >
-                                Photo Temporary Lock SQL
-                            </button>
-                            <button
-                                onClick={() => setSqlModalTab('indexes')}
-                                className={`flex-1 py-2 text-center text-xs font-black rounded-xl transition-all ${
-                                    sqlModalTab === 'indexes'
-                                        ? 'bg-emerald-800 text-white shadow-2xs'
-                                        : 'text-slate-400 hover:text-white'
-                                }`}
-                            >
-                                Database Indexes & Performance SQL
-                            </button>
-                        </div>
-
-                        <div className="p-6 overflow-y-auto space-y-4 text-xs">
-                            {sqlModalTab === 'checklist' ? (
-                                <>
-                                    <p className="text-slate-300 font-medium leading-relaxed">
-                                        Execute the following SQL script in your <strong className="text-emerald-400">Supabase Dashboard ‚Üí SQL Editor</strong> to create tables and RLS security policies for <strong className="text-emerald-400">Audit Checklist Groups & Assigned Hotels</strong>:
-                                    </p>
-
-                                    <div className="relative bg-slate-950 border border-slate-800 rounded-2xl p-4 font-mono text-[11px] text-emerald-300 overflow-x-auto leading-relaxed">
-                                        <button
-                                            onClick={() => {
-                                                const sqlText = `-- Drop old tables if they exist\nDROP TABLE IF EXISTS audit_group_categories CASCADE;\nDROP TABLE IF EXISTS audit_group_items CASCADE;\nDROP TABLE IF EXISTS audit_group_hotels CASCADE;\n\n-- Create Table for Audit Checklist Groups\nCREATE TABLE IF NOT EXISTS audit_checklist_groups (\n    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,\n    name VARCHAR(255) NOT NULL,\n    description TEXT,\n    category_ids TEXT[] DEFAULT '{}',\n    item_ids TEXT[] DEFAULT '{}',\n    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL\n);\n\n-- Migration script in case columns are missing on existing tables\nALTER TABLE audit_checklist_groups ADD COLUMN IF NOT EXISTS category_ids TEXT[] DEFAULT '{}';\nALTER TABLE audit_checklist_groups ADD COLUMN IF NOT EXISTS item_ids TEXT[] DEFAULT '{}';\n\n-- Create Table for Audit Checklist Group Hotels association\nCREATE TABLE IF NOT EXISTS audit_group_hotels (\n    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,\n    group_id UUID NOT NULL REFERENCES audit_checklist_groups(id) ON DELETE CASCADE,\n    hotel_id VARCHAR(100) NOT NULL,\n    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,\n    UNIQUE(group_id, hotel_id)\n);\n\n-- Enable Row Level Security (RLS)\nALTER TABLE audit_checklist_groups ENABLE ROW LEVEL SECURITY;\nALTER TABLE audit_group_hotels ENABLE ROW LEVEL SECURITY;\n\n-- Set Access Policies to Allow All Reads/Inserts/Deletes (Idempotent)\nDROP POLICY IF EXISTS "Allow public select audit_checklist_groups" ON audit_checklist_groups;\nCREATE POLICY "Allow public select audit_checklist_groups" ON audit_checklist_groups FOR SELECT USING (true);\n\nDROP POLICY IF EXISTS "Allow public insert audit_checklist_groups" ON audit_checklist_groups;\nCREATE POLICY "Allow public insert audit_checklist_groups" ON audit_checklist_groups FOR INSERT WITH CHECK (true);\n\nDROP POLICY IF EXISTS "Allow public update audit_checklist_groups" ON audit_checklist_groups;\nCREATE POLICY "Allow public update audit_checklist_groups" ON audit_checklist_groups FOR UPDATE USING (true);\n\nDROP POLICY IF EXISTS "Allow public delete audit_checklist_groups" ON audit_checklist_groups;\nCREATE POLICY "Allow public delete audit_checklist_groups" ON audit_checklist_groups FOR DELETE USING (true);\n\nDROP POLICY IF EXISTS "Allow public select audit_group_hotels" ON audit_group_hotels;\nCREATE POLICY "Allow public select audit_group_hotels" ON audit_group_hotels FOR SELECT USING (true);\n\nDROP POLICY IF EXISTS "Allow public insert audit_group_hotels" ON audit_group_hotels;\nCREATE POLICY "Allow public insert audit_group_hotels" ON audit_group_hotels FOR INSERT WITH CHECK (true);\n\nDROP POLICY IF EXISTS "Allow public delete audit_group_hotels" ON audit_group_hotels;\nCREATE POLICY "Allow public delete audit_group_hotels" ON audit_group_hotels FOR DELETE USING (true);`;
-                                                navigator.clipboard.writeText(sqlText);
-                                                setCopiedSql(true);
-                                                setTimeout(() => setCopiedSql(false), 2500);
-                                            }}
-                                            className="absolute top-3 right-3 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-lg font-sans text-[10px] font-bold flex items-center gap-1.5 transition-all border border-slate-700 active:scale-95"
-                                        >
-                                            {copiedSql ? (
-                                                <>
-                                                    <Check size={12} className="text-emerald-400" />
-                                                    <span>Copied!</span>
-                                                </>
-                                            ) : (
-                                                <>
-                                                    <Copy size={12} />
-                                                    <span>Copy SQL</span>
-                                                </>
-                                            )}
-                                        </button>
-                                        <pre className="pt-2">
-{`-- Drop old tables if they exist
-DROP TABLE IF EXISTS audit_group_categories CASCADE;
-DROP TABLE IF EXISTS audit_group_items CASCADE;
-DROP TABLE IF EXISTS audit_group_hotels CASCADE;
-
--- Create Table for Audit Checklist Groups
-CREATE TABLE IF NOT EXISTS audit_checklist_groups (
-    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-    name VARCHAR(255) NOT NULL,
-    description TEXT,
-    category_ids TEXT[] DEFAULT '{}',
-    item_ids TEXT[] DEFAULT '{}',
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
-);
-
--- Migration script in case columns are missing on existing tables
-ALTER TABLE audit_checklist_groups ADD COLUMN IF NOT EXISTS category_ids TEXT[] DEFAULT '{}';
-ALTER TABLE audit_checklist_groups ADD COLUMN IF NOT EXISTS item_ids TEXT[] DEFAULT '{}';
-
--- Create Table for Audit Checklist Group Hotels association
-CREATE TABLE IF NOT EXISTS audit_group_hotels (
-    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-    group_id UUID NOT NULL REFERENCES audit_checklist_groups(id) ON DELETE CASCADE,
-    hotel_id VARCHAR(100) NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
-    UNIQUE(group_id, hotel_id)
-);
-
--- Enable Row Level Security (RLS)
-ALTER TABLE audit_checklist_groups ENABLE ROW LEVEL SECURITY;
-ALTER TABLE audit_group_hotels ENABLE ROW LEVEL SECURITY;
-
--- Set Access Policies to Allow All Reads/Inserts/Deletes (Idempotent)
-DROP POLICY IF EXISTS "Allow public select audit_checklist_groups" ON audit_checklist_groups;
-CREATE POLICY "Allow public select audit_checklist_groups" ON audit_checklist_groups FOR SELECT USING (true);
-
-DROP POLICY IF EXISTS "Allow public insert audit_checklist_groups" ON audit_checklist_groups;
-CREATE POLICY "Allow public insert audit_checklist_groups" ON audit_checklist_groups FOR INSERT WITH CHECK (true);
-
-DROP POLICY IF EXISTS "Allow public update audit_checklist_groups" ON audit_checklist_groups;
-CREATE POLICY "Allow public update audit_checklist_groups" ON audit_checklist_groups FOR UPDATE USING (true);
-
-DROP POLICY IF EXISTS "Allow public delete audit_checklist_groups" ON audit_checklist_groups;
-CREATE POLICY "Allow public delete audit_checklist_groups" ON audit_checklist_groups FOR DELETE USING (true);
-
-DROP POLICY IF EXISTS "Allow public select audit_group_hotels" ON audit_group_hotels;
-CREATE POLICY "Allow public select audit_group_hotels" ON audit_group_hotels FOR SELECT USING (true);
-
-DROP POLICY IF EXISTS "Allow public insert audit_group_hotels" ON audit_group_hotels;
-CREATE POLICY "Allow public insert audit_group_hotels" ON audit_group_hotels FOR INSERT WITH CHECK (true);
-
-DROP POLICY IF EXISTS "Allow public delete audit_group_hotels" ON audit_group_hotels;
-CREATE POLICY "Allow public delete audit_group_hotels" ON audit_group_hotels FOR DELETE USING (true);`}
-                                        </pre>
-                                    </div>
-                                </>
-                            ) : sqlModalTab === 'auditor' ? (
-                                <>
-                                    <p className="text-slate-300 font-medium leading-relaxed">
-                                        Execute the following SQL script in your <strong className="text-emerald-400">Supabase Dashboard ‚Üí SQL Editor</strong> to enable permanent <strong className="text-emerald-400">Auditor Assignments</strong>:
-                                    </p>
-
-                                    <div className="relative bg-slate-950 border border-slate-800 rounded-2xl p-4 font-mono text-[11px] text-emerald-300 overflow-x-auto leading-relaxed">
-                                        <button
-                                            onClick={() => {
-                                                const sqlText = `CREATE TABLE IF NOT EXISTS auditor_category_assignments (\n    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,\n    user_id UUID NOT NULL,\n    category_id UUID NOT NULL,\n    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,\n    UNIQUE(user_id, category_id)\n);\n\nALTER TABLE auditor_category_assignments ENABLE ROW LEVEL SECURITY;\n\nCREATE POLICY "Allow public read auditor_category_assignments" ON auditor_category_assignments FOR SELECT USING (true);\nCREATE POLICY "Allow public insert auditor_category_assignments" ON auditor_category_assignments FOR INSERT WITH CHECK (true);\nCREATE POLICY "Allow public delete auditor_category_assignments" ON auditor_category_assignments FOR DELETE USING (true);`;
-                                                navigator.clipboard.writeText(sqlText);
-                                                setCopiedSql(true);
-                                                setTimeout(() => setCopiedSql(false), 2500);
-                                            }}
-                                            className="absolute top-3 right-3 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-lg font-sans text-[10px] font-bold flex items-center gap-1.5 transition-all border border-slate-700 active:scale-95"
-                                        >
-                                            {copiedSql ? (
-                                                <>
-                                                    <Check size={12} className="text-emerald-400" />
-                                                    <span>Copied!</span>
-                                                </>
-                                            ) : (
-                                                <>
-                                                    <Copy size={12} />
-                                                    <span>Copy SQL</span>
-                                                </>
-                                            )}
-                                        </button>
-                                        <pre className="pt-2">
-{`-- Create table for auditor category assignments
-CREATE TABLE IF NOT EXISTS auditor_category_assignments (
-    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-    user_id UUID NOT NULL,
-    category_id UUID NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
-    UNIQUE(user_id, category_id)
-);
-
--- Enable Row Level Security & set access policies
-ALTER TABLE auditor_category_assignments ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Allow public read auditor_category_assignments" ON auditor_category_assignments FOR SELECT USING (true);
-CREATE POLICY "Allow public insert auditor_category_assignments" ON auditor_category_assignments FOR INSERT WITH CHECK (true);
-CREATE POLICY "Allow public delete auditor_category_assignments" ON auditor_category_assignments FOR DELETE USING (true);`}
-                                        </pre>
-                                    </div>
-                                </>
-                            ) : sqlModalTab === 'finalize' ? (
-                                <>
-                                    <p className="text-slate-300 font-medium leading-relaxed">
-                                        Execute the following SQL script in your <strong className="text-emerald-400">Supabase Dashboard ‚Üí SQL Editor</strong> to enable permanent <strong className="text-emerald-400">Self-Audit Locking & Submission Finalisation</strong>:
-                                    </p>
-
-                                    <div className="relative bg-slate-950 border border-slate-800 rounded-2xl p-4 font-mono text-[11px] text-emerald-300 overflow-x-auto leading-relaxed">
-                                        <button
-                                            onClick={() => {
-                                                const sqlText = `CREATE TABLE IF NOT EXISTS hotel_audit_status (\n    hotel_id VARCHAR(100) PRIMARY KEY,\n    is_finalized BOOLEAN DEFAULT false,\n    finalized_by VARCHAR(255),\n    finalized_at TIMESTAMP WITH TIME ZONE,\n    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL\n);\n\nALTER TABLE hotel_audit_status ENABLE ROW LEVEL SECURITY;\n\nCREATE POLICY "Allow public read hotel_audit_status" ON hotel_audit_status FOR SELECT USING (true);\nCREATE POLICY "Allow public insert/update hotel_audit_status" ON hotel_audit_status FOR ALL USING (true);`;
-                                                navigator.clipboard.writeText(sqlText);
-                                                setCopiedSql(true);
-                                                setTimeout(() => setCopiedSql(false), 2500);
-                                            }}
-                                            className="absolute top-3 right-3 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-lg font-sans text-[10px] font-bold flex items-center gap-1.5 transition-all border border-slate-700 active:scale-95"
-                                        >
-                                            {copiedSql ? (
-                                                <>
-                                                    <Check size={12} className="text-emerald-400" />
-                                                    <span>Copied!</span>
-                                                </>
-                                            ) : (
-                                                <>
-                                                    <Copy size={12} />
-                                                    <span>Copy SQL</span>
-                                                </>
-                                            )}
-                                        </button>
-                                        <pre className="pt-2">
-{`-- Create table for hotel audit status (locking & finalisation)
-CREATE TABLE IF NOT EXISTS hotel_audit_status (
-    hotel_id VARCHAR(100) PRIMARY KEY,
-    is_finalized BOOLEAN DEFAULT false,
-    finalized_by VARCHAR(255),
-    finalized_at TIMESTAMP WITH TIME ZONE,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
-);
-
--- Enable Row Level Security & set access policies
-ALTER TABLE hotel_audit_status ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Allow public read hotel_audit_status" ON hotel_audit_status FOR SELECT USING (true);
-CREATE POLICY "Allow public insert/update hotel_audit_status" ON hotel_audit_status FOR ALL USING (true);`}
-                                        </pre>
-                                    </div>
-                                </>
-                            ) : sqlModalTab === 'photolock' ? (
-                                <>
-                                    <p className="text-slate-300 font-medium leading-relaxed">
-                                        Execute the following SQL script in your <strong className="text-emerald-400">Supabase Dashboard ‚Üí SQL Editor</strong> to enable real-time <strong className="text-emerald-400">Temporary Photo-Taking Locking</strong>:
-                                    </p>
-
-                                    <div className="relative bg-slate-950 border border-slate-800 rounded-2xl p-4 font-mono text-[11px] text-emerald-300 overflow-x-auto leading-relaxed">
-                                        <button
-                                            onClick={() => {
-                                                const sqlText = `CREATE TABLE IF NOT EXISTS audit_item_locks (\n    hotel_id VARCHAR(100) NOT NULL,\n    item_id VARCHAR(100) NOT NULL,\n    locked_by_name VARCHAR(255) NOT NULL,\n    locked_by_email VARCHAR(255) NOT NULL,\n    locked_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,\n    PRIMARY KEY (hotel_id, item_id)\n);\n\nALTER TABLE audit_item_locks ENABLE ROW LEVEL SECURITY;\n\nDROP POLICY IF EXISTS "Allow public read audit_item_locks" ON audit_item_locks;\nCREATE POLICY "Allow public read audit_item_locks" ON audit_item_locks FOR SELECT USING (true);\n\nDROP POLICY IF EXISTS "Allow public write audit_item_locks" ON audit_item_locks;\nCREATE POLICY "Allow public write audit_item_locks" ON audit_item_locks FOR ALL USING (true);`;
-                                                navigator.clipboard.writeText(sqlText);
-                                                setCopiedSql(true);
-                                                setTimeout(() => setCopiedSql(false), 2500);
-                                            }}
-                                            className="absolute top-3 right-3 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-lg font-sans text-[10px] font-bold flex items-center gap-1.5 transition-all border border-slate-700 active:scale-95"
-                                        >
-                                            {copiedSql ? (
-                                                <>
-                                                    <Check size={12} className="text-emerald-400" />
-                                                    <span>Copied!</span>
-                                                </>
-                                            ) : (
-                                                <>
-                                                    <Copy size={12} />
-                                                    <span>Copy SQL</span>
-                                                </>
-                                            )}
-                                        </button>
-                                        <pre className="pt-2">
-{`-- Create table for temporary photo-taking locks
-CREATE TABLE IF NOT EXISTS audit_item_locks (
-    hotel_id VARCHAR(100) NOT NULL,
-    item_id VARCHAR(100) NOT NULL,
-    locked_by_name VARCHAR(255) NOT NULL,
-    locked_by_email VARCHAR(255) NOT NULL,
-    locked_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
-    PRIMARY KEY (hotel_id, item_id)
-);
-
--- Enable Row Level Security & set access policies
-ALTER TABLE audit_item_locks ENABLE ROW LEVEL SECURITY;
-
-DROP POLICY IF EXISTS "Allow public read audit_item_locks" ON audit_item_locks;
-CREATE POLICY "Allow public read audit_item_locks" ON audit_item_locks FOR SELECT USING (true);
-
-DROP POLICY IF EXISTS "Allow public write audit_item_locks" ON audit_item_locks;
-CREATE POLICY "Allow public write audit_item_locks" ON audit_item_locks FOR ALL USING (true);`}
-                                        </pre>
-                                    </div>
-                                </>
-                            ) : (
-                                <>
-                                    <p className="text-slate-300 font-medium leading-relaxed">
-                                        Execute the following SQL script in your <strong className="text-emerald-400">Supabase Dashboard ‚Üí SQL Editor</strong> to create high-performance database indexes on all primary query columns (WHERE filters, foreign keys, and unique lookups):
-                                    </p>
-
-                                    <div className="relative bg-slate-950 border border-slate-800 rounded-2xl p-4 font-mono text-[11px] text-emerald-300 overflow-x-auto leading-relaxed">
-                                        <button
-                                            onClick={() => {
-                                                const sqlText = `-- Complete Performance & Database Indexing Script for Swiss-Belhotel Brand Audit
--- Step 1: Ensure all required system tables and missing columns exist safely
-
-CREATE TABLE IF NOT EXISTS public.audit_submissions (
-    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-    hotel_id VARCHAR(100) NOT NULL,
-    item_id VARCHAR(100) NOT NULL,
-    value TEXT,
-    is_na BOOLEAN DEFAULT false,
-    score NUMERIC,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
-    UNIQUE(hotel_id, item_id)
-);
-
-CREATE TABLE IF NOT EXISTS public.audit_users (
-    id UUID PRIMARY KEY,
-    email VARCHAR(255),
-    full_name VARCHAR(255),
-    role VARCHAR(50) DEFAULT 'auditor',
-    access_level VARCHAR(50) DEFAULT 'single_property',
-    hotel_id VARCHAR(100),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS public.auditor_assignments (
-    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-    user_id VARCHAR(255) NOT NULL,
-    hotel_id VARCHAR(100) NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS public.auditor_category_assignments (
-    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-    user_id VARCHAR(255) NOT NULL,
-    category_id UUID NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
-    UNIQUE(user_id, category_id)
-);
-
--- Migration / Safeguards for existing tables
-ALTER TABLE IF EXISTS public.auditor_assignments ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL;
-ALTER TABLE IF EXISTS public.audit_batch_hotels ADD COLUMN IF NOT EXISTS id UUID DEFAULT gen_random_uuid();
-ALTER TABLE IF EXISTS public.audit_items ADD COLUMN IF NOT EXISTS options TEXT;
-
-ALTER TABLE public.auditor_assignments ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Allow public select auditor_assignments" ON public.auditor_assignments;
-CREATE POLICY "Allow public select auditor_assignments" ON public.auditor_assignments FOR SELECT USING (true);
-DROP POLICY IF EXISTS "Allow public insert auditor_assignments" ON public.auditor_assignments;
-CREATE POLICY "Allow public insert auditor_assignments" ON public.auditor_assignments FOR INSERT WITH CHECK (true);
-DROP POLICY IF EXISTS "Allow public delete auditor_assignments" ON public.auditor_assignments;
-CREATE POLICY "Allow public delete auditor_assignments" ON public.auditor_assignments FOR DELETE USING (true);`;
-                                                navigator.clipboard.writeText(sqlText);
-                                                setCopiedSql(true);
-                                                setTimeout(() => setCopiedSql(false), 2500);
-                                            }}
-                                            className="absolute top-3 right-3 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-lg font-sans text-[10px] font-bold flex items-center gap-1.5 transition-all border border-slate-700 active:scale-95"
-                                        >
-                                            {copiedSql ? (
-                                                <>
-                                                    <Check size={12} className="text-emerald-400" />
-                                                    <span>Copied!</span>
-                                                </>
-                                            ) : (
-                                                <>
-                                                    <Copy size={12} />
-                                                    <span>Copy SQL</span>
-                                                </>
-                                            )}
-                                        </button>
-                                        <pre className="pt-2">
-{`-- Step 1: Ensure all required system tables exist safely
-
-CREATE TABLE IF NOT EXISTS public.audit_submissions (
-    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-    hotel_id VARCHAR(100) NOT NULL,
-    item_id VARCHAR(100) NOT NULL,
-    value TEXT,
-    is_na BOOLEAN DEFAULT false,
-    score NUMERIC,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
-    UNIQUE(hotel_id, item_id)
-);
-
-CREATE TABLE IF NOT EXISTS public.audit_users (
-    id UUID PRIMARY KEY,
-    email VARCHAR(255),
-    full_name VARCHAR(255),
-    role VARCHAR(50) DEFAULT 'auditor',
-    access_level VARCHAR(50) DEFAULT 'single_property',
-    hotel_id VARCHAR(100),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS public.auditor_assignments (
-    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-    user_id VARCHAR(255) NOT NULL,
-    hotel_id VARCHAR(100) NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS public.auditor_category_assignments (
-    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-    user_id VARCHAR(255) NOT NULL,
-    category_id UUID NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
-    UNIQUE(user_id, category_id)
-);
-
--- Enable RLS and add public access policies
-ALTER TABLE public.auditor_assignments ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Allow public select auditor_assignments" ON public.auditor_assignments;
-CREATE POLICY "Allow public select auditor_assignments" ON public.auditor_assignments FOR SELECT USING (true);
-DROP POLICY IF EXISTS "Allow public insert auditor_assignments" ON public.auditor_assignments;
-CREATE POLICY "Allow public insert auditor_assignments" ON public.auditor_assignments FOR INSERT WITH CHECK (true);
-DROP POLICY IF EXISTS "Allow public delete auditor_assignments" ON public.auditor_assignments;
-CREATE POLICY "Allow public delete auditor_assignments" ON public.auditor_assignments FOR DELETE USING (true);
-
-CREATE TABLE IF NOT EXISTS public.audit_checklist_groups (
-    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-    name VARCHAR(255) NOT NULL,
-    description TEXT,
-    category_ids TEXT[] DEFAULT '{}',
-    item_ids TEXT[] DEFAULT '{}',
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS public.audit_group_hotels (
-    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-    group_id UUID NOT NULL REFERENCES audit_checklist_groups(id) ON DELETE CASCADE,
-    hotel_id VARCHAR(100) NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
-    UNIQUE(group_id, hotel_id)
-);
-
-CREATE TABLE IF NOT EXISTS public.audit_item_locks (
-    hotel_id VARCHAR(100) NOT NULL,
-    item_id VARCHAR(100) NOT NULL,
-    locked_by_name VARCHAR(255) NOT NULL,
-    locked_by_email VARCHAR(255) NOT NULL,
-    locked_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
-    PRIMARY KEY (hotel_id, item_id)
-);
-
--- Step 2: Create performance indexes on filtered query columns
-
--- 1. Submissions indexes for fast hotel & item lookups
-CREATE INDEX IF NOT EXISTS idx_audit_submissions_hotel_id ON public.audit_submissions(hotel_id);
-CREATE INDEX IF NOT EXISTS idx_audit_submissions_item_id ON public.audit_submissions(item_id);
-CREATE INDEX IF NOT EXISTS idx_audit_submissions_hotel_item ON public.audit_submissions(hotel_id, item_id);
-
--- 2. User management & role access indexes
-CREATE INDEX IF NOT EXISTS idx_audit_users_email ON public.audit_users(email);
-CREATE INDEX IF NOT EXISTS idx_audit_users_access_level ON public.audit_users(access_level);
-CREATE INDEX IF NOT EXISTS idx_audit_users_role ON public.audit_users(role);
-
--- 3. Auditor assignment indexes
-CREATE INDEX IF NOT EXISTS idx_auditor_assignments_user_id ON public.auditor_assignments(user_id);
-CREATE INDEX IF NOT EXISTS idx_auditor_assignments_hotel_id ON public.auditor_assignments(hotel_id);
-CREATE INDEX IF NOT EXISTS idx_auditor_category_assignments_user_id ON public.auditor_category_assignments(user_id);
-CREATE INDEX IF NOT EXISTS idx_auditor_category_assignments_cat_id ON public.auditor_category_assignments(category_id);
-
--- 4. Checklist groups & hotel junction indexes
-CREATE INDEX IF NOT EXISTS idx_audit_group_hotels_group_id ON public.audit_group_hotels(group_id);
-CREATE INDEX IF NOT EXISTS idx_audit_group_hotels_hotel_id ON public.audit_group_hotels(hotel_id);
-
--- 5. Audit item lock indexes
-CREATE INDEX IF NOT EXISTS idx_audit_item_locks_hotel_item ON public.audit_item_locks(hotel_id, item_id);`}
-                                        </pre>
-                                    </div>
-                                </>
-                            )}
-
-                            <div className="bg-indigo-950/40 border border-indigo-800/40 rounded-2xl p-4 space-y-1 text-slate-300">
-                                <h4 className="font-bold text-indigo-300 text-xs flex items-center gap-1.5">
-                                    <CheckCircle2 size={14} className="text-indigo-400" />
-                                    Note on Offline & Local Fallback
-                                </h4>
-                                <p className="text-[11px] text-slate-400 leading-relaxed">
-                                    Even before running this SQL script in Supabase, groups and assignments work immediately in local browser storage fallback! Once you execute the SQL script in your Supabase dashboard, all groups and associations will seamlessly synchronize dynamically across your live environment.
-                                </p>
-                            </div>
-
-                            <div className="space-y-3 mt-6 border-t border-slate-800 pt-6">
-                                <h4 className="font-bold text-slate-200 text-sm flex items-center gap-2">
-                                    <span className="bg-emerald-900/50 text-emerald-400 w-5 h-5 rounded-full flex items-center justify-center text-[10px]">3</span>
-                                    Document Storage Bucket
-                                </h4>
-                                <p className="text-xs text-slate-400 leading-relaxed">
-                                    Execute this script to create the <strong className="text-emerald-400">documents</strong> storage bucket, enabling file uploads during the audit.
-                                </p>
-                                <pre className="bg-slate-900/80 p-4 rounded-xl text-[11px] font-mono text-emerald-300/90 whitespace-pre-wrap border border-slate-800/80 overflow-x-auto shadow-inner leading-relaxed">
-{`-- Create 'documents' bucket if it doesn't exist
-INSERT INTO storage.buckets (id, name, public)
-VALUES ('documents', 'documents', true)
-ON CONFLICT (id) DO NOTHING;
-
--- Allow public access
-CREATE POLICY "Public Access" ON storage.objects FOR SELECT USING ( bucket_id = 'documents' );
-CREATE POLICY "Public Uploads" ON storage.objects FOR INSERT WITH CHECK ( bucket_id = 'documents' );
-CREATE POLICY "Public Update" ON storage.objects FOR UPDATE USING ( bucket_id = 'documents' );
-CREATE POLICY "Public Delete" ON storage.objects FOR DELETE USING ( bucket_id = 'documents' );`}
-                                </pre>
-                            </div>
-                        </div>
-
-                        <div className="p-4 bg-slate-950/60 border-t border-slate-800 flex justify-end">
-                            <button
-                                onClick={() => setShowSqlModal(false)}
-                                className="px-6 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl transition-all active:scale-95"
-                            >
-                                Done
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* Active Properties stats details modal */}
-            {statsModalType && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-fadeIn">
-                    <div className="bg-white w-full max-w-lg p-6 rounded-3xl border border-slate-200 shadow-xl relative animate-scaleUp">
-                        <button 
-                            onClick={() => setStatsModalType(null)}
-                            className="absolute top-4 right-4 p-2 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100 transition-all"
-                        >
-                            <X size={18} />
-                        </button>
-
-                        <h3 className="text-lg font-bold text-slate-900 mb-1 flex items-center gap-2">
-                            <span className={`w-2.5 h-2.5 rounded-full ${statsModalType === 'auditees' ? 'bg-rose-500 animate-pulse' : 'bg-amber-500 animate-pulse'}`}></span>
-                            {statsModalType === 'auditees' ? 'Hotels without Auditees' : 'Hotels without Brand Leads'}
-                        </h3>
-                        <p className="text-xs text-slate-500 mb-6 font-medium">
-                            {statsModalType === 'auditees' 
-                                ? 'The following properties currently do not have any registered or onboarded auditee user accounts.' 
-                                : 'The following properties currently do not have a designated Brand Lead assigned.'}
-                        </p>
-
-                        <div className="space-y-4">
-                            {/* Copy button */}
-                            <div className="flex justify-end">
-                                <button
-                                    onClick={() => {
-                                        const matchingHotels = hotels.filter(hotel => {
-                                            if (hotel.id === 'sbi-test' || hotel.id === 'sbi-dummy') return false;
-                                            const matches = statsModalType === 'auditees' ? !profilesList.some(p => {
-                                                const isAuditee = p.access_level !== 'admin' && p.access_level !== 'auditor';
-                                                if (!isAuditee) return false;
-
-                                                const hotelIdLower = String(hotel.id).toLowerCase();
-                                                const hotelCodeLower = hotel.code ? String(hotel.code).toLowerCase() : '';
-                                                const hotelNameLower = hotel.name ? String(hotel.name).toLowerCase() : '';
-
-                                                const pIdLower = p.hotel_id ? String(p.hotel_id).toLowerCase() : '';
-                                                const pCodeLower = p.hotel_code ? String(p.hotel_code).toLowerCase() : '';
-                                                const pNameLower = p.hotel_name ? String(p.hotel_name).toLowerCase() : '';
-
-                                                const pIds = p.hotel_id ? String(p.hotel_id).split(',').map((s: string) => s.trim().toLowerCase()) : [];
-
-                                                const matchesId = pIds.includes(hotelIdLower) || pIdLower === hotelIdLower;
-                                                const matchesCode = hotelCodeLower && pCodeLower === hotelCodeLower;
-                                                const matchesName = hotelNameLower && pNameLower === hotelNameLower;
-
-                                                return matchesId || matchesCode || matchesName;
-                                            }) : !profilesList.some(p => {
-                                                const isBrandLead = !!p.is_brand_audit_lead;
-                                                if (!isBrandLead) return false;
-
-                                                const hotelIdLower = String(hotel.id).toLowerCase();
-                                                const hotelCodeLower = hotel.code ? String(hotel.code).toLowerCase() : '';
-                                                const hotelNameLower = hotel.name ? String(hotel.name).toLowerCase() : '';
-
-                                                const pIdLower = p.hotel_id ? String(p.hotel_id).toLowerCase() : '';
-                                                const pCodeLower = p.hotel_code ? String(p.hotel_code).toLowerCase() : '';
-                                                const pNameLower = p.hotel_name ? String(p.hotel_name).toLowerCase() : '';
-
-                                                const pIds = p.hotel_id ? String(p.hotel_id).split(',').map((s: string) => s.trim().toLowerCase()) : [];
-
-                                                const matchesId = pIds.includes(hotelIdLower) || pIdLower === hotelIdLower;
-                                                const matchesCode = hotelCodeLower && pCodeLower === hotelCodeLower;
-                                                const matchesName = hotelNameLower && pNameLower === hotelNameLower;
-
-                                                return matchesId || matchesCode || matchesName;
-                                            });
-                                            return matches;
-                                        });
-
-                                        const textToCopy = matchingHotels.map(h => `- ${h.name}${h.code ? ` (#${h.code})` : ''}`).join('\n');
-                                        navigator.clipboard.writeText(textToCopy);
-                                        setStatsModalCopied(true);
-                                        setTimeout(() => setStatsModalCopied(false), 2000);
-                                    }}
-                                    className={`px-4 py-2 text-xs font-bold rounded-xl shadow-sm border transition-all flex items-center gap-1.5 active:scale-95 ${
-                                        statsModalCopied 
-                                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200' 
-                                            : 'bg-indigo-50 hover:bg-indigo-100/60 text-indigo-700 border-indigo-100'
-                                    }`}
-                                >
-                                    {statsModalCopied ? (
-                                        <>
-                                            <Check size={13} />
-                                            <span>Copied List!</span>
-                                        </>
-                                    ) : (
-                                        <>
-                                            <Copy size={13} />
-                                            <span>Copy Hotel List</span>
-                                        </>
-                                    )}
-                                </button>
-                            </div>
-
-                            {/* Hotel list container */}
-                            <div className="border border-slate-100 rounded-2xl bg-slate-50/50 max-h-[300px] overflow-y-auto divide-y divide-slate-100">
-                                {(() => {
-                                    const filteredList = hotels.filter(hotel => {
-                                        if (hotel.id === 'sbi-test' || hotel.id === 'sbi-dummy') return false;
-                                        const matches = statsModalType === 'auditees' ? !profilesList.some(p => {
-                                            const isAuditee = p.access_level !== 'admin' && p.access_level !== 'auditor';
-                                            if (!isAuditee) return false;
-
-                                            const hotelIdLower = String(hotel.id).toLowerCase();
-                                            const hotelCodeLower = hotel.code ? String(hotel.code).toLowerCase() : '';
-                                            const hotelNameLower = hotel.name ? String(hotel.name).toLowerCase() : '';
-
-                                            const pIdLower = p.hotel_id ? String(p.hotel_id).toLowerCase() : '';
-                                            const pCodeLower = p.hotel_code ? String(p.hotel_code).toLowerCase() : '';
-                                            const pNameLower = p.hotel_name ? String(p.hotel_name).toLowerCase() : '';
-
-                                            const pIds = p.hotel_id ? String(p.hotel_id).split(',').map((s: string) => s.trim().toLowerCase()) : [];
-
-                                            const matchesId = pIds.includes(hotelIdLower) || pIdLower === hotelIdLower;
-                                            const matchesCode = hotelCodeLower && pCodeLower === hotelCodeLower;
-                                            const matchesName = hotelNameLower && pNameLower === hotelNameLower;
-
-                                            return matchesId || matchesCode || matchesName;
-                                        }) : !profilesList.some(p => {
-                                            const isBrandLead = !!p.is_brand_audit_lead;
-                                            if (!isBrandLead) return false;
-
-                                            const hotelIdLower = String(hotel.id).toLowerCase();
-                                            const hotelCodeLower = hotel.code ? String(hotel.code).toLowerCase() : '';
-                                            const hotelNameLower = hotel.name ? String(hotel.name).toLowerCase() : '';
-
-                                            const pIdLower = p.hotel_id ? String(p.hotel_id).toLowerCase() : '';
-                                            const pCodeLower = p.hotel_code ? String(p.hotel_code).toLowerCase() : '';
-                                            const pNameLower = p.hotel_name ? String(p.hotel_name).toLowerCase() : '';
-
-                                            const pIds = p.hotel_id ? String(p.hotel_id).split(',').map((s: string) => s.trim().toLowerCase()) : [];
-
-                                            const matchesId = pIds.includes(hotelIdLower) || pIdLower === hotelIdLower;
-                                            const matchesCode = hotelCodeLower && pCodeLower === hotelCodeLower;
-                                            const matchesName = hotelNameLower && pNameLower === hotelNameLower;
-
-                                            return matchesId || matchesCode || matchesName;
-                                        });
-                                        return matches;
-                                    });
-
-                                    if (filteredList.length === 0) {
-                                        return (
-                                            <div className="p-8 text-center text-slate-400 text-xs font-semibold">
-                                                All active properties have been successfully assigned!
-                                            </div>
-                                        );
-                                    }
-
-                                    return filteredList.map((hotel) => (
-                                        <div key={hotel.id} className="p-3.5 flex items-center justify-between hover:bg-slate-50 transition-colors">
-                                            <div className="flex-1 min-w-0">
-                                                <p className="text-xs font-bold text-slate-800 truncate">{hotel.name}</p>
-                                                <p className="text-[10px] text-slate-400 font-medium mt-0.5">{hotel.location || 'Unknown Location'}</p>
-                                            </div>
-                                            {hotel.code && (
-                                                <span className="font-mono text-[10px] font-bold text-indigo-600 bg-indigo-50/75 border border-indigo-100 px-2 py-0.5 rounded-lg shrink-0">
-                                                    #{hotel.code}
-                                                </span>
-                                            )}
-                                        </div>
-                                    ));
-                                })()}
-                            </div>
-                        </div>
-
-                        <div className="mt-6 flex justify-end">
-                            <button
-                                onClick={() => setStatsModalType(null)}
-                                className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-all active:scale-95"
-                            >
-                                Close
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
-        </div>
-    );
-}
+                                                                                                classNxúÏ}mW€∏÷Ë˜˚+4¨9C8%!Ë¥–á“ˆ˜¥¥òÛú{ª∫Z'ƒœ8v∆vx9˛˚›[ímY∂c…v(Ì‡µZ«ñ∂§≠˝¶˝bMË˛¸ÀÙ∂;ËÌêÈMw˛˛Ã≥©›Ωq…ÖÔE›°kç~'Ωâ∫7!ôMß4Y!%Q ˜Ô≤{Ìÿ4¿Ø^ËDéÔu-◊%ˆ,∞ÿóÕù>ÕÇ–∫SﬂÒ"xÙ¬•7ÏøÓ»wâ—IÿQˆ”ˇÃ¬»π∏çø^Z”n`˙ˆÒ„¸ë{∏úÉÜ˜“^/»Í≤K'4∞\ª˚¥ﬂ'cˇäª“Õü·&[ÅÎ1LóòéÃ+·ÿ≤˝În8â?≈?nˆ˚´˜6î›ÃPv
+F≤è$æÒn(„§Sê˝a˚>∆r˜Ân©},}{·‘Ú»»$>±`áØàÕªrÄxΩ∑Å?ﬂ?Û/åèœß7üeÒ]ˆ4ﬂn∏2àÅàãïπ	®æ
+¥|ËÒz2G⁄ÙŒ∫˘ÄÑ+º#”h˘T·>ñgoc8ã"ŸΩNñ>c—Ìpúw∂≤Ùﬁ0yy›Àqª?2È9ˆ≤©^æw‰:£ﬂ˜Áù5≤@Óâ^êéæÅ¡Æ›SèxÖ÷=ˆ¬)°q6Ú⁄˚ua™◊âòÛuÇí Ö„Q{Ìó{ÌéPDü7:EH®iâÁõ√„∑´˜59ÀgÕÀÔBÊWèrqˆ‚d‡ûÂ‚Ä*21ﬁ(ñá„Gs≤0˛‰`ÏvGÅ<ëÒã$˚‚◊ú‹ã7e^≠´\ÊEú}Ä2/Çï»º1Ç&ÚÆ@Â˚ìu˚è¬≠Y/ﬂ∑pÎY—ˆ‰Q∞}∞ÇÌÍ…∆·£¸jp= ØÂÓı{ñ^≠…‰∏Y~Â∑ûJ∞È„9ñˇÑ‚cÄã3‡“ÿWˇ‚"§Qwpüín8Nú0úx—s¬œûıï¶Xù·D“Ê_%YõﬂÿR•m~‰mbyŒƒähw:¢xﬂZC›Ò‰¥ád<è˙CıUÆ?Ãséàw8ù0Ÿ˘.˛Ω{Äj∆…a¢d$hî™	-∫?E„ıùL£GMC≥€πZNÛ¢ÈÂ¥MÀ{	ñbDª∑›Õï%Nïk©õ€¡7˚È¶H%û–E˙é¥æT∫˛Ë˜ïÉ√ﬂ^üø?%'Ôœ_ümúæ~wx˙œ≥Ω÷€GÉPZµ»R1¯ rg@>@é@0;Ú'¯≥\RöﬁÿÚ.°◊e∫^V0È¥3rI£Ézmπ`NWË®(ˆW^—p8CJ<|G˛dÍ:ñ7¢ƒ¬Ì\8#⁄ö»ˆzΩÂÍÈÜ_w/f ìèÅ˜êdQ2ñ8¢£lp·èfa, ∞ó>€ ¸æ*•/‚&q¶™√î©±÷ Ì%4…˙≥»•µ”DU≈!†°ÛÒì4πªR ë-oÍ6ñJFøÅf[n≤≈ÊZj™°ô‡ÆEi0ÇöØ÷dp¶í¡|„Ô‰ÕÒ…·€„ˇ˜öºy|Úî¸}√†?EZ J∆È¡sâÙ|‹ üvü…j≥–çh”»&ˆ.˚¯◊¯π–1§—5•3F<S»&k~c«P^QG¬` Ùç}ô∂Z‘ÚuwÛ)–}¯/ô†õ†å˚UcSÒ∂b?ïbù	«¿ ~Ôˆï9ë€Ùkär{gcá∫ˆ—òÇ(Üaæ5∏´CùknúΩ˙;uºïW≥∆¥XÇåúÀq¥r∆Ò,∆Héq^·3y	L—&á3€âˆ6∆[5ôÊ‡HÂŸT˝ãôÙ$Ínñâπa‘@$ˇ¯–htªKÊ\\Û †;BŒ˝Ü l∫6¸≤«àp=ózó—¯nc"¡Ø¯NÊ6aﬂjí—ÈΩ†Pµ©ê,$§*ú§§*G+∂k,œº”‰e‰{aÑG˝ YﬁÚ5$˚§hπòü…O?ë¸˙í˝˝‚WÍqhvhHw	≤d¯a-ÇÎygE„£éùNàÖÔÆëøêx◊».È◊6†—,Hßæ,qJ≠Q‘{Xó®	5ìãÊ?dWñ´>d	Ñ
+>«ÑF!=©ôU6Ñ#K ÚïÙ'Pc¶7›m".b÷ñ∞˜‹ˆ¥dPÿ;tÅê9¡»•Ç+mÓ‹eL1OîÜ‰v•-ΩÇôÙŒ8éì©@r2ŒL@Òú¸â|nlèH«Ñ®ÚG◊⁄≤àµ ≠7‘›≈Ÿ{s”àÌÑ÷–•ˆæ≤MöõñrûçÁ’Y@◊πiÁÄ4§—πoÖ—;¿<ÎívVòúBb)∆&g≥—~C£√Ì+-ÀbØŒÑ˙≥H-∫[['@H˙ÌuyF]:ä`%ñ'æsÏŒj[ÁÕÖΩÅúvÈ∑mu‘¬ë≤|é¿T
+<0Ó´äEŒÇ:)ó)U€O∆.TL…∑»%t8mÎ(8≥KZ≥yGaÀ8%ä{;ŸS]°û˚ü“Wë◊õwÆËn8≤\Pvwî„ÙˆNÌ¯π"Wû≈ÚØ;}ï'÷ºçß…øÁG∏é˛5– jçúË∆
+Wµ9∞m!FN‰Rïò√™}…ÒU'LÀKîwÎëCW¯.$Ãó3Pâ˝2´k@ß~ıæ¿ÙÆúÒ˚ÿ+9e˜Wöç¶6˝∆q©¨f˙≤@3WÁhÖÌø.«héíõh=Hw2˚x·	≈WpÙY|Z©•Õ´W~FõâçèÍˆ6⁄êÀkP¸ªµé°ºd(°<Æ˘h≈(´G§?Ÿ%ï ∫∆˝U˛Â–k¶£Æ∆·3ﬂÕ´∞äı£≤#Õßâ≥»Öe”coÅBÇv“óáGˇ$/;?B~"øæ>|Ua,’∑¿ÁJ3gï9Aœ8f$´í0ã¯tVm+}+∞A‚Úíå∆ˇgFÉ[&Åx£◊ã4Cé«dçb1cS:ºR‘Uâ≠À}cßÄÕÔl<c™Í∫◊›f‹Îo»≤‘Ù$õAÿd6qÚREÅTıôÊ^> mﬁ“ã(÷xôñºd"ûO^≈kSç⁄ƒuo<»±æV∫ÈÄjVÂjIÃ∂{ÿ€4 »õN≥«ò(°¡T”∞ d ∞&îL|œâ∏î·_ .ª]ã¡9BÏ: JH'«÷(t\€)∑¢:4ÏiÃtÖï≥Ç@WY/ıLá†∫∏• /aTÃ?ÃaF‡p#±@É YAÑ”í»_ú‹@˜—Ãe•ãÕæ‹Ë°ÄËç©k!ŸΩˆ.Dù±û∫Õ€!.@ùqoàñy˛˝œ?	ü^‰øâ78ß£¡∑yì„Û€)e-∆Ô›B;xÁ9ã9: J7(´ØV˜%åå˛êì%À∞äF>ÜÚCW˛e±Yñ˝C@ëöeΩ≤\«&Æ+ÀÌ_Rd6¿UrÙ)àuÂ√3cj]›í˜±`áâ`èØë£ø§Éƒb"√ßñu∆ˆ˛kﬁ—.f›ÓÕ…ÔÙV®Ô¿ﬂŸ<ˇÇ˜–&ﬂöZAàG0˚‰Ó VÈ„ß≈s∑»21È∏4"4Ÿˇ˛Ïq`≈Hc„7qû<—ç5‡CÜ1@ìô∂‡V«—#—`ÑM B¿ü€Ü·;—∏≥ùœå>}^]3âMˆo‰Œ@◊Ô¨~æàÌCÿ¿9ﬁåÍÀπ|§Åu≠éÙíF∏ÄÿùÅÿÃåd–ZPLaFS«>õZ†gË”íô◊ubd··mNqâ†Qlªªà`ÜMö¡Ò≥Fí”ê}20çpI∞OÏ* àµ˘±_±aJ‚[1nßÇLH;õkΩˇÒœpÑxÈmÃbh8 P˛˜Ÿ˚ì˚÷AÑ1WÕƒ\Ck‹'ç‹$t˘à¯ïª√˜¯qzÂÿÅœ≥ h"Ïœ¢˚“y÷Z¶1ÆGhˇ≠g.Àë“ﬁté;2!]OWm=û≤ª:Í´ôü
+à—hL–7pÆˇ™ﬁì’O-~"úñ<‡ª¥wm^gÂ»üÅ`Î˘Ä~¿CAŒ˜2ƒnweù–*µπí=oˆ»Ø‘ùb‘éü»V4ï∫êQY Ì{óÆê÷4ÿ.êaÜâºç¬MñŸjûq	Èÿf¥#D"—ZMâK8Ø2eq–≥π0®Ö1$=GÉŸ	òajµ-ç|õ‚ŒNö∆ã«=Æ€8zZd«Ø6⁄‡‡ÊƒÅU¢*õÿÍ≈–\≠)®=Œ–•«6"“G≠Ò∆cX◊ìú$|xÎôäﬁÚ/ΩK§©N'l©ãª)ZÙ˙±e/Ó®xGï˝|äïßó>,À[√eÁ;‰ ˜;@`†æE-∞Ë„ßµ–ö◊÷h‹ôÍürô ç•·Œ)à=Üåü„›T0ÒÈ6êÜπúIßhO,XßÇWÙX^v¥.H∞«õµ`-Û∞ãu4ÅΩ¸ï∞s!M „ÿy∏˘=j∂õL`.{A_±ëÒpNû˙ÙÎ±ëàƒ‰πtD2±‚R—®eËMÂt_+{+ %5˚cSŸ_E1ÓoÒ,÷ù?AÆ òÅHL«)¥&ÆìC{‚x$§4d6
+a©„œÎ›·€∑íuèüvAa¯„G˝ ]W3_!%Œ;∞Y{1eÓ‡7f∏0'V"@Ì∏‘˛<º˝Ã:aö ÖÖ1ˇ∞ôKüXeèh§¥Ê[¯Ò≈ W.¬7~ÀnΩ&g4⁄„ºÁ@_Ù,≠∆t0dËwL ø¸	9õM≠!z8§A†’˛©àgÈÛ*GÏ@[¶Kâª	^Î·J!UŒ*öËÑ©¸»úfHüp˚d≥˚3Œ•ÜççºπX⁄Oo@¯”∂.∂“9`Œõquf:‚ê#ËHΩ7Yò‚Då¶Ä◊3åvM[(∫döõòÍ§)[∆t*l¸¶vâ2ö–≥lªì‡ç°ıA£QÆô5õlEf”A˘&
+fLÊêw˛»•üU¸yµé•&G’MGUãuÊ‚+Xh4…¯ C∆ßÒπÀ∑ÏÃBÿ]*õ [ 2^m-3£ÔzCÓ3G/ä˜}˙ä"mô31 —MFnÄ<˜f⁄I˚-≤sÛzb‘5›◊≈;∞÷àuök:‹{›∂xÑ∆Œ»),„9;K”z'¬x#ÕÁS;›»udÎRyIÑ´©ﬁÌÀIZ±#ÀÙ0∫.›Dc+îRçGcé¢M®y¥¡`Ö}?t4HÈ`Ì≥/ò˘8è<aç?!´Ï≥XÁ:«ax^Œ¶ªÖ„NºòDÒx s)£ﬁQ^Â«iözÓÌﬂÏ©>≥üPÙ´Ô„ﬂî◊®W˚Úd|’wv‘˙Ω^«Êùä<√√E≥æt9¶÷c »æfL Û)¬C<û} ∆ÙSòÖdbŸ{ƒæFc`n‘Ω¢zÅ¥ú	ÚÜO@°·f!Ω%iç2›1õ2¸¯Â«9¥z˜Y D˙â´T,+§·n»“|gbj[í^8;EF¯¢S¨ÏmÃ^›ô”Dr¡˘ì>L@„¢ﬂì'f|Zü ß&ùﬁ´Õ˜#Û :ˆ.|X≤¯?â‰√˚Yua|Ø'tcËºç~˚±ûºñƒ˘Òîb›ë§ÒlLyûU°è2?—ŒΩÛ€√àmùŸ¡ıOÊ˘j‚æ¶ã
+ôëCœ˙GVÈ4ôiﬁíJƒõ–‹<©Ø0XKÎlZõ ¥∞e˝íËp-¥gúÃ83†Õ@kæ£„ÄT˘à8’ôßPÔJXÁ@Ì
+ÿ÷%l]«®»ŸwIÒ&X'2ëê#wÓI’Ó√ÔËƒgÅƒÔ¨)àb£1E`DFK†0Òæ≥â1ÕSj° Ì˙˛Ô≥©ég¯XˆP¬÷˘˘|Á?ÎŸ	Ûf¡ˇK<YÒ◊t≤“{ôIrâ_–•=öÖÁÙ&J›ã˘Ω˜ÛøNÓ*O±äΩ¨épvÏ∆æVˇdjlC?+$ Í35õ◊6"
+ºÕ5#Á˝†qÃ®9nh[b{qo}ó–Ö‘¥=ÜJ‹π∑'°2_—Uf/jöÃRTÑ¶WN¸÷€
+ ÕWÙ8πÑ∂–¿∂>0uó>a2n¯“∑c¯4H≠ƒ˜p¶e~Ωøœeè:p≈‰£‹É&p0Ë,Ã«^‚ŸPÍ≠ˆˆ$∆ù“pÊ"`s“Îı *Ö'±/Î“÷3Tp ºr‰%‰e]@c√
+jïæ”ò˘Iûπ,*’y.F£'ºIÉW8!£E	>6ÂÛ2!02OE9g2†}±Jñ‡Âwe„ª?√‘ôÂ–B?ûKöÛ„±DÓ	ˇBxk¨A“<õõó¿IÌúÉ4∫CÓrˇŸèüåVÑâ%Ÿ7lL;ãV¢lƒm¿kSêºÄ…[∞√ãá)›î∫bﬂe1™Ø≥k5ƒﬁÃ·P25ö'D*‘˙oÜ≥…YﬂÎk0ÂtΩ‚#&Õ®DºölI˝sßÏ∞ûÏK›È´≥ï;∫ñR…WH◊∫"ÒÃz¸íFAÌŒ€4ÿXWóLìÃ(Ÿ’⁄ê˜õ>˝ÕÌÁ¸fŒÏ‰Ï6ŒB◊\¸Õs˛òQ…Gí©‹€c®7E'VpèvH:ÙΩß4‡ÿ
+ÅªWxWÚ…ù±ÓNÈ%s»€ÁÅ£=ÙÈ?¡N>∏∏7±¶|Î¬B∞W◊TO˘5≈W^í#XW,[ñ{˘∂5`XR“Zê§A”ï¿T!ƒ[nß‚‘"VÔp1b‹eìòY`"»ÑÎÚ7Q0t9»<∆	FÏzË*Ç(Å@Ñàéå…&GØÌ]œ:JŸ¨Ø™´e£xW0Ô	:≥ôœôLΩxEÓì>`Ú„˝–‚Ïg‡1ü~ÒzÀÛœv[¡ÏÛ˝À¶û=bî_–üv)KŒ<˚⁄ÊºK‡òœ:{ŸhŒıu6å'ŸõﬂRÀéc)uÉ(hÏ≈b„§Â›~¸§o*|ô4'9ºs•√ƒë©‘HòèÃ–”92√¨m"Ã∂“Æ}ê6™Òj?p∆ÁÑÏo&úm-N±Yô+/Ÿ˙(∑Ô"É`8(⁄Ÿt/$`≠I“OìÉz—Z⁄dﬁÑ∞=0A° J‰*X_]cÑ»aT»±Öõë;:ÖjÏﬂã‚ ?•€ˆ:*ˆz$ªZkò¬ÅTEÜ#}ôìR‡`rá◊ì]„».øÍf^”é\óx5	ªƒ%)iæ(.≠nqP$õ˙í˛ä‚“4K'yAñÚ§¶Cÿ—˙Ïn¨Ò¸J†Wˇ™kê∫oËÚr]Ó )OÖ¨K~à≠g¸éHÖÓ≤<\Ùê.˘L;ÖÑóv)n…} r`·cÜΩr/ı…n»=*"P¡s’]ög\‹ÿ/f˚ù±∂Ù%€ 
+ÏxOåìy	YÆª™üÔ`aS 0Œ≈RS•ÉR<1[Ë»Ûı√≠†≠≠Œ“Jâ≥îI∞ √E‚Õ!˛aír¬¡œπÏe)%˝Cü2«9,™‘<¶åá∆Œs¥˝»òa/ûdˆ™XÔb5À®Öm)g∫ı≠®•¿1dîÚbÿ"’iäñåÕM£•@:ﬁÁ¯«F`˛P's¡éÔgÕ≥-¡Û£œ!?Òæø!0Zrˇ^?Yn∞)Ã2Ω√ôÚù—˝Ùû 3“6ÕıÊ3?à–TÎ˙óŒà¯”»ô∞…dJ3é™s:ã`	?ê|>Çvüu>ıëN«Z'CMΩ7>K≤'dBç∆Jfp:|Ée¨Ÿ5$C¯ !ÍÏV9—6UU^b{√ÊÌIÛ¬¿Ï±0zƒ~†÷ïéº]∞w≥Û∆8¥·ƒ±wƒÃ5NŸ©4+&∞•f•i‰@+Û»ªle"±aÙ7úKxgÚÀès+ë£ŸàÔﬁ‚<øÛ•˛‹B7/y7√|7√V∫ëÊ•Ã4– <s TÊ8,8,”pAlÔey{Cìˆ§ôc` <ÆÀ{Í’9ñ[6q>(Å*9∫LÄJÓ¥∆Ñ+óüª"}œã/;[≈-›k≈ë£	vd@VxßB]ÂﬂZÅ[H`2nºr~#4ÊpÑ$ wI7˝÷\¨˙`]Ç\ :4Ãú-ùÎ3QÌ%¡JÀ±Hj	 añQÊ£0±n:õÎ¸Ûà:n'◊ŸF2k¯‚àÇU;!˚YÙÉ‰1qºé‹•‹Í⁄∫ö^Î®3≥l÷ÄLI_]≤â!**ƒ:-Rœé€K‡ïzyíkt=∑0ZêO9Hbqf1yr›¥„ı∞*B ò∏¸‹øƒT°˚2dpW»∫‰œXx√OâÙÅ_â_Ç©%ïóS^÷π∂,ç>ÌQhõ^!$¸Ø¥aWmäv˘}I°<lT|:u}µ §nÂRàöùÕ™T¥x§]≥¥¨äf˝¨©Ú·Ù˝?N_üùë£√”Wg‰Ù˝ìŒ©8ä‚ô˙ª¶]óZÖÎ2plÇˇaŸï∞ªI‹À›ÙÎ´-¢s∑P‚∑—#ﬂùMºvJgÔ∞Ú]”nZódÎF-K¬ü‹‰%ND)íè˝œ€”õœÉ>¸\≠ŒÊŒ˙`k}{∞ﬁÔı7◊>)e∂«Xóû˝dZ(ª®îr(◊òìjÀeãsdJÕXMeª§§VeâÀv÷)π-¸›‚Í(€w9ê”í1µÍÄ™¿]†nÕf“∏ätŸñ√ä´òÈ¬<∏ÌZ≥»R	®ŒV{ìåfa‰O∫·(]whu*´é[Ï¨¥L◊â√òDΩ⁄¥lDµﬁƒÎwzª?¶âºË‘Of†‘:í®™|ñ0πÃ	Û"õ∆~WëâØ™• •ß¨Zë\SWê•÷P∂
+!ë¬}‹"∞Û)[≠Ëcø˜¸˘'bœ&t∞IVq¨ú†F≠„≈+9^ñÌ¿ÔF~w∞Tar(∏+æ˝ú≠Îò≠ÎÑè
+Ú9±*=nˆWõÃk8ÚÓìrT1UÃSÙßô*èœ˙˝˙ÎflPjØ®ÊôZŒ,CÓÛ%ΩÄ/4-ÕJ2gh~0Û–aôÄ˙—^π˘3≤æ\y™òò‹µQqYbÆC<RTeR≠¬´VÔà©UÁÓoM!mXZ]k^Em‹êÀ±z⁄≥~∂ÃZ¬Æ∆émN…7∂õ¢B#_ŸBªºà®<Ö'uãQTùÖèIƒ™†Ú¢∑P_5ån±æÍúÄÏçw—§´ “ó¶âîmäÑ”Ã±MÛq≥ü‘>ûP€ôMXq8‡£’4Io≈‰Ω	®öÓWéΩ€|ÂZ†!ÕK≤‚Z´X<„«Â∑;bcπgÚÖ’4ké|ÿÖ∞rGú‘"G:¯àdPπ# óÑ”Œ<…ÿdÛàø’ªÍ›ãÆ6H}5æ¸ÙSSbx˙\)—ù™Oô‚‘®Èauo^∂≤ü É+áL¶égb8ı≠≤Pa˘ãµ6ÒZ!9Øç»~B8Ÿ5’ë™ì€±4)(VÌß≤À ¡â/8àmE±Æ,«µÜ.≠5´˜R<ÿ»;+<Z>®Â„ù5˝Ä≈JtÇÏ⁄ñè|ˇ¶è\∑}åææÌc¥d€G∆71~d}yYW÷˙1˙´[? ghâÊig£˝#˛Zl ëŒY@§M ¶◊∑n›á	d!	)≤ÅH(âFê—£ƒ¿bY∏Ù™$≥ÏÀ1ÉåÕ ïfêÍÌ/‘C7ÑåBÚøµnUBF™!dÙ-B 1¶¶%$F∞GSHˆ*–Nê-$v˛.ç!<N„—Ú@M!/géÀ≤ïC,LÙZ€¢¨ˇ˜oQ≤òp3»ÎõAÜK6ÉH¬Ÿ VâΩ≥&ê·_›R6?K4Ä$ªÕ¸K±Ò#}0g˙H~z4|ò^ﬂ∫·cxÜèd£»Ïë†#=ÜèFc à—c¡≤´&i…óc><*U€î/“C7v;ÚøµnÏV;Ü™±c¯-; ∞•¶©É#◊£°#{Â¥èdÊ‡πø#á¡£⁄ë<gØOè~%?ë7«oœ_üûëóáßµCvëY◊ ÚL6Äl¶7ü∑ã- ;k&¶éBâ61ûLÏ]ˆ9ØÒsÜì®lÌ€ÜÚõVûÊcËﬂŸïäÄ(∆úÕ‡Å:•Ek˙Óñ…Ò@YÓÖ".Ωà‡œ‘e
+kﬁÆ#4”.ΩÇÔa◊CÜì›k5Öæ=1S¬÷ÛÙÆéXRìöÌ9ﬁt∂8!JŸ›N’Y©ı~^˛Ü©Ú4∫œêR°U(¶i%Çv≤¡pIˆ«$r£Y∏õÏF˛’üEÆ„Qæv‚âLPZ˘dÒ++!◊Á∏$π•¡˛äXjÙ≥y™=^ãÿ1p—SsoY,∞ââ∞zΩ^Ω~Y€T{ìrÖ’c∂æw4∂ºKh+ôjg-∫‰ÿ“¨ÌEVpI#^Ä∑AaX”¿“≤´ÜvQcÎ-Q°`8ã"ﬂ´Ø=*∂ƒf&µíï÷ é†Ÿn£∆´Åπò£hùÈ2äVÃRQç[Ÿ§õh›øoKÿø•3áöÍÒﬁ«¡˚í!çEìW@mA‚Ú¬∆íI*V]÷4¥UÁ¨"ç“äô)îEê
+Nv—é∏S„‰,i9§.’*`¸7›≠ØŒÚôW1âI{ÒÁ∫{/ÖÀ°ç}⁄b»xï≈∑∆ïïNæ›n@1• ÏJæö++áÄ"¢¯«ﬁˇ±~ÎÛÇb"ıè&Uòyº˘]åâFcﬁ5∫é5ÑÅµ¡âHmEßUç …ÍwIV3é[ëÆfc	k|÷§∫Ok§U©‘2q%ƒuÑ^ﬁ9‚ ]äIÎwIZ•c¢áHXe/ßG≤_ÖdïóÌjç¶ U¿Z&®√Ñ†—É‰/JPYÚÙ•Q’ü©Í◊¶™i5ëKYSÍä≈6±€#ëçâ,	ª¿ÑûJ¯ss⁄•Ù∑Y9¯÷ %≠w$ä€0_Å∂∫˘:ÙÙêïÄÖ7ñFQü=R‘ØHQÂ:-ëú =“Rı*£•ÚŒm√†ÙìîLZ9‡xB¨¿CŒf√âE¥}ö*ï?Z98Ns±.Åx'EäêÄ≥9èË+oÅ≈µ⁄C 'ŒÂeM>/ŒÖ˙Áü%I0§î∫|E'˜Í”Rµ∏§zXÊ›í˙bM= ú@ÊT©MÄ¨YµÕñeªBõÌ.ÀBï÷9*µ∂ÃΩZn˚Å∏qdºh•TªíoÜ∏˚,o‘®—lòhyÑ®,ú%Vâ$Àcm¯°µ·2@üPm`›ÑΩ∏Hiã˜Ï!≤Ñ«MΩåﬂüùìÛ√óo_ì£˜'Áá«'«'ˇ áoﬂí_ﬂüø~{FO^ëÛ__ü¶•;!/p:ñ}ì’∏¶˚pHN˙ºaø¶Q‹˙©(<lá¢+o<ËëÔ∫÷4§uúÜ£1ê“ö2RîE«ˇúDO„·s±@&aÈXaÜ	gL/kÜÉoÅ¶àjyóé(`ÿ,XGöb†¶Oëön5-&VC˚$¢
+H‚a}-Ø»â\ ÉöD>+éÉŒº,à åı€o!öPö)«cä{)cjº»∫dQ=|Ë∏oÛmqKx• ~AALÚ¢·D|UW‹⁄;”´¿˜~õ∆ÏqkQ±é4!Ú–›‰ıW˛µgﬁ@„1ÆÌÃ‘ﬁa¯◊øMÂÅÚ·{cK˝©5r¢[SÀCjFKöFtnD„áLnE›”Ôûﬁ2Ë/GjŸ®óMaEıµG´w=íÿ‹8æoõVD˛Ó©Ï[1‘ø°çælZõ÷∑|$∑z◊#πÕç„˚&∑iaÙÔû‹Ú–ÿV˛ó#∫Ÿ·/õÙ¶’ÑIØﬁıHzs„¯æIo\c˚ª'º¸»Û/Gp˘∞óMh=íYÕÎëÃÊ∆Òµ…l		c≥Ïúá√˙}¡õA_´ö«ó{—–∑oÂë¡;6ÌﬁÒ!!ƒ$„.ë∫s÷Á|j]:ûïdıã”§Òƒı_mñÂ~«©üõ˘7ç`e#2'IB¬u¬í Æì4QÂ:·ÑÓ&â‹ë}rI#J‚¿dç∆‘Óå{é›–°ÜÉ√èΩ_ÍÎMÏ‰à˜;„Ü˝4zÊIÃ»¶¯ ÂÛqóêÇÊ≤´ÓÙWæ"ŒÈHÀ…òK2∑´k—	Ø¸‘§$H¶b…œÈÙHEL6û6ù†;€Ñı(∆Û%5uí9©4–¥jÌR«)yÂ.i§q™L"eeï∆ô§imaòÊ∑Ú–hx-Ë√"˚ê–Òå˜2ó…%ﬂÿ.Û…e‡œ¶-∫"ªêÉ∑‘<Î¢(cP+yÇLzΩÓ>'c¯óçÒH6*Tl^ª™"R`˘)#Ω*ÍÊGßí_%g¶XnàeI’√±›Ÿ¿kÏ5Æ¥∞˙bu≠7[¡a‘ÈØı"ˇ7Ù≠:≤B⁄i(è™WC˘¥∞…÷[d≠™…~Ÿb¡*ﬂIôÚs$RÆè´ò…CO0N,˝ñ√	UÚ ˚¡|‹^
+˚¢⁄«täı›Í´Æít…‹èO…ÙñÜEÒlìæÁØø⁄ç°\⁄,¥åﬁxÕ;mƒ	î]\†EÃ
+π0õ∏∏áo¸ÄI∂çÖŸ≤Â÷s&_ÛZÃΩôÎ.ß„÷8nŸ•≤9Õ|öÕéïñ@äÂkŒ'òÂpõ'–π¯FÂ)\êDÓÙ-lDJÅÆ!¨*2Îfí}†$E«*.
+¡-ç'ŒŸÉõp…KìÃ◊ŸMvGc
+$_ÿä˙˜gÙ“π“¿d °∞®∂N]ÎˆsÃ±hÄ€ªpÇ0JÓ≠Æﬁv∆ëπ˚•Œà|ÖüÈƒr‹¥ÁDù’ˇZ]˚ÿˇ‘>UØe—˘™õCÁZÇ‹_K ˆwk\Ók±πΩç®fHCÆ•ÂI•dJB€ˆfÑ%ÊëxÑ@¥≥~˜0;JÙÜîn|ŸZgú˛øm]≥PuPó˛.=oyF§µøyø{x !8Wó"ˆ÷íÀ®O¬+C cX€Ùõ⁄‡Kƒ”¶4t˚)∑Uƒe/J¢∞î›;.EBÊá∞Û‰P·élê9;W∏#ÁV¯{k'≥Ö/Ì`_¥Y«≠ÑÂòL4ÍΩ’+ˆ6hì•e ^éB]≥(b;u§Îœ¢¶Ö6])zÒ
+Z˝æ®4ó"a\nN™´]øÿ‰¢´ç*vEWAeªVÀ⁄]-kbe∑M˛ß€¸RÂ‚ìdÿÃÓ€∏™nEç6≈ò„\:òj\¸Øzt◊lcˆ¸%PîÚSZAQ$˙A,œô EüŒ‹ÎY.öÙ 5Kﬂv}[z˜Ú˘¶  ©›óõˆsZ$≤U‡ È⁄¶MÛt∞Ì——6Eù˚“2Ö“=ûe∆R4ılF∞öVDVØy‚⁄“s¬œI‚ÆÂúÍ4M§¥Ë*Ù∞˝Õ√c5q®ÅŒ@À?LÕ›ãRQ(π'rÓ)“˘_|ÁdùZíCÁ¯ûÒM‰dŒ≠3rx÷Ô%["˛˘é*ÕJ∂Û•Ã,˜"ûI”»oÅµ•Hõ`ÏÁ!7Å»iBØËÍ F…Vt⁄£◊‰–·NÒxñçj.≈áŒ¢ ñ¶≥∆ã‚ˆH‚‹<cx÷[ÇtªìÔﬂÒ·√fÎ#Èà—x—:Yö¢];“¢´m+ˆí`´Ê ÆP8>û˚,_’“Nâ°Ì„êuÒ¡Òﬁ˘∂ÂæüRØçìœ/Ë1ÓÔ_òÁ±y
+9çû^ÅﬂBº¢k	⁄Ó≤Y\‡áTÕ«Ó	Ê∆>Àúç›–gk…„_óßâ®û;KÍüO,õ"sã∆N»kò∂€˚(Ó)Ω –«G◊ÀÂ#úá)k;b1”œR8»∑NÚœXÚ3Ùrß<˛á1Å„VºÎı;˛À°◊ùU'È¯{#ïqXã1±¨L£ôqEï©¶‰8#Ë&¿RNÈïØG;óGUÆ …ñ&ìäË∂SÊø)ß¸|‡ÑÎ¡YèÎEl…WìD∏kµ^m\∏◊t¿ÃíÂªgÄŸ˚Ûßy˜2Aâ–˝¥ÿ^u8ôd™¥rJ∑wË“ :rÇQ6˜ËÑÁ0ï¡⁄‚á√É±èıÀ)À◊âü/?±¢—1*í£ìQ ƒ;p¨^≥i¥ÍÔÄ:,tÜ!ãÜ)d7XY„‰¿⁄œc÷ﬂáˇ8>9<?~Bﬁº˛˙îº<<5JZØ⁄\SoqNŸà‰r >Ììåˇñ*aüˇz±Ú}”„.”Ÿ€I0à‰
+•¯Y‘Iﬁ[üGûç˝kêa†â∏·eITÙ3≈_àπgSÊœƒΩ≈…¯∑KXÜcêXn»≤âÓC¨È¥∆ôuC=õµ#µ·_4Uj+•+5vaΩ)◊ãêê©j≥@n7ÁáQª‰N±wÿf*‚*él€ÿ◊©¢´∆”›&Y”ö?JL£Á!øâaÎúÃ®Q≠‘¯›’à˝7µK/πóD™≤TÄ|?˜˚&ÂóîL*M’ù∂Í“`¸¿¡føÌr7Û¡Œ›¡`ßıfw ⁄ùˆ°g°a√çãÒ‘x≈ËÉN¨+Áí˘ëÆ˚Ö∆Ö{8”¬ùí≤YÔƒWè’‘O§”rÈù<I´Oól'Dq◊ﬁüá÷˝ê¯◊µCÈRÎP,«1 %”µ“ó–;%ÌC.<¡núãf[∫'(ùÁGhÿÒØiÆ‚\∂aÉÅDÁﬁÈ®0—Ño±ƒÖ0—‘W-õôbñåÌSº˘Œä∆Ωâu”Ÿ\'S“%õM¢ñ˜@{{‡C@Ø~’m–ˆ.®ı:cp≥	úSj≥∏§¡∆’<jÅ	wâ«§Ìèü»>˘¯©æLÃ€Ñ≠¯RoüÏ‘oM‰ 
+¢–éº…ìùŸ%É<∂™r⁄∫„uR	b=Ó˚â< §.ı{ƒhq÷c7m|ìÏI4Õ#S8_¢KiO£>-ºåóº9¨ø¿ÁΩ}#||Ú§È0åÓMg·∏3m4∆⁄Øä–|F≠„'ÿ˝ÕC◊€:yeÅÌ™ÊßÖU<ö˜”ÇﬂëÏ%û∫∏gÿij·œÛTÖ—µ‰Nû,.H	1ajÌ‘Jk!Rnù¨*œcÍÎæ	€søÊ~›9…CJBïä(yQ$ï%öC‘4–¶ç•mÏòÊGõu≠`<Ñ˝ÅãÒ
+û2V’æ<üˆÒ(ÿ\B∞?¡ëØ)‘g‹æS›6E—GÙXËˇ÷˙⁄¶ùØéˇ5√Xl^c∑Ö«p’Ú‰/%Ìñ; ®ÊÂêôvoªOòì—z¿èb…[ÎÉ´ôÊı»úÎ√Á∆G˚z©©‘WW˝@3æì∂éáæÿ´køpgŒlôtrwß◊ã±OcÜ≤©NãUÓâ;;YÔƒ\pÎ¢l`ì!Ë:ºEA≈¬Iï€¢|ˆWM¶4˜À/‘x±ÔóèzØç∆v‘%<{„AÓË}p„.H Ù\ÆwÒ∆w@±av3≈fÓmå LK´øKY>"ÃÚÒŒÚê≈û];aÿ}I]Óà≈2…ÓXÆFÎ¸vH∑∏íWÿ€€òVl∏jJ¶Ω€íù∆c1(Â–Ê)–5vQ∂vuŒÉ7Ω˜sVqU06≈v\‚>≥%‘”ÌIA˙XÓˆ°$ëõ§éÃ¶IΩ76Ûnø˙Fc>∏≥0ﬁ#Oµÿ≥(bd€ƒº"rın™:îEs6õZCt–>Ú=›”Ø@»"«0iÄõ~`ƒs©n JƒÀ:»πbgÍÕß5Â∑ß7ü€e%Â∏™È∞¥-π¸y»~aŸÙÿ”‡v~HZá√j[uYÄßÊπr>qO∏;ÜÒ]√ø∫©BÅ(Ø√Ç°j˘î&Yä€Ω∞0ª:o8†∆ç¶9	¥ì`g¨y1‡òŸ’Ã¡ ÁFfCﬂù¡&q<d∫Jn!ydi∂Ù9åıüüÀLF¢)Äóòa¿í\òmCÚ”~ÎC÷U Ù5=a‡>RÏÄò7y+Óúe]V^Y'ııj8ï8D∆)oï“/©Nü2t‡˘õ\ñ2‹Æ$,ËÙıŸπ	T&
+£¶4áÄ’Kº∏hô÷®)ûÍxü<Õ:Ì¶˝Å0>±èêÈl^è…°∆ÎåZÏb≤›∆`ŸóÚ 	GqÔ/.P0#]Ú[‰∏Œêj8‰»èC@Ì:kÙ4é¸øh Bi«€l$ITΩ^œ\=¬]©:á™’áÍG⁄í“–’P'[äÖòø/ı9ë
+çüòjh5µS˙Ö_p£°´ÆPﬁe√fJ‘&÷M˜öì`ÊÅÃL≥IíV‚‘ÍX2jÂﬂmì<ÍpKCNt;E]ÄΩ°g*M“ç∆‹Êı&'1c–njÙv¬¯Õ∑>+<°◊Ä,UÁm?…—3`Él†Œ°,µz+G©E0v‰¯UEe.∑T˝ò2J◊±¸¥ì¯{KñÚUû¸E„|Uì√…ôX2%ã°ã∑I≤û F◊¢-≤†6{vÎç‡#\÷(~%'˛µ~f^=+U≈Ê“RΩôìYÇﬁ∞¯º≈éaã-ºÓe™suócJ∏©wu*®ØﬁKk±†4†ó≤=`9÷Ä|π§x? Mo≈± 	Gc«S‚!∂’üSûA˜[˝ÜÁœ◊7˚Éı¡ˆ&B±@'⁄≥Zéµù)ë ∂“3=Kí„Mgë	Ö∆~WÙ^ò∫÷àéÅ
+“`Eå`xK∞4¬:¡≤4ÎÑßƒÜo@p6D*oÿÉö‰S∆∆?’˝‰≤ÀÊ|j∞ËÛ]åNÏ≥q&£a0˜ÃØ`""#LœÙxI.VJ9¥P"ú™’@JI…Ñ∑„ï?¿VNc4èb û&´—€ÉL’…åı œ|ıñ’@Î˝∑˘Å´˛9G≈¬ÎD’ ©éŸˇ:¥Zä¬çÕ™ûüT˙—)AáPZ+Ú*ß6&∆◊Òu÷éæëXJ.UR[å•Q˝$[ÛƒÒ∫òæ~{áÖérﬁòŒ≥W◊ˆõQjä3—o/06ë¸$Z¨ˆ‘≈„,∂éF°´¶°™eF≠¢†FÖ‚ÀD^&Á c‰¢+1;ç/A˘«ºD.‚4õ}wÜ"´“ö9¿ÀÄzeWQFÅˇ¯VÕ„Á3œ˘cF˘Îº6óπs/¥uœÙÓ ˛ô√§Î'®©Ã»§dXøGöWJÛ∂˙ﬂÕ√ei^éÊ±yiçÊ±÷æÕ;µ"òµ˙Dèœh^ÿêÊÖ	Õâx√5†}pªòÛ(Êd5Vëoç$π4°â°ày”"âÛé m…òíVos"´xô˝U“~÷å’ü∫⁄èY4Ië¿‡7ÙÌ/⁄U5€Q=È¥ﬂ7»ÑQM˙J|ÍäÚ˝8≈πˇ˙údùÎ™¸ÍíÚ”ïµ´y≤XAvÅ√]≥å_≠´°π•fÈ˜§‹£f'¨Ìj≤?/4ó
+_ÿéM¸Äú£±!YôÛ¨gîª∂ekıVûbñ˘6aÈy<|¥A÷Ÿc ˆ §2ŸGî≥>)ÿá¨òÙΩH@À$ÀÄ∂7ë9ÓY>ûîcN§ûC7R≠r´{„≠|sìb!Ö’Ï+O9wÎœësnocº’Ç≥Âv‚ly‹Lå!7g…Ì8·'0ª`Üe€ƒ‚~ñ]LãüÚ∂±Øeı1r©_‹B)ë‹≥&Ëå‰> …]-Ff‰ÿVl“ «]9ù•Ã+≥„∫Ë<,Ü9Ú]◊öÜ∫
+ o|L-√îÉ{QêYﬁ˘PôlŒoídyº()19]£–Èf[ˆ<ÊZF¢~‘IOeNí¨~Ë]»ùDÒáΩçh‹n€ºÄe˚ÌäûÌ7Ãƒßˆõe
+=◊⁄n<S{Áê•ÇÕ˚0K†âÌmû=ñ1S¿ÍÓ-R[ª‡IÎxnÃêQó‚"ˇZΩ(y‹‰L£bç®€s¡dÉåÙî»Í÷J/≠Øî≥04H/´g#“±œõÙr›}N∆OŒ§-∫<ÀWµØîíUSp˜‘Fìä·ŒAï£z9s\Ê–8`.i≤y6Èeó_.∂ó-„(Î∂3#∂Ì∂VÀX¥â≈Ì’„™∂ñrkÓ‡È{~πùêªÇ&”Å†∑6sb4ƒ¬Ø◊O¸|?‘r°√tA≈˘¨€röî3&|ªÃï$≈ÜõU ñTI¸0t,Ú¡9Œhµ>ä4J9˚-.pq{Z;ıo|%õ?-LÏŸ†¿J=ÆPa'ö[∞,ÜˆÁù¬mÿŒ:2ã¿¬ˆ∏vEùh	õ˝XçIº‡õ.ŒaX∑Ωã¿ütÊÑ€ËvπÕ¶2+?Ïªmr∑∆’ÖœÎƒ©©-‰ÃT=¶?8wíîx·∏Ó˛ h‡·€*	+ôÿ˝ƒAØ°8Ÿ$¡ÕÁ‚í¶À˚–d>ÚΩ'ò0µÒ≈‚»«<"%÷˚åÉRrCSêarÄAB∞Òl'„^^∑çÏHˆ0cK]ÂIƒô†Üîê√Ä¢óÑ≥ÄæhKÊ5ˆ2\tñ»Âx!J‰
+¥h©Íe÷îObZ¡è⁄j∞{I‘HﬁyÅqDYıP]ä†˘⁄·ı1-óÕ¶∏9.¥VÊiôXR†˝y≤”¡‡•‡UiJΩ≠|Ë»wá_Gñ7¢ÓA≠Üv≥zYÄ‹®≠‚ÈÀß»òX‰µÌDMn„»Ã∑0ôXq°¡åóAYºV∆+NÚ@X¢ïl∫rw>≈’‡°Ï¿=\™X
+ﬁj≠∂w<x›b¡Ïoõ},O4—€	(¨<S•›=G»~ü‡<∞¬Ò`Y[Äc¿√⁄M]=ÆßÄö◊4—Øç
+j4Òö¨_õ)¯ï ÷(¸◊†‡O>WVˆoí˛z÷Z@©—◊mÃ£YI@„§3_£‡W+˝W∑‰üÏ∑_øŒ_Kı˝bÁ‰Âıì[ØU…ØFøÔ±r_‹n•æñ+Ùµ\ôØ’ä|Êï¯ÃS!k=€∞‚^é#‘,∫∑¨b{uS≥ÁU7ôƒò”ãl˙ueæÍ˚%^oXLØ∆noßx^=•lX€^ÖºG\nó≈´èŒma≥ôóo[EÔÍªk≥»];≈ÌµS7UΩ˙v•uÌT~›fâªÂï∂[jI;säµƒvK◊’®Ì‘~©∫¶Eq⁄)M∑ê#6ÆGWXáNìwµ[ÑÆåã166.ÁÍœÂãŒIæ-÷üìÎŒ- ûXÃÂ€®;W∑ﬁ\Á¶Fh_ˇ¿‘ S£é‹í%€rWª~\µ¥[ÿ„£º‡jV=ÆæÙ€∞Z÷√QÊ
+QÓπr◊¨◊¿RqÔÿm`ílß˛BUæYi∂Ï”{ò(_—lQs}Eß €O0Î“?òêWéÂ˙ó9›uÓÑdÑè†óS±˘3gÊtn ˘‚*ˇAÃ≠åõú ß∏œ˚˝¬ÙZûƒ•I	D†>œc>±°Àß…ˆ‹*…/6êÍª$Æaì ¬\;~[å†Âzì'ä«ôiÔ∞ÇÿVTâ$ÚYFb‹BXÖ™;h#Û®∂ge⁄ˇ[/ÒØÜy¶(£G&wΩR?m2ƒ°õS€¡–x\‘ò”X∫iX∆™£Äb¸z-ˇ≤ ±ı¬!zï;ÜÄ¥˙u;‘QºÛmÿs,ôàM#ÀqC<-gYL¯ô:±f8P;•C
+ºÑß?LÛçÃ72ÚÉ©‡HœG>o£∑p"¶ãVÛ	íÔùÕÜ'ä´∑ùYWáëâ|èÀKV9fÃ¿à–;¿)†!+)L•äT7e	Ï$≥®π]ÁíCó—ëå\Ô†”åÚ…|dãØ.1Z°6i”t-¿πÃÏ≥Ñ˚É\ÊBƒÌéglœ„©EXO›[ q⁄ªÏë7 ˆD‰˝≈Ö3¢dÉú“eg±z"W>3M\Åp+SŒAÀR…êYpJ/Ó´ân
+õ£„MÊÏ?ÁTô‰|‹îø§.…F…Ã…q&Íg2%Z®ó 1†ÃÿÊïWÏ]ùìÔ¥∑~•ñ˝P˜÷)¨•E>–`by÷„é™±£pyõÌ(l·€ÿQ9Á^zc°„)ä‘%û¶Zûx5äÖL$2F€¥Lâ~[ÜﬁkãÌÀ*Lãóûê£äΩ(;éã°,πkIÌÒeP‘˘û™H5—„´KRUO—˛
+é'j‡…}†Äfú]K5êPc)±FøZp[ïûY•	ñe≤¬@√ Xh ¸	¯øuä⁄E¢Q]ˆx"ÀŒ_˛–¬πÙD
+≥c;Ï9ﬁ»ùŸ4Ïå1™ß‡PE¥.øW“xu€%ç«âN„!@˚ p2.…ò%}ÍE˛[ˇöG ‘t÷RíÊ§Ñ¡Ÿg◊»ü6–ß©7p!‰Ô˙[À[˘™gHL1NPfEœèhÌæ¶ß≤;ΩŸÆ ≈™ˇrò;5òE1w@(D+Êƒﬁùvüô3¨ô¨Òq˜„Û˛’X ªz´ì&Uõı1±!”Êbevœß¬Ó˘tIvO¿ãÕ
+ÈYCT–4Ç≤gı¸‘T‘Aì°é4Z`CΩ…3ÛåµÃ–•k…:|Ûl+»uúä©qu∏Å~pa‚2 g°±˜êô7Ÿ=’Ñ+ˇd`´ïı˘ˇ  ˇˇÏ]	W9∂˛+jNü∆úáò%$›I?úÑ7lÉ°ªg“}í¬.pMlóß™¬0¸˜ß´•JRmí™L ±ŒÈﬁTZÓΩ∫∫Àw≥LªÊ’òSSdÊ]n⁄;-ïü®w„ÖaÛµ;JYG>äÜ^»øó–U∂µW¯ÍﬂÇÒQßˇ"3p≤àz@’≈ﬂ…µìÂ…4Î≈ô±ÅÌò∆ÿ~,◊çú´ô∞íôÙ@π,Y#ÿH˝íΩÂï8¸1ﬁ“ç1ÂCYjt‡˘69•‰á?»i-ü‰eõ•k*X⁄:e?ç¿ı¨yÒ∑ã¨zZ@°•Ê=*bå¨ÊÒË,|º[˙xK[¸˛æâ⁄ÎÌt0	ßn_ﬂéŒ[æıØ-ñ¨™…¯ßZ˚‰c¢‹⁄á79t«ëF”‰µ…`üımÊºeY˙^ÛÆÏL}ºiõ¸x”Æ]©üNˆËÿ±9—,4gEöûg∆Rﬂ!–ÂµgÅX5∫ï¯Äˆhœ	ÜAOJe0bo£H¸ü]À‘NπK8pÊc uÿüµt|1Ì˚cLKØ¯_Ê›ö•°j™"&˚3gÑŒÅ4Ø0Kz!æW¯_¥ıÕq€¯Ú∂K§À&¶™—”ß±"o$läK∏è*Ê/ﬁn≤M˚ã∞+ùﬂ:áù◊á]¥wrxqtlî®ïS˘ùñ\/É¢zÍ¢º"√Ê˚≠69ííe< =SêvÙ}”º·“|dıìÑ€/√-£:ê2rüPö∆ˇ-ŸÍw'Á›√j‹•L«¨L÷}⁄~X:ªµ·ñi™1˛ê∫W±µér©˘†YI≠,s¿¥67â’¨-Éjmì!«ÆT`¬Ê¿õı}Ä7È^¿V"∂º∑Z-Ànô“êe√∑Ks…R§;ΩW”©yÀPÌFÕÁh4wi˘]1º!m]ÀzÄ⁄)ñXN©x¬NæPU¥†ØáEgÓª}·è (}í+Ÿæõ¥i>ìóók…1L§5◊Áä°,ìΩ§^Ë¯?™Ÿ©ê…f∂ﬁ5:LÀQ|@  67¢BﬁKÿ¸—Ë“	öPA[z9√Áï->¥åÉ2y©ùŸªâ:KI°ûóËö%!Ì·óæ’≥âˆÍÖ{C∑ˇâ¯^©*#^ˆvsåLª«˙4uªBXˇöRñ¨R_bÊ±†õí4tz5ï™ﬂ&∂V-™ﬁ<dh…ÆVÓJJ;ﬁéQ˛=@ó´?	Úå’:êô∂R≤ΩùN>´ñÙlõn≠"ÙgµSlÙpÌ\˙_*Øºı)9Ωºã)´:RÆ†>í≥;ÚØØGÆp|SiT'8ØËi&µƒ8s¢îÕOE®N«£Çz8$eÆo»ˇeÆÆ†[µ&ûÍVg7zDŒ£™ÖÜ9'£Æ]Âq@ã„UüX]P¿Ù˛πaÌ⁄Ã⁄xº^=kHjÈ’Zî)^âV¥ru=CﬂÉÿl–_,DUÆÕá!‘⁄ﬂ‘Y0dÅØíMØ(XL•L∆„ ¥R•‰ÅR6Ω}ØƒIaPõÎ’*;•ÿQvæ@’Ù¯~ÃÇ@i’Ùj•≈¨®væ7'W"40Füüué{o∫gË‰¥{F–∞{ËË`ˇ∞[Ÿ,çb„:7¥9*H‚Iheïvl·É0Z∆ó+ˆ];pJs…<^l±’bå5◊ŒhtÓÛXs¡¡¿é|é∆frÑ$∑≤^ÕG(Y€6@—ŸXWjßçm©Ñ!ECu~‘&ŒsSdCP§Pëb($Ó• °¸Pˆ´RÕs∆˛È:˙˛3dÔ
+à'_ïÆπ_Ö∏tî,„ÑxBV„v¡NÅöÿÁÓc&ˇTgáÑ¨-•+jwm§1‚L>«SŸg(ciMx!=ZS.)≈áu %Â sÑ©’¡N˛|≤áSw-¬á	Ñ⁄dœô;ñ§OÑÅ¬´4|˘ó=9∫=ﬂòË}7¢á™ÛˆRGñíF_èTX(ÙŸÕé™Ä≤mÆÏù^Ô‡Ìqw>ˆÕáèÒùNGè±√u<ˆΩèqB®;ñNpÆ1t,›˘"rÏQDé•7ÊõÀ†øE‹ÿ"nÏA„∆∏§~äac¬]~5ñ”Qcã®±t[Dçi∑ú®±¯Ï^çŸ∂E–òıƒAcã†1©=x–òlÍyl1c pEﬁbV/G¶ûÕÚ}{‡ÑCU‹n»Ü∆*Åh d”Êq2yˆÙv⁄ﬁYj˙VºPñÜFiÃ‰<ï!qv¨ok§«ä‹íYù]DàçR‹ã∂„FÜÔ:‡ÆÊÙ˛T`N°Ód ‡¿ú„Ï¿Å…≥LÌ:v.∑˙†¯xìÎ»Ô(PŸz∏≤Eê≤¿2tÅrsKNg… hÂÀ“'KMÃYhf∆KB0AãÜ&o€≥x€ÙA£k⁄4- È<å¥á‹Ò¨3√Ã¬Ga‘DÄj35mLjù:T˘0∆%]‰£íU∂å ä‡W•H#% «‰Kã2T^ÜJZ˜E™ØVáä2	á1ï¿ynU$SÂ”«Xê*ûNAE*Sî"ë2d—€¢∫T ì2UrÛ®PEÊeW¢ävQ£
+≈–¢…Ç|OE™(g<Ê˙T
+{ı\˜jQH'u◊ZB≤Z•™wºãßQXÁÎsxm+áÌ˝ﬁ”£¨DÎ‰Àª]„z/ﬂ,*˙‰2ÊI íä<I¢<YÜ/M4≥û{≈òÙŸ“œˆ€¶|s⁄~mË[ •§#s:◊,t@‚p?º>ÎÔ˜HOÉ®Úd˙Ó5KÇOH˜1Ï/yıä˝k9ª¢U\í÷¶,ùXﬂ÷∆Pù3“¨€üπ◊xôÕ†eM1¨|Oõ»˚t›ı˙πºO;≤;ﬂå§
+ûıÒ?O;{KØËø¯–rwì^˙–sñ^≈VÓÙtËçºÈol∏ÙJxQπ„=|@Œu»Ä≈WïªÓu;KØ‡ˇf]È„mõxŸæ∂l⁄√ú∑f¬…0lÃ*5!}_xÌ«3p˘-d"m≤ÆOˆª°»z≤œ¥0™y°aT”r˛<˛KB/':s"R@˜äPö≥FÕû"’«ı-2"Ü”n„l≥‹ìÄ¿ª˜´®Ωä6W—÷*⁄˛ãj≈Ûl®ìQœÜqîGµ_¢Ü√àÕÉ¥“û*¬x@ !]Û>EÔ7ñ,RÏÜ‰l"Ç`ﬁ…∞øä∑ä€I\ZV?øÚF#∫9ËV¬ï,.˙-ıgAÄYgœ˘¡zÅñÌ[>Hﬁœ~Œ¯3›6 ñΩ`o% fO6Í2OΩ—π“ûı5ùºp∞‹B„ëN…N±›%k/æ ¡è§î6~Iún‰}ç‚~tñµπoû¬9uË˜¢WØ°=/∫E?!S]ÚÅÌÕGŒƒ;´fz‰BáîıGæÎ≠iºõßa3Œ	Öì≤ªÎQ%“(ÏÕ<‰-ùØhÎfQ¯^+ÆM	YìË∏|böU5C@√I4ÇHx3àE3ﬂW≥û0&ﬁ2©ƒ$ê’ÇNÇ4ÉUıvµ‰‡.ä,Ã˘i∆€Y±É{xïØ˝‡∂,|o<¯‡¡É¬™/BøZË ﬁ•˛9ÁöÏËÒßè1pêM¶ lpÏÑ¿å¥\yüÀákL”ú†¡& ?É∞Ó‘m‰Ã#Xœ≈.Tj(à‚@AæﬂSò`|=ÊH¡?Zà8Ì—ﬁEÔ¸‰®áØ¬ùΩΩÓÒπf|”‚éﬂ11ëWã‹£<ç{Â◊d≠}wÍ"°CoÚ	5Nà/‘≠ò&-h‹ò∆ì≈?–D∂»°u±£y≈%)˛Û•WÕ&:ˆQ8u˚ﬁï◊«™ILIÕ¶ôO˝.˘mH};¯ç®J¿¸ûÄÌ∞≈ÊØÕL·Ùg„5Ëã°ÎÄüRp’¬§ı‰LZÏÇêg–“∏‹ˆ®Z¶WkﬁÊ¨«lŒ:¿◊¨2S|Á€≥em`„∫åY§”aÛ˝Ûıœ√ødåïyÿπƒ-y‘Ü.º˘*Ÿ√YªöH
+PÅUh4wJŒ“,sŸó¥(21óA„á·CŸfoe€À»'≈˚]l/#ﬂH€ÃdU|[Å©5üLÅÕLµzÅd(2ñe}ø»BF◊`Zä-†M0˘ £m4ÖBw2≤h5ÂöË`ÌÓS° º|ß≥∞B6ª¨9?à›8e+AÌ6à%Æd…#=Pk^ºR⁄Ê<ÚcΩ@ö2≥È™8√b™‰©	_öª‰ﬂ€¶.˜áÓUÑˆ∞¯O¥´	§D'3õ –ÈáW«øòõµÖH'##¶4.KúŒJòiCgwŒaçÕG^à>{°w9“–m’∂∞…çô*@$Ë?≈ñe:`ΩUG¬7ä”ÊÕD"V)©-7LÌ‘"tıÃ≥÷pí&ÊYµ-X4›65∑ﬂ™-èe´t≥ö˚B3ß8hY÷b
+Æå‹ÃMƒj´≈dú7ËM»Y„é*¬W[9›hm˘â∫IoÚØ¨j+<&˘À-®È˚¯§/ﬂõ∫eo“Ô∑&y¡]PYæoµZ}':Ù¬Ë/k÷
+˝ j4úUtπb_°Ñ7VSd–A/—Ò“gé}Õµ◊◊IØó’{ıÆP„≥ıqx,$ÒÀ◊++W´yÀ—Ñ·Wo5,v6ÿç…Œ»›Û«¯‡v´.•E1:ﬁ®∫ÄI∏¢∂ M“pó¢¬¿^V”†ëû™W®∆˜–≠Í`sw|,6°S(›Åøª‡—è∫ëW…04!≤Õ¬44ˆ&/ó,ŒÒ±ÛÂÂ÷ ,~ö∂FiÖ∂–´‰&ËTÑ-Ío‰ÈR¥ø;>uÍ4BïWâ≠@`ƒej]≤BÍ40∂éënl·nâ $5eﬁx£TÈ∏•òæˆWÆ¥wÒ˝)úUKÇU©tÃ\P‘¿{Hq?c$^»Ò^®zùÅE‹å¯ƒªj∑a°0swÊØhê Åd_ﬂíƒzÆ˙V%®ÇªèqÑ7!í∞€∞πÉnö±#O≠tWXÜÖ»W–HÒ!,»⁄>$¸áh0HÇ*aK/¥M,üôËï$µeΩ‘…≈Ôv÷◊âW:ñXòö3-.gcËò:Ê4M‹`∂eM˜3ˆË∫≤Ω¶bfÿÑ g€(Ü•Pvóü≤4lë≥Q…ﬂ—
+3∑ê<ìÏÿóÊ6ŸBÒÀbÅ6EÁéˇ`ÇÎ`pæÇ”¯ÚwÔ5&⁄˝9◊v∑ÉbGŸ&ï∞©:˚ﬁŒÇÑºÊÜ>L‡,Ø"2%à5‚ox}Ú—óË~µ Cº±sÌ
+œ8`ØÈ#»´¸g≈ßa û·A˚…[ÙYX>∏Áx„+>
+_÷‹¿ÎO:éﬂ°zÁÑ√äûpN_“ÓÅ+vœ+Ñä{üº≈vﬁË˝{ÜfCàßÇë«V±‚≠öÇ≈1-AW`L≤Ó%[]#ív¥¡ Z,	ÙÉOﬂ/{¸ÛÂøj©cŒjkï T"ºÿ]©ﬁ™≈û∏˜áØCe£ùR¡•Ìb±◊gÎu’2N]/Û£€≥ØôˆUåm+€$°€úF·µ◊´1ÃÑùb∑G!l0jn$«ˆ“+ ûDñ≈Ò•o_ı˛Ò‘ Ñvóf¨¯‰2Ø*™*0Zë¯ÖŒMU;ÚÿfcÙ∏Ï-
+rW¥ÈBKYã‚Ëã⁄¬“önÇµS!îz˝◊ºW≈‹Jπp&∏ç÷fíÖfÌ‚∂ê’ZÊ=∫YW?∫,Ïˇ_Î˘Ùà=ê∞f‰e1˘Ë9bQÀ‡òI≤¶-óŸ|çÜ:q·q◊èÈf÷}7Ïı∫Z$´K#Ö‡ÜS1*Fà	xêå≠’j-S5:¶hPdººıy®îékàìˆoB¨àö˝pŒ.™G√¡ì0
+f˝G«º…∞|[3ﬂ&K[#œ&ù>~≠Ò´5îo«∫Õ!†á\å”‘∏á/›m¸–⁄Æ˙°]˙özµíöá°ë∞À€É‘i75á÷íÇ.∂Z@!åÈÁ!IC⁄#Ø©Æâ$AS”ﬂ‘√@	Ú•oQ"øò6wc⁄|ﬂﬁÖãq	∂D€\"IHzÉÅ[dà”í˙Ú!K&H[	óbõ·RlœóBè˜ø>$≈◊ãHaÄﬂ@ôXApç≠»ß9@Æ óÊÄQë∆u0*tÕM{˛‰ ªû1kEjı& 8i(z9Û∞ä$»ÏÚÁ˙/¬BÏQÑ≠ÁÜ´–ÁÑ˛fm6!ˇ"PQ>{Éô3R"÷¬bÀT5ã\ê	≤;)î	∏{…¢∂ñ≈o‹ë’\Ä≈¢^"YêáÑãÖ#ôÚÒÅ@ÿo<w4KÉxÃ )h ¬/ö0?]àíîÃºàª–5œœLBÔ‹ãFf>§ØTëÔMÄgäNÆÆºæãz'ßtÛ˙,Ù¶5CÄ»2îºÂ›<©“|‰kÃ©ß6oÊL∆èúE_cÕ‡
+Ö≥Òÿ	n!:ÙéD ‘ÜÔ7x6¯Û#ËÇsi9◊ KëÀ¿ï]W1é˝}¨°v_t—Ô~âﬂü˙L'{|˘\G:®T;MÁ™¡¡®Nù	v>;Ê`¨f—≤âB≠rúifçYÅ÷v÷≈¸ùLÆÿÿ¶y>lÊö$ËO`·O03≈‰∂¶â¢ﬂwØúŸ(jË }ËÀürï˛>ôƒKÑóÊüòó4ìZÕ≥£®çEÌ¶,€p+∑f ˛;pTÅˇ,_‡á—“´Ñ2‘õj‹±¯÷ï7¬3Å|bXˆàH ¬ñ7Èèf∏øÕ^Yiç‹…u4º_¡ó–-Cƒ∏¬–¡.Öbô‹nmÉT^œµ[.Ω"¨€wÇÑ4‡áx◊ì9`“A”˙ë&‘å◊sù†?ƒ|Ú≈: >3ZljóªÕª‡˙$G&Ä\TŒ™Õ¥ÕG®úkEŸlR∞ô±ﬁw /ã[fxÑD/1ÚÅ	™â—Ô$Ì‰–˜?a‰•g0k{`”JHÜµÊe
+1€KRÿíøÖ
+<mÆãjÇ°[îÉä¶õ˘˜ôkRÅZñö∞ØviØÔ–Kz&qùÃ*,~3åªÈ./ØH&§)ëlr©‹¥©v[Àôelim«[‘“5*•´/I¡rHN2'>”à˙o+Pâ~Éœ∫õ,-œ∂j@ÌÜ6≠4l€÷ú9æF+Ú˝7ÿ√⁄@c%È8EÎÚı°H‚√ücÆ£_+FBŸ)nêT±KŸÑΩV˘ 8·≤’cQ<9Ÿπ∫∂m≈ZÏTc±˚Ì˚úÛmìÅZ„ÎwM£yÄg "é}·8¬ﬂ√≥5…Ãynv"˙8¢ºó¬ì©Üw¿9ò∆NÑWÎﬂ@ÅsèE/ÃôËÅÿï=ÌaXf[	3»<ÈàbI·ﬂCËBH*d£óÃ√ÃÉûΩV?^*"#ÿ"1±aéóƒ ò,‡@‹X˝I\˚ü7M<ïÊè…2U⁄Äüe÷=–Î2uèbMä_wŸ˚‚ç∑·ÆÚ}®#	N∏åd¶∏[…ÿﬁg0◊¯^À„KÑ∑.¡Q(+•£R4/‰X∑¢éJÒ√#Ï≤ *‰hïÿ%Õõ4oöÙgùê˜PÄ  (∂{ôNˇÏ˚ôŒÆïáó§a*NêLÚm‡MsÉ»Î;#ÆÙnVJ®#›öCö§∫P=loâÜôÖQÀ¶ì'ÎÎ`pñÄds9≥	HuR∞a	E‡÷{ô`∫ΩJ˛¥“24F\§u»u6Ó§#Í^ç®<¿ä¥PıÁ¶!ãY≠û¨nh Móû@ü·∑:Éú;ïh“5yÉ_ìS·≤BÄ¨d<TÉiwR◊Ñƒaf£Îú¯Y|ï
+7….õµ™Ì·9ÎœUQ˚+r¿Èh⁄[§Æ¨”ÖÈØ≠x…≥” ß”ÃÙ°˘5-oEô·Ó ~Î‚0ÇÑÕˇ YZ¯ÖTÏÉ¥'L&âÎß
+‘ÅrP<≥çV–÷4Ÿ( 8gihÛ˚ç÷˙z˚/S0É Û6T¿,]íAhBh_22‹gw¥üi§©∫¥|¿ª¯√{£ß∫ŒgWä`MıkŸûÈ∂c==rØùñBOb/Ã,˙ﬁ@FdœK‹Åúó$?` ¿aÁﬁ##.rÒ]ä°	*xH,M∆pqm$Ó>y∫K,&êdQ%c•ÀMù;0Ö∞0ì–ud∆∂d£§˘Ø1∑fñS\ô˛î∏2C4t◊¬çicXèœF_ñI}ä9Ÿ7´Ÿs®˜È⁄ß∑ÛÏ”¢Ò¬∆V}Ë‹∫◊‹⁄;Â∂Í8ï‚èßÔ~”uLí∑Æ9iŒ„ã-ÿ,˛Géó∏EWÅ?&qg#àªÅ¯ –§0%˛l°¯3<Ó	_wøL·¯C t≤ikX ”qπqBE?<>3xä°∏Â¯`∞
+±¯Óó™&‰ìÀ°óÇπ}2hÙ°À>‡V1õÒÅ∂>)M@∞¬«ÃøÊ=ŸOé.9çtÌ„Vs•§DE$…0/DÄtz∆ﬁOÏ±åv	Âc~}…òÄå,”sRa“^ÿçˆËQüö+ˇØ∞ˇÈ'Â3¨∑ÂÀ`?Æû?vm‚ﬂïèãï⁄H&ˇ≥>ào_ﬂù¬Dz‚M9‹„?àdy¸^ï‰B¬ú*âT¨ÇmX_ÙcN˜p≥R¶§\∞ÄË`NU'ìÂ' ı	ÇL'—ˆ∫`x}A©îD%›JÆ"˛¿–´c’a"ﬂπÃZWèŒj)¯{à51F∑0ªWºÇÜ«ñ˚2eY€¥âá(oéõ¢VGW÷£Ug◊<=[iGZ"ìöèsãt]›¡≠˙8*¿™çz9∏	¥öıù7f^xy'¬’úºÓ’À;wTΩîòÿ@vG+¯ﬂ©é…≥8Ú^ ∫Jµ[ºÈöKZ*DîûWÁ˛ı5	f R/?—ú¯Ω$ée[T—Âƒõ$C∂∞Ÿíeà‡RJ'‡lØ+∂õÎ© ıxáxc^"Z,omü_9!*ã⁄«ºIÓ#ﬁ÷0ºÚZ°_\Y+v<®^«àΩy…±F•À» Ì\Ë·dvù¯Œ'•@5©Ç¢{_côáΩ6â u[œ‚‘·Ú'õj$Vì‡‹tSﬂ"eﬁ™Ô!ı.ÎNßXüœ≤÷∏b÷ó’¬≈Ã£˛^}ÉrÓ∞Ù\.6ﬁú‹G÷{¡[}1ºe∆ba°Éâ¯b⁄®z´€¿·ûzÙJMÌu∏waˇ
+¬”~üNÍ’$b∏Õj)h'©Ñ
+,Æó´ÿƒ∆_Xrta ê◊jí™X≈˚¯ìã©]ZUnøïB7§ûû._Ì˚7ìπsVûÉ´â6æ*œåÎëq#l”c„G”º8≤rWp`Ö:Ñ3{´[Å?™|fìA>)f/∫Z‘}øŒSC∑• ÏÌ$JB±~÷y{ºº8ø¢•=4r¶°ªÑxâ~∞T}Óıí<‘ju∞≈ñ>3∑”Œrı>BÇSÍ‡chÊ^€¢ñ%sÙë∏ Z¨P£ËzZFàò>s«T©òßÄ…«Ç‰(o±b8rá*Í<¶È‰cßË£9¨œ'∂Î6∂◊°9◊ìáP…√Ee/	#Œº:4…ÀŒÏ]ÏV…ïbK˘Õ(¥À»DØ#ãO'Eê›nßÉÿ§®5D`*Òè¯±ﬁ‡πïk>•)3º¿.Ï-wÌrmr^‰`A¶
+îÈ-¯Ô ÜKNªÅ 	
+:¿ße¿ O≥Ò∑j±u’wd ÎJ¢ü`ñQOπOa!#I∏HNË~¢?ÍÒ—@´í◊\]≠}B#A#lÍ9≈ñmA!“É≈ÑO©P\4ôTπ Sﬂ˚úLﬁÍ≥vÛVßÛUmÛp∆™MpŒ÷ÍôUõ‡üLπ'Å{˘1sÓ|Ü!π&Œ(Ç˙k∏'∑‘õõIJÂ\Ωîb´È"∂$>,éGµÑòd>πq˚ø,ÜÓÿ#æ+Ó+ú  à ï¶¶´Ü**Ï˜óÅÎ|jﬁ‡]Á4GhT◊ÁBT[m.Eµ—ÅEŒ™kóEÕ4ëY…∂No/…*≈]é·.'ejœq∑°•n>mnõ?9\S‹î‹•e…’ºVì‚hêõ;íä.ﬂjãm˘ÙÔ#…X„+Öﬂs¿ﬂ]ÅL@Ø5˝%æx`•;@ôØ≠z |ÕÄıTv·M˜›IÖ˚Í’{z»BOz¨¢Y‡…†∏ì˘Æömì˜aWÿ˝™muók€®ZÆMo´RumÚÍ¥ÈT≠Å¶∑©%Ç©®RWµR\!b§◊ë?p“^O|ΩÑØ|{∏0©}Ω\‘†˙upâ€∫®øœ™˛÷ŒW´øE¯óóﬂ"/Nˇ πj’-È≥«ZlKù’≈t‡ê≥d‰Æ¢)ñn›¢K8&◊·*-æ¿ˇiı˜i‡}∆Û√¢∫EÊ‰LfòÇn·∑ü=ﬁ·†	^ç<`JW&xí®ÏÙ˚nRö∆›î-’\än¡¸%<˜œîzªõ1Æ^T’BàW’í÷‰!kï÷∆¬ßèZ£láyø_ª¨Œ/#}>Úz:§‰’ˇ˘CÉêÜ¸29Jˆ·˜R(ásŸÙä•ÆÃ|äXUπPÆÊõjü–æbbπÖ^W,ºù¬ËÑûºìáxè~å◊–aK¯±ﬁ∏aöÄØøÙj_±rÿ◊d∞OFéÌ˚¯Ω1∆õ"∆b¸
+Rå?˚)±¥ÿG)…ˆX§ÿ√’M”ZÛXlìÃdñâº2ñUŸ˙+‘8Ä+¡ƒ≠õøcô•»+Å-ıò!´ÓPèW*·≤ß¿>›±„çPg05é¸„¬s¨Ë_òÅæ˚ø·çÜM<ƒ°π£Vﬂ/¯»öè»÷WÁ “ç]’Æ$„Ìá[óﬁèµïÙö∏Ù[5]t®ÖÔ–˝ÏéÃî~Ü0±–¿´j‡t»T+∫{ëÓP·L‰Ñ»ô‹j2®,ÆOc™ËÃñú¡ê\;œ/kÙ3˚Œ¿öÌ∏;˙G=∫.Î–uÕ:¸eç˛7uÔ?ÛG.ZCÁêíc#B†™Ä®á˚°'ªŸ z˘˝Ú[w‚Œ9Á⁄ñW—Ú;PÀƒ7ﬁ°û€\<ñ[x}‰XiØùûëOg:Ù˙Péﬁªû–r|r›)^Tx}Ê˚c¥ÔQoºÒ&¿$éNÆÆºæØ{Œ»—O¯ô¡'7bøbr˛‹«*Bˇ¯-oº	Ñû¿€›/nF÷ÒÈÄâƒZ˛ãd~∞ÆÜ“L–êÃÖ‡ûÔqpˇÍ|-¶rkE;‡´FëÙ¯Ø-‘À¶¬ä^7]áq~≈»¯î|O©g’sC#Ëuì◊
+àçm¬ÑM–œπ‰ √ÒßÒbå`]2“tj∆ﬁ÷∏¸™Ê:@–…†Âe∂µ¡ÍÌ-÷vÎ7ÜYÿöV´Ö‰v€s›´UÙO7å4ÕB–2œ—Mû≤ƒ9Ï·Œ”—u·¡)¨Öˇ≤µm~`›í–<›ÛjáfGÈÕÓ‡‘t¡k”tè$óíÙ⁄ÒlyMv◊Íc¡·‡5÷GìM≈Á–Ä¨ç"ò‘§÷<¥&
+€ß»J$ñõk"÷àm'∆-¬>ù¡√¬“™*ı(ïU—ˇkÙ∞∆∞’˜.ƒñ–ø,ükNtì°π€%ùtö:@‚—Õ≥N≠3K´dè={o˜˚“PZä¶ÕÀ“ƒ·y)·ßdÕ’êjY≠b&g]Ÿö¢»âƒ*7ö‡©4£ëf7 k[aL5fâ™ô†’í√¡É ∆m©6·:»πªëbw^b@äS–/_¢°e±›#,¿›9Õ‚=Vú‘ô¨íaˇUuÿ÷ø∂D?∂LÄÕ√ÕMÚI+‘-Bº≈Z‹')©P™XŒ‚“´ªaï`≥'üg‰M&ó«å€"≠`[8Ï;·ˇ˚_¥|º÷YæGMx/pØ·¢Ôûë?˘$wf@>|/52#ró√v--ì◊¨rÔﬁ o°
+∑¯≈8ü9É’x˛…msKe∏î’ÜÄΩƒqËc'¬Á+X`NFdkñ÷®}â:wÆ—‘çÙáÛL*ºpè˛Úf¶6í‘óõ¿ô∆%8¶ëEi»,∂(QÂÖKÉÖÇNL[ıÛ™Íπ7!∂Ö<¨ÁÈîÙ@¨)A)ñ}3≈îYÏ”$/±ibÆ‡ÕR|”h˝‰a≤,y}∑±æävW¥É˜3˚ØäïW>^:´ä⁄ZK·¢)°5°S†ïTôœ4f«n&ºø’Ë*hRŸ&È›ÑæAù[zUâå¨Ìlûj≤√˙èFØ5˙M≤è»àå-ëñ\ª»íÆ7ƒ &õ
+ÙË^.qÆ>âÜL\vá¯c`Á∑˘ºÆÍÒ¶™Ω6*îõ…()£ZCRvx.t2Õ$z´•õ Fq√h<¬/ÿ"Ìä(0!°p≠j»—g~2 VóÜ¿\∆HWM›Q7¥QS…ºkà!kp@/[$‹ëLÀ‰>H"N2¬óWÙ’ ∫ŸùÙia-¥f{h2Îw¶êäÍ0=¥∆Áô) ≈lœ˚¨¬d∏9LÔé!|b†Õı¸˚⁄lÕ¿ƒîœ˛Ò6=<„C„è'	Œ{Å,l±3·´Û@ˇŒl‹§ßCîÑµb`
+ÖÛ8på°x[ ‡, p	 á`»√ø—ÉíÄˆ»pˆ ´9SÄå},¡Ò‰ˆ=g‰_ß¡p˙ÙªU˙ÕÉƒÓßààÉ{DN∑õ©Í≈)úú"lõTπ⁄ç6÷ˇ$ñI`(dâ≤e_ñ&"»@˜Ì‚Ç4eÑôÌÇπ8⁄Üáo∫åŒDPñ_ãaW¥ W∏?v†iDñíuÈ.∫ıgà√˚ånQ8cÔ›8ìE>ö∫¡ÿô‡•∆Ë,º9ATQ∑ZÂWtü9¥^ﬂôL||Üªo3Y≠Ç5/ÇU…U ∂]˜–»,[A∑v¨ë!4¯4H/#ÒT!
+Â$aßè’Å2®ßFÒAQ~H§["–µƒæÂû`A∫óﬁÖ∆ØçÌVò®XV[RÛFh(UÂ{P ›Í9VÈU∆°üPÙ˘ﬂ›À°Ô Éõc¨≈E‰7s¬~òsπl(ÓòÍ†…≈qΩ%xr© RŒãfÌ∞ØÜóm’⁄B:∏r⁄™TbJ…3≈p „ülË([&H¥Ω°Áé$‚ãk^;•P^:^ΩÃå=-…KPq¯§À'Òr|<Ú@Cåº•Wøπ^Z‘«* ^]|	â˝'¬qçèu' ®#`¨oMÃéç®º¶LÈı™ÿ`CÖÓªë„ïƒd√¬ê¸Åa€$ﬁör]™ÿ∑ÚÚPÑ .!hJ	Ûê2nñ^â≈{Ωe∆ÉJ¶4MçÜÑ?¯˜6∆´7Y:MlqcKØﬁÄ8†¿!ö—*π=Ô∆=Sü™∂=2Îåo(*≈¯Ék·„èô_ª$ö¯KÀÀ Hìı=<bÈk•&âi”¥Üj¨R˝9Øöõ© Y‘∂°c‚⁄,≠≤gÁ´Ãµ&ûΩHÉ•R¬©uãòËÆ›)‚bi¿†n¶»\0Ä3MÒq”òåï†ª<jFn(”Ù-:Ò'r–|vxí"»”µc[lv )[UUZQåÿ#X≤ì,ø^[¨‘AJæ¶∞>wö º¥s‡úÏ‹—€‚‚GN${≠TÉéÙOgÍaö#j„5$Ç√óë≤î∂'“˙Z;≠1ë[Â65˘i+N•W%Â∏∂˝–î0π°yI‰ˇÍ5Gpœ;Út6Ç$c£Ãf}RéÉìJF‹Ùq,(ÚÂ˙%ê¶ 0Òäe9.ª‘˜√zå?xÈ7ÕùôEô·Ÿ°Ñ Ω,'=>|z£6gX∆Ï¡)FMo>üX„F˛îxÀ–≈Ÿ!uòÒb†ÀZQwŒ≤¬Ô‰å›‹4C›.®n‘uóÚÃáQ4_¨≠¡√÷ØA§}c≠Q˙k≠VÀ8Ì:Ÿ’á
+òØDË»Ô;£^‰Œµ€Ó∆\“X/Ωtâ>∞È}¿+øºä¨üeê	ñü¡ü¿≈gûJBvl]•±BRæ>‘Œé Ñ√3?’ü›Í3,Æåß¬d∞ö	r±Dïïü3X !/D°C"âfëèœC|Ï@=Ñ»ßÙÅBJ §L1±°F.8˙‹$GæáNö^M˙ó^M„<Ò§ØQ‹›ò	ƒº'ójK¨BLÆ	µãƒú£ÜåÂ°±lƒZKr≠g¶X—„Jå‘%fëDh%1…‡-"„s&¸ºË≤(⁄∂%3¯nÆDKÖg˜T∂wÎÉ5Åâ>6M<Q√≈1I0™"ûa◊u∆óx≠Rv]˙6^∫µIcSÆBø∏À]Ñ_L	?£D»Œ}ä0ËìvÑÍy<Y÷4)Yﬂ»"˝J:dıñ§ﬁR[®ÎFV	±ôgŒF|Ê–ÂxÜwËyFÿHï,‚ÿ·+˚+n<∏°·˙‰aé¥π}`.ér-ô/d\	 û ŒwÒ¶@á.Õ{nÓ ˝´X«LE¸
+éBg0Äó ææÉ àﬁ±›–;•µ7›0√ÃÂOÙ1-tìS¸7#DIÉ»N]ãy∫‹¡*r˜!*Èˇz'«hÍ‹é|g@k8ECóƒ!-á¨d±—2Q‹UÜ∆n‰ú»’hÍcug $¿vàÅ*J.¢ìBˆ£5Èî-àüógSô«›8·Ì§èL†?(¸l»`ÔdôÛºÅﬁE£(Œ@ØÁ∆Ò"‰Dów“ãúh“[ÉtQQﬁ©∆Ω'A{ˆB~IDíeàíËµèÉ¯õ`ÛÊOﬂè3Ÿ„h≤MÎ‡dˆóêòëó\6@œ˘äÒO©E€Ài‡ÉiÓ.≠Vb~	∆Ë'ûUQZ“Ìa‚÷Lf†’∑f∫˘ﬂU‘⁄Y∑◊=Gßg'oÒ_=‘ª8Ìû°Œ˛—¡1:≈ˇùÏw≥j§ûπxcOΩ	âj„ÖR…ÈsÓìœÏÇÿ∫æ˛ói €6Vª∑ï@6à≠/ê˜¶*æ°æVpTëH¬ë∑7 oÖ'¢E [˘IF ‘˛≤¥ûÚcˇéˇ¯7∞¨5ñóÕ~E™jˇÍù@s:«c…)ñ•∑≈¢Ù∂Ê•ß“jÓøZ–û»ÎŸ0Ÿ'ÈB/ˇ·K∞%˘Ωf¬\˙B]í"A◊∞‹øZî*°‚lë;*:i4>ŸØi†KÖÍ¥…2 ˛•8ÜØ^.s≤1k€‰<›†f=1{Âı¬~wÇ	~ÿÙÛ◊Ë≤æ±>Jé‡íÂ/ ¥…!´∫cO≥d+…ˆ 7˝å4‡Îæ?û¬¨m8·'|"ÑS|Ipi†„l
+W9¸ôP™pÎÉíêÿ¶≥≠}IZçjPπ_é—FÏhew8ÛuÌ*ô!•Îväìe`∏≈fO7q,ΩÍÕ¶í
+¿Z†ö∞…ëPÅ›AÖyÍ‹TAÍN ◊á◊#3π¨j◊3ƒSP≥ûqzá«ÆÀ∆G&0Q 0¯≥T	d∆À)#æl†ÁÜêÊ¶cß)!MS+çÑ)o®p˜~}m¨¢ˆ*⁄\E[´hõ÷hx+˙†[dH⁄v/Ç≠Â ﬂ&ìΩ˚à⁄8h7§»∂±ÌÚsïíétaíuñÕ\ΩÅ®æ˜˛2«•¬◊]ë.∑iê'ﬁ-Qs IopÎ€q˙f∏l˛–ÒCìK¶†”≠mÆ/Îªé?÷^§#µ™xëà@;4Oˇ† .EÛÇhÊå–ﬂ‹€Kﬂ	•ÿ}%Áõ1™’jﬁ∑wâ!ñ´6öXKwÔ%Ê^E;´ËŸ*⁄]Eœ£„√»ãLòùjŸfÏN¢ÔM¥√h3æäêå%≤„äø†Àz¨Úçq∏üaX‰ﬂˇAdEZëﬂã ∞¡∏Ú™ÚÉÎ•ÿÊRÖZ†ir#Ôä ÌÍ›¥Â1'Ω$ÜJ§©í¯s	Jòx:d€A7øh€»-2◊G…–è3a  Ë(˙Ã`g6…¯µ!}kRk.•nPüwπ%6e"…#JÊFÀΩê–´ëÈö&öæ≠Á~C3syl$Xß\/ìÈÀÎ¶∏ö◊£Ú™Ã≈∂¨?ÍO\êy§yÃÅ1⁄Âq)SQlöπ È—îjÓ>≤1~ad ˝ ox∏Ã≈LÚ∞Q¸ ¨ßS√çÓ:1R&† éÇ
+í |∞ø»óI£ˇÇˆÇ<2Ò◊(V,å3Ò#XS û”Î^ÁjßÉ/f•pME_˘≈À≥ I5	!Mù "a%´|Ï∏özÌ∏1≥ ª%Ê÷cÔ∫3
+,>ÆÊpÌvŒﬁv˜—¡QÁmº}w˛˙‰è<O´;Aî˙‡`AÀ˘>’Ãë9Zü?˛óÏB}ÆbÅ`N”pƒn“D¨-V:8†+N0/,†¿uõªÉ¬‰c?,µlc—)xwG§8""2JÊ	˝åÊ¢8FzÉÅ;Ωø,I>u'KBÛ'‹V˘S»2tÆIV#áÊãù»nÊùÎJ*…ôyOø4Il0‘mbÎs)/‘Æh##Ó˘u]‰Ωl∫Mƒ*‚X‰Á›4w±X‹UÚ+‰t	—˚∞eÇí›ΩnÍ∏ˇr‰|Ò∆ﬁ‹∂›´!zmsÕµí¸:#S0ß\öÙƒ Ir¨Aj–√ñ∫‹Ûu:Ù#ù‚€ÅÁﬁ,›Î•	íÂÊöò÷ûìrB4V◊üE!$›A™xbQ7ÏÉ√©îÑKæ¢mN„ËY¬áÅ{ıRŸΩY0“tI–´óK0iL>i‚Hci˝ri‚„ªA‡öøí™;¥‚3(i∆“i7®ÒlΩ(R#Á`–S_·ø\"S~‡]{,§¡Èãèf4qoä]÷ug˚•˚ì~¿!&
+SQ‚Ã=˘6Î‡ˇ∑ösBêV±EÕΩ˝√tCÎ”â5‘é◊˛‡ˆ:Ñ˝ETs˝Ku#5$ŒﬂaÈYÂgp¨ã—p QˇÿZ'
+Vı6◊·l(SBºÒu9-ÜAﬂN4:#,9˝#~j:.O}ÃL∑ˇµE
+õÜø{—∞±|9Ú/_,†íoB~ |ÛWí}rÂ‹æ(O¸&‰≤∆º“5àümÉbÕvÑjﬂDÔˆ/ˇ¿Ò¨÷±d‘4Ë,˛€Öò¬ëÿA€Vª’ı.N;Ø;Ω.Í˝˝º=Îúú‰ÜœÜCˇ¶˜ÔÂïπﬁÈvÌÓt[ñóπû0±\¯äóπ“[ày)xóÑ‚Í›ŸTúI·ëQ&E  Ω€Y]◊vhµ?ÌÀZ=w4´ªŸs|7{Æ‹ÕƒÏã∂í»™u;ÀŒt5ªïÌcIÔZ∂Òœj«±ícJ3≤bí%1stÃΩ˛–;Ë»ª8
+ã¢#y^q*ø˛«ëAÜ˝¿õF!I1y◊4àWêå&§9lWÆAvO•âgyª≤œl—íwj´†æä÷'§Wh´i†Sjg¨*ãÁù◊hÔ‰¯¸Ï‰∞{÷37S©:^ÆÄÉÖ+œ¥÷ıLe#ÇsÁ≤±Ljçº0“¡øΩBL—M‡A§H<©@s˛•E”©&#&~a‘⁄¶˚_W n¶≥¶˝%‘Ô+ú%ÃPﬁWôF#_ãØzãyÇJWë»∑Í°-ÇªÁOä≤¯òøo∫Í–UÄ\{˜⁄n≈„çxd4vV)|<)"ã˝}SŸ≤X«˙	ıH˝'tË„ı~TÙ5SˇÎIX2ÍÔõ¬®£Ê‹O˝¿¡bÏÒ—óáw˛ã>)Í‚c6§-ŒÈõ†Æ¯ñ}@À±S7ÄRhêF_ùï›K“vËµ§Húˇ∫•	mW†lÎ!TZﬂ’ìr£YH{˙ò4ºu)û…ŸªÚ!@
+¢îíÎ>¯±≤PŒëj∑Ï˚N8§π §Ø.Qï$»¢>≠¬ApÕû<;ÏQd/∫ES∞à{qÓ§∆≥iímJ€ˇ	…xœa<äz{ ÜΩo*îG©à∑⁄\ßäÜú ﬁ•R4˘¥Å
+bRfπ1ˆî`ö‹≠R⁄	4ä∞ÉŸÈOΩDõM¥¯SD,`î6º+†Œ[‰~¡€˙ÁdˇÏ‰,á]tuˇ8Ëù˜πí|∏Ü-ˇ–ß
+9œ^ß∑◊ŸÔ˛¨Ò+bn4˘…œÒÁûó<á°⁄Õ&À?'{g›Œy7y¬Ò…π¸îX§–ÁÖ®ÒÁñÃ†ããÉ}¥ﬂ}”π8<G◊Ó‰‘´ˆ«f3oÄw‚ÙÏ‡®sˆÙ∑Ó?VÈo‹¯où≥Ωwù≥F{{{Ö<Ó¯‚ê}a‡RvÏ¶ÛÓÁÏm∂î∑ºAHﬁˇW¸‹Âª˚eˆ5XªíØPv|p"t~p‘ÌùwéN—ÔÁÔ»KÙœì„n¸≥»ªˇÒ'ncyıó_êkM¸õ∆J2?'+|Õc+® ≥H4HﬂÕ∆,]ç=™ÉIñ¸M	ÏœIÁº{∆∂"gÒ;˚˚hÔ‰‚ËXŸ¨≤%˙πZ˜EKkFsL¸!,ü¸æG÷KÉ
+%ZØ@Åå…ÿ/˘&¢≥ÓõÓY˜xØõGıo∞ÇNéÒ≥ªx†å€XßKw I{c}=E⁄µSÎ˜‚¯‡Ô›üÿj<öÅ4ª≤)g˛≠@à˙ÙÄk‡„nEã6∫«‰”≥ìﬂ—a˜∑Ó!Íu˜.ŒŒˇëIZ“Ü˝îåØË¥B∆)?qÒ)BJt√ˇ—>O¬µÉIËQ∏FÀbB8¿}êvWò®<=9<ÿ˚á +óh'”Ÿ%ÓóUœô‚ÏpˆG?«4 PO∑ËÕ…^å√Óﬁ9∫ËøE`ë¨ãŒ|<≤"µœ«∂[2üÉ„^˜Ïú“ˆﬁªÓﬁﬂL'5õ@ê‘=)€n…§.N˜°c´M‚∏5œ«∂[2&»¨Ê#Qª»Ë¬C≈∑MòG£ªzô¶˙¯Mª´áI§›Ø>	”ÓrâË£yıƒ˘Ï];¯f÷Íèº)πØµnÈ‰Ç6ﬁ`Zπ]vˆû?ı‹AÔﬂ∏÷™ès|˚≥®! ÚN©ovµ∑Òâoò¯mÜÏù ∂… ƒ6cPtÄ+ãMl:ﬁE)r&aF¡(∏ÂV†—p4œ£ÂÕ¯Æœ7»(œâ7M´HÍgbEŒçˆ=˙   ˇˇÏ]{o€Fˇ_üÇnãH*,˘ùKsÁâ„∂|qQ'wzG⁄bLë¨(E÷π˛Ó73ªK._À]ä≤ÄZƒ|ÏÏŒŒŒŒ¸ff©Ç	Lœ éà–ÈDL ∑™úˆNç7+ºä®Te£¨$.ÆÀ®"?è∆)˝E≠_ÿΩ`:ã!≤ÛGÓK¡äV¨¢¸•$TQ˛|
+©hµÙqäVòÇ¯jÊ#“+
+êÇÓg0
+∫Z
+Q∞Ó®
+÷N›nb´À8Ω&:—⁄(8±VÎJl¬@ rêârπKUeÆfXÇ⁄,A%6#m¨ŸbLBHc	 °#≈†BŒ€öpı≠0¢µQ,¢ı®PDKk0ïÅÂ`6ÉCËç®2
+°QÌ Ñﬁ`*C ¡‘é@Ë∆–_0Î¿ ⁄ùØ{® Kkè†>‡¡ƒˆSZ3ˆ≠ôh_‚(†Uò¿ÿƒÍıbı63¢#ëÚhÛ≈yëMÏΩ†˚œ"ˆ^fs˚≥´»°H…ÆkÑÒì5Û;|ŒøøŸ¿Ô⁄∂‹è(¥ó1tãx£é¿©Ù3ån¨l;÷”EƒãÒz›≠m-“
+®]wcZã~Éí7(yÉíã◊î<I•A…’M◊âíüH…ûÑr›Ì≠ñ§ªK±øB;§*
+òoÖ§·Â‹€≈ÒrMêr$ÔÓ†ÕIâ¥YlŒ‹di) ,⁄Æ¯fÏm?∫~sÂ´Û≠£∫≠∆πﬁ§s}iª◊=M¡ÇÏ+Ø©Ú=Q7∆hºÓ‹Ó?wØõEo“ó^ÖØùc ˙◊Nx%‰ÿz{qq~˙Ê}¥!ë{¿åû∫ÆAÿÃ}≈V'úzÇ⁄7êÎ-oa9ºY”◊Œ∂Hz;á–:~ıDòQ{s~ﬁ¯±ç€¯±çõ¶“¯±Í¶7Í«í∫f¶Ω%vh7≤«Æ%#¨´rkÛ6zE.I∆Å’ÿÊÈπ‚]>u[µ…3óπÓ=æ∑÷»&–pf◊∑4◊∫ÇØŒSå`h\E#Wd”Ì·¢“#Ì@G=Ù>H=q∑±q∫ˇ‹ùC¶(QâkòäqÚ‘MÂ3ÿ*ÌW•Â√Ò£ˆt‡∏:œ÷µïˆD´#x∞-Z∏ï9®v uRtbTjWJ®â/ñ8ã˙≠]ïE>`-ù6h©ÒjØ∂Òj„◊Ø6I•Òj’Mo‘´ùG#ŸËΩ9≥IqóWf»&âvAÑ⁄ °G¥Ïë‘ì*sD~¥Ê¯mâ1R[Wœx—À.60]4√¿ï-Ωõÿ- Øo∂<wﬂªÒÆıO$õÄI‘§3Í¢cŒ˘ô~X§áÜJ0s¶®#ˇ\ÿQÕ◊˘˜/ßøù‚7Ä¿∆	∑Qü⁄xX˙≠ΩÇøú≥ÖÁ¿+†y¸€Evø;Ÿ˝g·w„ÆËO Ïêœ+|ë:–êDìâ%núóK'{omó·¬o1Ôà’<R}€‹¨Ω◊†ˆC< ehfˇπpfˆÿ
+W!(˘8<Q*ãÍB≠ppmª´ñjfZ≠œ!√(%`ç¸®ö6/¯≠Y©t◊	a'W¡’·4œ”ﬂŒN6öpU;úù»„*∞ tÁ”¿“≥óô£¨•√1˝ÖÎf&voÊªÒÂ#òØ®ÇWT»∞ÁòrÂíçí˚<J™k_34Á|’V»Õ&À≠59ÍœÍÕTÿóORl»ãÕ$S*òÚ|ì*„b˝ÎTÌÕ,v©™.?6QbV\•_˜xˇÆ—π´·`>öà⁄æ‚ˇ2–¢≈N¨($‚”°ÏòπA?èi1k≤e≤¸ã	ÎWµ5[ÏôV∑÷8ö Õñ$‘öñª÷8§ Õ65Ej›†÷â◊‘:I•A≠’M◊âZÎ{”çÁåóœπÒúœπÒú7\éx~IËÂ`<∑*ä’∏wç{˜‹›;˝Ì¶9≥µ⁄úÏX·dG]ﬁ6π∫π‰^Ïø…1r@Xä≥0/xâ 05∞◊óÍq√Ë%ÑíØ‡è∞·",Ç¡bœﬁø;˝=Éƒﬁ]e<ì´h˛R∫M~(e\è†O@Læ™}¡ª
+ÕÛÆ!tFœõ•˝æı∂0&fpc£éíqŒ≠ŒvΩéëª¿Â2›∫◊°{∫„dÕ%\Ä¸VÂGÃß°Ê7ä∑8ó˙—◊j„œà5…≠ÚJX™ Uÿãö#Jë(ÏC—.∞Ÿ {‹|dπD·¢MŸËf”zÿóNRæüªczÂÛ¬ëu`¥ ‰≠˜*⁄A”Ú%?ÌH∫rõ Q®Ω$§9∆aqiöstk6»xTiü¯©<ÂÛº3æ‘ôBÈ°·MË‹¯ò¥sòN‚˜^Ì“ΩtÇê¯vÊûïÃ”H˘˘«‰PÓFå∫SKúÏÅ¿ÓÒã≠Ehºf~√´OúŸ»µ˜‡zòÖ≠9i‘˙=»◊◊Æ„a¢–π?∏÷O◊F∑ì:9‘`Y6ˇNN…äøıZ-ÎÙãÌYCs÷¨Ÿ¬Û(‹=q¬T˙ùH™€Zá<~…ïZ˙3XîSÃÑπ+|…%~g˛7ÏÙÏÿàY∂¨4≠V˛¬≤•¿ú¥ø(£o,2˙∂	¸MvE$}q‡fh¶.Ï±–ïpÂç&3ﬂÉŸ∑∆+0WË\åf>D√≈|9€˚‚¿s8¢æ∆Ù%ﬂB.˘N-=ìZòbmX”yÔ•XèÛl÷^ ∑◊^p¨π}±ﬁ¬i¡z€◊]mÄHÈ˙î…—ÆïYÀﬁë5ÅˇÑñA6ßü·‹π^%æËÃbwﬂ¸x`˘xÁèd]ry|ª ücæπ’z÷¥R£E´ìØÈ´∫Õ⁄–1|2o¥2áƒâmVtää |€ZÆ?á÷x1c ÅC-5¨∆±d¿'ŒYÅyµK;é¸±nI¶2U•Ï‘ù@∞0ÚÀ÷êË-gÉ†(È§ÛY˘∏œÉ≤3&óQ¥#û∂9Ò£0`Æå};Ù⁄s˛iûùΩˇp!XﬁgèÉké∂:“€‹&È∂˛ıÊ¸„È•’ëZﬂ∂X’3Ê‰‚˝OÁg',Ç2ﬁ]†ÙÀŸ˚üôıî Àò„ë∆”~e7Ÿß5ÙáüÌQ.ñ…áä∂‹qÇŸxﬁ¸G&IÖÌÁ†ãUà`t™êFÚ\ÛÊŸ'(
+õO¢âäÊ5ÃI3≤ƒ|4ˇR˙a"g|ÁÂÆb"%-Ù≤ÌïÈ1›4ÔTjwhœ/'˛Úíü%¿≥Q π'Î∂“`’€∑§˝Ë•ú4".%”FR€%hrY%”Aå“> ’‚;ﬂ≥K¶æ,¥ÆéÇ[9ó”û≈˝Œ˜†&®∫‡W¿ƒo∂‡1∞CÿÛÅ„Ü÷' ˙~'9I˜Ù;bÄΩ¸"'ﬂ"-ë◊®[
+ZÃ{ª÷ˇ`Ç mÉ§3Œ1Ù∑7t34tû3≈˚◊É±}Êàné€ƒc…ÃîÈ‡Æ∑ƒ§¢ Là∆¡]~nöY|Sπ√ƒ^£!:BÇÛ1P,"æÄ,•X‰¨û€;tºd˘•aÚ4¨CÔ~⁄®akI∫¯R™-!n•R¥ˆp≠%÷PÒö)—,øœÓï2ï&^2≈èL2ÊìHK€Õ Z÷tnp5£9m,ﬂZˆˆ˚h„ˇú˚.Ωv‚oZÿvàá©¥Å≠‡Ãÿ§¡ÑHPïmÎ5›Lá äŸ€ü~‘±üÀª¿øÈµtÊ1gà›{ùπ« dŒÒ„NÌbYì˚@1õe¶ˆõüórïZ…úî≤Tk>$äÿÇXGé≥H¯ùcﬂÚ¸π5–Ú_Å.∏˚êÇ
+˛V0π∏6/©¥m @√Dbˆ5∫Ò⁄º_gY“Ïpﬂ˜ï”§*T+ÚpÀ¶6 l„Z/Ωùî—1¥N®	ÉB¥ h¨lä©¯03|]37Ï≥Ë√Õ€¿Î`Øˆ—‚DŸáNº†y€˙Î/+{kºòNWÌ.H‡|1ÛX:ôYÜØ4«Q¶%∂@—≠œA‰˚°?µ;¡:|N»ı–˙â»À—OØç∆FÓ]û∫eû2ç¨ﬁäàß9Xq04Ag„s	˛ÿ∫ú£«Õh∑?˜È÷… ¥;“º%"'˛ÿdX˚#∏Ûì†â◊RTQ∑T`óDógí4êS§ÒZ>Èä¥ÉòØA?äBDT„ku8ê˘,H$9-_≠ï¥ÃgA$…i˘j›º5¯Æ3Ô¥∑€›˛tt:·kP¯3]˚Ôi'’1ÏŸˇ≠‹3Æ®Œ–!«^ˆo‰.`ÔÎ»kØã⁄2ò„„ƒ ¨:#ú6äÑ˝X<PAI¬rú~`M¢(Çh,HTì„ÙÿÃı`Ãg‡§<¯O§bXMÇì_ˇBÊY;«÷÷V–w¬´!^‚¡Cƒ˛*ÔQ€Õ°O∫Ÿ!ö¢Ÿ!ö¢ aˆ|≤/˙Ô"CèÅâ>y¥«)˜èd{Ç˝©g}w?!’ˆÄˇ‡ä‡ì’˘V¸˘–˝DKÔ·S∑ˇŸwºN˚?^€`ÿÍ:‘∏óM&@FV∂gZâöWÅöi3*D›’.D’,@ïQ∏‡Œï@81	%Bˇ$¯üCπ·TÄΩ©x@qi*R 3Æœ¶K ° ˘«`¬8÷ëõbÌ*¨≈%`¥⁄$ˇ÷»≥ié§ø¥∑KA%9ÁF¢?‘÷õ]ç(ö^p˝>√Yì¢Z√*–dÌÅq˘ß\k°l\$´[ÚiVkÃ©v.¨,R£ƒâç1B'\´SÎ™ìÑ–'Ây¬˛18òÜ`äÅÊÖ°ˆRG~EÒò# œ¡ê÷§˜«¡.ï≈GI+ñÌ;cª∑ˇàö‘@WÔ;&P)€4E≤=Nm È#§Oé>0Z#(∫qw˜â\›ßrs›≈}"˜ˆ©\€ÁÈ÷>ïK˚ËÓÏ„ª≤õrck97p÷
+n6öæ—Ùç¶o4}Ç_π¶◊∂
+P©R¢:ó=≠æk{7Û	qn∑k∞È^ö£ïMB~≈!π‘#Œ3LÄr°=uò38mZ¸ﬁD9ªrv%Cm€≥¬9Eò∑ä“†∂ÃF¶W‹'~∫ê¶ﬁ§äYûWRA¥H˝ ;8G∑ˆÍ¯^Ï»…);Ë)sáˆ|â<MeÄ%@GæÎœB√ôÃÀ˙ÍÌY‡⁄ˆñ=T"”`nVan˛Á+J`]xX¶˚Õè˜Ò&˛†U¯¢AôNòZÚ°˚”yoã!9u¨∏£`–IÌèﬁ≠Á/=*KƒãmÛ~J0˛Ó%ª*7≈ªîf∫à,s }ÍƒFL∆§cÄﬁ˘€Q~m+¬`¡]oë˛])ﬂ÷Ω±¬	l–∑ï§ﬂJ0;˛íF_·?£˘¥'¥´°è∫ù‚5W®PU‰„ûßŒ„/YyrD±$˘∏“ΩÏq•q	ftåË÷ûú∏~¯\äOrÓÇ\>¥˛  ˇˇ .»Ö@

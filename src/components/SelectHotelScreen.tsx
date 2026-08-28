@@ -1,9 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { supabase, HOTELS_URL, HOTELS_KEY } from '../lib/supabase';
+import { supabase } from '../lib/supabase';
 import { Hotel } from '../types';
-import { HARDCODED_TEST_HOTELS } from '../lib/constants';
 import { Building, Building2, Search, LogOut, ArrowRight, Sparkles, Loader2, RefreshCw } from 'lucide-react';
-import { apiCache } from '../lib/cache';
+import { fetchHotelsWithFallback } from '../lib/hotelService';
 
 interface SelectHotelScreenProps {
     userProfile: any;
@@ -17,101 +16,68 @@ export default function SelectHotelScreen({ userProfile, onSelectHotel, onLogout
     const [error, setError] = useState('');
     const [searchQuery, setSearchQuery] = useState('');
 
-    const assignedHotelIds = userProfile?.hotel_id 
-        ? String(userProfile.hotel_id).split(',').map(s => s.trim()).filter(Boolean) 
-        : [];
-
     useEffect(() => {
         const fetchHotels = async () => {
             setIsLoading(true);
             setError('');
             try {
-                const fullList = await apiCache.getOrFetch<Hotel[]>('all_hotels_select', async () => {
-                    const response = await fetch(`${HOTELS_URL}hotels?select=*`, {
-                        headers: {
-                            'apikey': HOTELS_KEY,
-                            'Authorization': `Bearer ${HOTELS_KEY}`
-                        }
-                    });
+                const fullList = await fetchHotelsWithFallback();
 
-                    if (!response.ok) {
-                        throw new Error(`Failed to load property database: ${response.statusText}`);
-                    }
+                const assignedHotelIds = userProfile?.hotel_id 
+                    ? String(userProfile.hotel_id).split(',').map(s => s.trim().toLowerCase()).filter(Boolean) 
+                    : [];
+                const assignedHotelCodes = userProfile?.hotel_code 
+                    ? String(userProfile.hotel_code).split(',').map(s => s.trim().toLowerCase()).filter(Boolean) 
+                    : [];
+                const assignedHotelNames = userProfile?.hotel_name 
+                    ? String(userProfile.hotel_name).split(',').map(s => s.trim().toLowerCase()).filter(Boolean) 
+                    : [];
 
-                    const data = await response.json();
-                    if (Array.isArray(data)) {
-                        const mapped: Hotel[] = data.map((item: any) => {
-                            const rawId = item.id !== undefined && item.id !== null ? String(item.id) : '';
-                            const fallbackId = item.hotel_id !== undefined && item.hotel_id !== null ? String(item.hotel_id) : '';
-                            const finalId = rawId || fallbackId || item.code || String(item.name || '').replace(/\s+/g, '-').toLowerCase();
-                            
-                            let country = item.country || '';
-                            const parts = (item.location || item.city_country || '').split(',');
-                            if (!country && parts.length > 1) {
-                                country = parts[parts.length - 1].trim();
-                            } else if (!country) {
-                                country = 'Indonesia';
-                            }
+                let filtered = fullList.filter(h => {
+                    const hIdLower = String(h.id || '').trim().toLowerCase();
+                    const hCodeLower = String(h.code || '').trim().toLowerCase();
+                    const hNameLower = String(h.name || '').trim().toLowerCase();
 
-                            let region = item.region || '';
-                            if (!region) {
-                                const countryLower = country.toLowerCase();
-                                if (countryLower.includes('bahrain') || countryLower.includes('uae') || countryLower.includes('kuwait') || countryLower.includes('saudi') || countryLower.includes('qatar') || countryLower.includes('oman') || countryLower.includes('middle east')) {
-                                    region = 'Middle East';
-                                } else {
-                                    region = 'Indonesia';
-                                }
-                            }
-
-                            return {
-                                id: finalId,
-                                name: item.name || item.hotel_name || '',
-                                location: item.location || item.city_country || 'Indonesia',
-                                code: item.code || '',
-                                brandClass: item.brandClass || item.brand_class || item.brand || 'Swiss-Belhotel',
-                                region: region,
-                                country: country,
-                                stars: item.stars ? Number(item.stars) : 4
-                            };
-                        });
-
-                        // Include HQ Corporate if listed or needed
-                        if (!mapped.some(h => h.id === 'sbi-ho')) {
-                            mapped.unshift({
-                                id: 'sbi-ho',
-                                name: 'Swiss-Belhotel International',
-                                location: 'Corporate Headquarters',
-                                code: 'HQ',
-                                brandClass: 'Corporate',
-                                region: 'Asia Pacific'
-                            });
-                        }
-
-                        return [...mapped, ...HARDCODED_TEST_HOTELS];
-                    } else {
-                        throw new Error('Property query did not return a valid list.');
-                    }
+                    if (assignedHotelIds.includes(hIdLower)) return true;
+                    if (assignedHotelCodes.includes(hCodeLower)) return true;
+                    if (assignedHotelNames.some(n => n === hNameLower || hNameLower.includes(n) || n.includes(hNameLower))) return true;
+                    return false;
                 });
 
-                // Filter to only those assigned to current user
-                const filtered = fullList.filter(h => assignedHotelIds.includes(h.id));
-                setHotels(filtered);
-            } catch (err: any) {
-                console.error("Error loading assigned hotels:", err);
-                setError(err.message || 'Unable to connect to Swiss-Belhotel database. Please refresh or retry.');
-                
-                // Fallback using names/codes from profile if remote fails
-                if (userProfile?.hotel_name) {
+                // Fallback using names/codes from profile if filtered is empty
+                if (filtered.length === 0 && userProfile?.hotel_name) {
                     const names = String(userProfile.hotel_name).split(',').map(s => s.trim());
                     const codes = userProfile.hotel_code ? String(userProfile.hotel_code).split(',').map(s => s.trim()) : [];
-                    const fallbacks: Hotel[] = names.map((name, idx) => ({
+                    filtered = names.map((name, idx) => ({
                         id: assignedHotelIds[idx] || `fallback-${idx}`,
                         name,
                         location: 'Assigned Property',
                         code: codes[idx] || 'SBI',
                         brandClass: 'Swiss-Belhotel'
                     }));
+                }
+
+                setHotels(filtered);
+                setError(''); // Properties resolved successfully, clear any error
+            } catch (err: any) {
+                console.error("Error loading assigned hotels:", err);
+                
+                // Fallback using profile if exception occurs
+                if (userProfile?.hotel_name) {
+                    const names = String(userProfile.hotel_name).split(',').map(s => s.trim());
+                    const codes = userProfile.hotel_code ? String(userProfile.hotel_code).split(',').map(s => s.trim()) : [];
+                    const assignedIds = userProfile?.hotel_id ? String(userProfile.hotel_id).split(',').map(s => s.trim()) : [];
+                    const fallbacks: Hotel[] = names.map((name, idx) => ({
+                        id: assignedIds[idx] || `fallback-${idx}`,
+                        name,
+                        location: 'Assigned Property',
+                        code: codes[idx] || 'SBI',
+                        brandClass: 'Swiss-Belhotel'
+                    }));
                     setHotels(fallbacks);
+                    setError('');
+                } else {
+                    setError('Unable to connect to Swiss-Belhotel database. Please refresh or retry.');
                 }
             } finally {
                 setIsLoading(false);
