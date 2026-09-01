@@ -116,7 +116,7 @@ export default function PendingApprovalScreen({ userProfile, onLogout, onApprove
                                 </div>
                                 <div className="flex-1">
                                     <div className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">Email Address</div>
-                                    <div className="text-sm font-bold text-slate-800 break-all">{userProfile?.email || '—'}</div>
+                                    <div className="text-sm font-bold text-slate-800 break-all">{userProfile?.email || '-'}</div>
                                 </div>
                             </div>
 
@@ -128,7 +128,7 @@ export default function PendingApprovalScreen({ userProfile, onLogout, onApprove
                                 <div className="flex-1">
                                     <div className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">Hotel Property</div>
                                     <div className="text-sm font-bold text-slate-800 flex items-center gap-1.5 flex-wrap">
-                                        <span>{userProfile?.hotel_name || '—'}</span>
+                                        <span>{userProfile?.hotel_name || '-'}</span>
                                         {userProfile?.hotel_code && (
                                             <span className="font-mono text-xs font-extrabold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100/30">
                                                 #{userProfile.hotel_code}
@@ -146,7 +146,7 @@ export default function PendingApprovalScreen({ userProfile, onLogout, onApprove
                                 <div className="flex-1">
                                     <div className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">Designated Role</div>
                                     <div className="text-sm font-bold text-slate-800 flex items-center gap-2">
-                                        <span>{userProfile?.role || '—'}</span>
+                                        <span>{userProfile?.role || '-'}</span>
                                         {userProfile?.is_brand_audit_lead && (
                                             <span className="text-[8px] font-black uppercase tracking-wider bg-indigo-600 text-white px-2 py-0.5 rounded-full shadow-sm">
                                                 Brand Lead

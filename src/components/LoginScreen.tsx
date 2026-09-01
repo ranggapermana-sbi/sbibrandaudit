@@ -254,7 +254,7 @@ export default function LoginScreen({ onLogin, onAdminAccess }: { onLogin: () =>
               <div className="flex justify-center gap-2">
                  {[...Array(6)].map((_, i) => (
                      <div key={i} className={`w-10 h-10 rounded-xl border-2 flex items-center justify-center text-xl font-bold ${pin[i] ? 'border-indigo-600 bg-indigo-50 text-indigo-900' : 'border-slate-200'}`}>
-                       {pin[i] ? '•' : ''}
+                       {pin[i] ? '*' : ''}
                      </div>
                  ))}
               </div>
