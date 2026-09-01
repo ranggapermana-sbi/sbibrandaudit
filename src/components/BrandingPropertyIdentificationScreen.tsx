@@ -644,11 +644,6 @@ const AuditItemCard: React.FC<{
 
         switch ((item.input_type || '').toLowerCase().trim()) {
             case 'camera':
-            case 'image':
-            case 'photo':
-            case 'picture':
-            case 'img':
-            case 'gallery':
                 return (
                     <div className="mt-3 space-y-3">
                         {isCameraOpen && createPortal(
@@ -756,6 +751,12 @@ const AuditItemCard: React.FC<{
                     </div>
                 );
             case 'image':
+            case 'photo':
+            case 'picture':
+            case 'img':
+            case 'gallery':
+            case 'file':
+            case 'upload':
                 return (
                     <div className="mt-3 space-y-3">
                         {photos.length > 0 && (
