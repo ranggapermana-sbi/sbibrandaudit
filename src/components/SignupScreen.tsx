@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { User, Building2, Briefcase, ChevronDown, Check, Search, Sparkles, Building, LogOut, Loader2, X } from 'lucide-react';
-import { supabase, clearStaleAuthSession, HOTELS_URL, HOTELS_KEY } from '../lib/supabase';
+import { supabase, HOTELS_URL, HOTELS_KEY } from '../lib/supabase';
 
 interface Hotel {
     id: string;
@@ -65,12 +65,7 @@ export default function SignupScreen({ onComplete, onLogout }: SignupScreenProps
 
     useEffect(() => {
         // Fetch current user email from active session
-        supabase.auth.getSession().then(({ data: { session }, error }) => {
-            if (error) {
-                console.warn("Invalid session in SignupScreen:", error.message);
-                clearStaleAuthSession();
-                return;
-            }
+        supabase.auth.getSession().then(({ data: { session } }) => {
             if (session?.user) {
                 setUserEmail(session.user.email || '');
                 setCurrentUserId(session.user.id || '');
@@ -84,9 +79,6 @@ export default function SignupScreen({ onComplete, onLogout }: SignupScreenProps
                     }
                 }
             }
-        }).catch((err) => {
-            console.warn("Failed to get session in SignupScreen:", err);
-            clearStaleAuthSession();
         });
 
         // Load hotels list from Master Database

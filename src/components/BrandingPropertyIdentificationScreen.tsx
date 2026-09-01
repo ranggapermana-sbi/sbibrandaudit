@@ -644,6 +644,11 @@ const AuditItemCard: React.FC<{
 
         switch ((item.input_type || '').toLowerCase().trim()) {
             case 'camera':
+            case 'image':
+            case 'photo':
+            case 'picture':
+            case 'img':
+            case 'gallery':
                 return (
                     <div className="mt-3 space-y-3">
                         {isCameraOpen && createPortal(
@@ -751,12 +756,6 @@ const AuditItemCard: React.FC<{
                     </div>
                 );
             case 'image':
-            case 'photo':
-            case 'picture':
-            case 'img':
-            case 'gallery':
-            case 'file':
-            case 'upload':
                 return (
                     <div className="mt-3 space-y-3">
                         {photos.length > 0 && (
@@ -1740,7 +1739,7 @@ export default function BrandingPropertyIdentificationScreen({ selectedCategory,
                             <div className="flex items-center justify-between pb-4 mb-4 border-b border-slate-100">
                                 <div>
                                     <span className="text-[10px] font-black uppercase tracking-widest text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-lg">
-                                        {selectedInspectionItem.input_type} * {selectedInspectionItem.points || 0} PTS
+                                        {selectedInspectionItem.input_type} • {selectedInspectionItem.points || 0} PTS
                                     </span>
                                     <h2 className="text-base sm:text-lg font-bold text-slate-900 mt-1">
                                         {selectedInspectionItem.name}
@@ -1750,7 +1749,7 @@ export default function BrandingPropertyIdentificationScreen({ selectedCategory,
                                     onClick={() => setSelectedInspectionItem(null)}
                                     className="p-2 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold transition-all cursor-pointer"
                                 >
-                                    x
+                                    ✕
                                 </button>
                             </div>
 

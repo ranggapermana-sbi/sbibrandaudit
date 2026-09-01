@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Download, ArrowLeft, CheckCircle, Clock, Building, BarChart3, ChevronRight, ChevronLeft, ChevronsLeft, ChevronsRight, ArrowUpDown, Plus, Trash2, Edit, Search, X, AlertCircle, MapPin, Settings2, Calendar, Star, Briefcase, ClipboardList, FileCheck, Layers, Package, Camera, ImageIcon, FileText, Hash, Type, CheckSquare, Users, ShieldCheck, Percent, GripVertical, ChevronUp, ChevronDown, Eye, User, RefreshCw, CheckCircle2, Maximize2, ExternalLink, ZoomIn, Database, Copy, Check, Lock, Unlock } from 'lucide-react';
+import { ArrowLeft, CheckCircle, Clock, Building, BarChart3, ChevronRight, ChevronLeft, ChevronsLeft, ChevronsRight, ArrowUpDown, Plus, Trash2, Edit, Search, X, AlertCircle, MapPin, Settings2, Calendar, Star, Briefcase, ClipboardList, FileCheck, Layers, Package, Camera, ImageIcon, FileText, Hash, Type, CheckSquare, Users, ShieldCheck, Percent, GripVertical, ChevronUp, ChevronDown, Eye, User, RefreshCw, CheckCircle2, Maximize2, ExternalLink, ZoomIn, Database, Copy, Check, Lock, Unlock } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { apiCache } from '../lib/cache';
-import { fetchHotelsWithFallback } from '../lib/hotelService';
 
 import { Department, Hotel, AuditBatch, AuditCategory, AuditItem, AuditGroup } from '../types';
 import { DEFAULT_DEPARTMENTS, DEFAULT_CATEGORIES, DEFAULT_HOTELS, DEFAULT_BATCHES, DEFAULT_GROUPS, DEFAULT_OFFLINE_ITEMS, HARDCODED_TEST_HOTELS } from '../lib/constants';
@@ -54,7 +53,7 @@ const recentSubmissions = [
 const HOTEL_BRANDS = [
     'Grand Swiss-Belhotel',
     'Managed by SBI',
-    'MAUA',
+    'MƒÄUA',
     'Swiss-Belboutique',
     'Swiss-Belcourt',
     'Swiss-Belexpress',
@@ -692,7 +691,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                         <tr>
                                             <td style="background: linear-gradient(135deg, #4f46e5 0%, #3730a3 100%); padding: 40px; text-align: center;">
                                                 <div style="display: inline-block; background-color: rgba(255, 255, 255, 0.15); border: 1px solid rgba(255, 255, 255, 0.25); border-radius: 14px; padding: 10px; margin-bottom: 20px; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);">
-                                                    <span style="font-size: 28px; line-height: 1;"></span>
+                                                    <span style="font-size: 28px; line-height: 1;">üõ°Ô∏è</span>
                                                 </div>
                                                 <h1 style="margin: 0; font-size: 24px; font-weight: 800; color: #ffffff; letter-spacing: -0.025em;">Account Approved</h1>
                                                 <p style="margin: 8px 0 0 0; font-size: 14px; color: #c7d2fe; font-weight: 500;">SBI Brand Audit 2026 Portal</p>
@@ -1096,8 +1095,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             try {
                 const { data, error } = await supabase
                     .from('audit_submissions')
-                    .select('hotel_id, item_id, is_na, value, evidence_urls, notes, evidence_url, remark, score')
-                    .limit(50000);
+                    .select('hotel_id, item_id, is_na, value, evidence_urls');
                 if (!error && data && active) {
                     setAllSubmissions(data);
                 }
@@ -1702,7 +1700,92 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         setIsSupabaseLoading(true);
         setSupabaseErrorMsg(null);
         try {
-            const finalHotels = await fetchHotelsWithFallback();
+            const finalHotels = await apiCache.getOrFetch<Hotel[]>('hotels_master', async () => {
+                const response = await fetch(`${HOTELS_URL}hotels?select=*`, {
+                    headers: {
+                        'apikey': HOTELS_KEY,
+                        'Authorization': `Bearer ${HOTELS_KEY}`
+                    }
+                });
+                if (!response.ok) {
+                    throw new Error(`Failed to fetch database: HTTP ${response.status} - ${response.statusText}`);
+                }
+                const data = await response.json();
+                
+                // Map Supabase layout to local structure
+                const mapped: Hotel[] = data.map((item: any) => {
+                    let country = item.country || '';
+                    const parts = (item.location || item.city_country || '').split(',');
+                    if (!country && parts.length > 1) {
+                        country = parts[parts.length - 1].trim();
+                    } else if (!country) {
+                        country = 'Indonesia';
+                    }
+
+                    let region = item.region || '';
+                    if (!region) {
+                        const countryLower = country.toLowerCase();
+                        if (countryLower.includes('bahrain') || countryLower.includes('uae') || countryLower.includes('kuwait') || countryLower.includes('saudi') || countryLower.includes('qatar') || countryLower.includes('oman') || countryLower.includes('middle east')) {
+                            region = 'Middle East';
+                        } else if (countryLower.includes('indonesia') || countryLower.includes('malaysia') || countryLower.includes('philippines') || countryLower.includes('vietnam') || countryLower.includes('thailand') || countryLower.includes('asia')) {
+                            region = 'Asia Pacific';
+                        } else if (countryLower.includes('australia') || countryLower.includes('zealand') || countryLower.includes('oceania')) {
+                            region = 'Oceania';
+                        } else {
+                            region = 'Asia Pacific';
+                        }
+                    }
+
+                    let stars = item.stars || item.star_rating || item.star_class || item.rating;
+                    if (!stars) {
+                        const nameLower = (item.name || item.hotel_name || '').toLowerCase();
+                        if (nameLower.includes('grand') || nameLower.includes('resort') || nameLower.includes('suites') || nameLower.includes('boutique') || nameLower.includes('seef')) {
+                            stars = 5;
+                        } else if (nameLower.includes('inn') || nameLower.includes('express')) {
+                            stars = 3;
+                        } else {
+                            stars = 4;
+                        }
+                    }
+
+                    const rawId = item.id !== undefined && item.id !== null ? String(item.id) : '';
+                    const fallbackId = item.hotel_id !== undefined && item.hotel_id !== null ? String(item.hotel_id) : '';
+                    const finalId = rawId || fallbackId || item.code || String(item.name || '').replace(/\s+/g, '-').toLowerCase();
+
+                    return {
+                        id: finalId,
+                        name: item.name || item.hotel_name || '',
+                        location: item.location || item.city_country || '',
+                        code: item.code || '',
+                        brandClass: item.brandClass || item.brand_class || item.brand || 'Swiss-Belhotel',
+                        region: region,
+                        country: country,
+                        stars: Number(stars) || 4
+                    };
+                });
+
+                // Ensure Swiss-Belhotel International is always at the very top
+                const sbiIndex = mapped.findIndex(h => h.name.toLowerCase() === 'swiss-belhotel international');
+                if (sbiIndex > -1) {
+                    const [sbi] = mapped.splice(sbiIndex, 1);
+                    mapped.unshift(sbi);
+                } else {
+                    mapped.unshift({
+                        id: 'sbi-ho',
+                        name: 'Swiss-Belhotel International',
+                        location: 'Corporate Headquarters',
+                        code: 'SBI',
+                        brandClass: 'Corporate',
+                        region: 'Global',
+                        country: 'International',
+                        stars: 5
+                    });
+                }
+
+                const filteredMapped = mapped.filter(h => h.id !== 'sbi-test' && h.id !== 'sbi-dummy');
+                return [...filteredMapped, ...HARDCODED_TEST_HOTELS];
+            }, { forceRefresh });
+
             setHotels(finalHotels);
             localStorage.setItem('sbi_audit_hotels_v2', JSON.stringify(finalHotels));
             setSupabaseConnected(true);
@@ -1925,12 +2008,6 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             fetchCategoriesFromSupabase();
             fetchItemsFromSupabase();
         } else if (subView === 'users') {
-            fetchProfilesFromSupabase();
-        } else if (subView === 'progress_report' || subView === 'inspection') {
-            fetchHotelsFromSupabase();
-            fetchItemsFromSupabase();
-            fetchCategoriesFromSupabase();
-            fetchGroupsFromSupabase();
             fetchProfilesFromSupabase();
         }
     }, [subView]);
@@ -2160,34 +2237,6 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         if (hotel.name && subIdLower.length > 3 && (subIdLower.includes(String(hotel.name).trim().toLowerCase()) || String(hotel.name).trim().toLowerCase().includes(subIdLower))) return true;
         if (hotel.code && hotel.code.length >= 2 && (subIdLower.includes(String(hotel.code).trim().toLowerCase()) || String(hotel.code).trim().toLowerCase().includes(subIdLower))) return true;
         return false;
-    };
-
-    const getHotelItems = (hotel: Hotel): AuditItem[] => {
-        if (!hotel || !items || items.length === 0) return items || [];
-
-        const possibleHotelIds = new Set<string>();
-        if (hotel.id) possibleHotelIds.add(String(hotel.id).trim().toLowerCase());
-        if (hotel.code) possibleHotelIds.add(String(hotel.code).trim().toLowerCase());
-        if (hotel.name) possibleHotelIds.add(String(hotel.name).trim().toLowerCase());
-
-        const matchedGroups = (groups || []).filter(g => {
-            if (!g.hotelIds || g.hotelIds.length === 0) return false;
-            return g.hotelIds.some(hid => possibleHotelIds.has(String(hid).trim().toLowerCase()));
-        });
-
-        if (matchedGroups.length > 0) {
-            const assignedItemIds = new Set<string>();
-            matchedGroups.forEach(g => {
-                const itemIdsList = g.itemIds || (g as any).item_ids || [];
-                itemIdsList.forEach((id: any) => assignedItemIds.add(String(id)));
-            });
-            const filtered = items.filter(item => assignedItemIds.has(String(item.id)));
-            if (filtered.length > 0) {
-                return filtered;
-            }
-        }
-
-        return items;
     };
 
     const getHotelFinalizedInfo = (hotelIdOrHotel: any): { is_finalized: boolean, finalized_by?: string, finalized_at?: string } => {
@@ -4185,7 +4234,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 )}
 
                 {subView === 'dashboard' ? (
-                    <React.Fragment>
+                    <>
                         {/* Stats Row */}
                         {(userProfile?.access_level === 'admin' || userProfile?.access_level === 'auditor') && (
                             <section className="grid grid-cols-1 md:grid-cols-3 gap-5">
@@ -4263,7 +4312,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                 <span className="w-1.5 h-1.5 rounded-full bg-rose-400 inline-block animate-pulse"></span>
                                                                 No Auditees: <strong className="text-slate-800 hover:text-indigo-700 underline decoration-dotted decoration-slate-300 hover:decoration-indigo-400 underline-offset-2">{hotelsWithoutAuditees}</strong>
                                                             </span>
-                                                            <span className="text-slate-300"></span>
+                                                            <span className="text-slate-300">‚Ä¢</span>
                                                             <span 
                                                                 onClick={() => {
                                                                     setStatsModalType('brand_leads');
@@ -4307,12 +4356,12 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                         <span className="w-1.5 h-1.5 rounded-full bg-amber-400 inline-block"></span>
                                                         Pending: <strong className="text-slate-800">{totalPending}</strong>
                                                     </span>
-                                                    <span className="text-slate-300"></span>
+                                                    <span className="text-slate-300">‚Ä¢</span>
                                                     <span className="flex items-center gap-1">
                                                         <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block"></span>
                                                         Approved: <strong className="text-slate-800">{totalApproved}</strong>
                                                     </span>
-                                                    <span className="text-slate-300"></span>
+                                                    <span className="text-slate-300">‚Ä¢</span>
                                                     <span className="flex items-center gap-1">
                                                         <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 inline-block"></span>
                                                         Brand Leads: <strong className="text-slate-800">{totalBrandLeads}</strong>
@@ -4574,7 +4623,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                     </div>
                                 </div>
                             </section>
-                        </React.Fragment>
+                        </>
                 ) : subView === 'users' ? (
                     (userProfile?.access_level !== 'admin' && userProfile?.access_level !== 'auditor') ? (
                         <div className="bg-red-50/50 border border-red-100 p-8 rounded-[28px] text-center max-w-lg mx-auto my-12 animate-fadeIn shadow-sm">
@@ -4633,7 +4682,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                 The <code className="bg-amber-100 px-1 py-0.5 rounded font-mono font-bold text-amber-800">public.audit_users</code> table doesn't exist yet on your Supabase instance, or permissions require database provisioning. 
                                             </p>
                                             <p className="text-xs text-slate-650 leading-relaxed mt-2 font-medium">
-                                                 We have automatically saved your onboarding information locally in your browser. To finalize cloud storage sync, please copy the script inside the <strong className="text-slate-800">/supabase-onboarding.sql</strong> file and execute it within your Supabase SQL Editor.
+                                                üëâ We have automatically saved your onboarding information locally in your browser. To finalize cloud storage sync, please copy the script inside the <strong className="text-slate-800">/supabase-onboarding.sql</strong> file and execute it within your Supabase SQL Editor.
                                             </p>
                                         </div>
                                     </div>
@@ -4676,10 +4725,10 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                 });
 
                                 const formatSqlTimestamp = (isoString?: string) => {
-                                    if (!isoString) return '';
+                                    if (!isoString) return '‚Äî';
                                     try {
                                         const d = new Date(isoString);
-                                        if (isNaN(d.getTime())) return '';
+                                        if (isNaN(d.getTime())) return '‚Äî';
                                         const day = String(d.getUTCDate()).padStart(2, '0');
                                         const month = String(d.getUTCMonth() + 1).padStart(2, '0');
                                         const year = d.getUTCFullYear();
@@ -4688,7 +4737,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                         const seconds = String(d.getUTCSeconds()).padStart(2, '0');
                                         return `${day}-${month}-${year} ${hours}:${minutes}:${seconds} (UTC)`;
                                     } catch {
-                                        return '';
+                                        return '‚Äî';
                                     }
                                 };
 
@@ -4728,7 +4777,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                     <span className={roleStyles.text}>{roleStyles.icon}</span>
                                                                     <div>
                                                                         <div className="font-bold flex items-center gap-1.5 flex-wrap">
-                                                                            <span>{p.display_name || ''}</span>
+                                                                            <span>{p.display_name || '‚Äî'}</span>
                                                                             {!isOnboardingFinished && (
                                                                                 <span 
                                                                                     className="inline-flex items-center gap-1 text-[9px] bg-amber-50 text-amber-700 border border-amber-150/60 px-1.5 py-0.5 rounded-md font-black uppercase tracking-wider animate-pulse animate-infinite"
@@ -4743,7 +4792,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                         )}
                                                                     </div>
                                                                 </td>
-                                                                <td className="px-6 py-4 text-xs text-slate-600">{p.email || ''}</td>
+                                                                <td className="px-6 py-4 text-xs text-slate-600">{p.email || '‚Äî'}</td>
                                                                 <td className="px-6 py-4 text-xs">
                                                                     {p.hotel_name ? (
                                                                         <div>
@@ -4751,11 +4800,11 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                              {p.hotel_code && <span className="ml-1.5 font-mono text-xs font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded">#{p.hotel_code}</span>}
                                                                         </div>
                                                                     ) : (
-                                                                        <span className="text-slate-400 font-medium"></span>
+                                                                        <span className="text-slate-400 font-medium">‚Äî</span>
                                                                     )}
                                                                 </td>
                                                                 <td className="px-6 py-4 text-xs text-slate-600">
-                                                                    <div>{p.role || ''}</div>
+                                                                    <div>{p.role || '‚Äî'}</div>
                                                                     {p.is_brand_audit_lead && (
                                                                         <span className="mt-1 inline-flex items-center text-[8px] bg-indigo-50 text-indigo-700 border border-indigo-100 px-1.5 py-0.5 rounded font-extrabold uppercase tracking-wide">Brand Lead</span>
                                                                     )}
@@ -5611,13 +5660,13 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                              </span>
                                                                          )}
                                                                      </div>
-                                                                     <p className="text-[10px] text-slate-400 font-semibold mt-0.5">{hotel.location}  {hotel.brandClass}</p>
+                                                                     <p className="text-[10px] text-slate-400 font-semibold mt-0.5">{hotel.location} ‚Ä¢ {hotel.brandClass}</p>
                                                                  </div>
                                                              </div>
 
                                                              {hotel.stars && (
                                                                  <span className="text-[10px] text-amber-500 font-bold bg-amber-50 px-2 py-0.5 rounded-full border border-amber-100 shrink-0">
-                                                                     {''.repeat(hotel.stars)}
+                                                                     {'‚òÖ'.repeat(hotel.stars)}
                                                                  </span>
                                                              )}
                                                          </div>
@@ -6193,7 +6242,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                                         )}
                                                                                                     </div>
                                                                                                     <div className="flex flex-wrap items-center gap-2 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
-                                                                                                        <span>{hotel.brandClass}  {hotel.region || 'Region Unspecified'}</span>
+                                                                                                        <span>{hotel.brandClass} ‚Ä¢ {hotel.region || 'Region Unspecified'}</span>
                                                                                                         {totalAssignedAuditors > 0 && (
                                                                                                             <span className="text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded font-bold normal-case">
                                                                                                                 Assigned to {totalAssignedAuditors} {totalAssignedAuditors === 1 ? 'auditor' : 'auditors'}
@@ -6268,7 +6317,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                 )}
                                                                             </div>
                                                                             <div className="flex flex-wrap items-center gap-2 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
-                                                                                <span>{hotel.brandClass}  {hotel.country || 'Indonesia'}  {hotel.region || 'Region Unspecified'}</span>
+                                                                                <span>{hotel.brandClass} ‚Ä¢ {hotel.country || 'Indonesia'} ‚Ä¢ {hotel.region || 'Region Unspecified'}</span>
                                                                                 {totalAssignedAuditors > 0 && (
                                                                                     <span className="text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded font-bold normal-case">
                                                                                         Assigned to {totalAssignedAuditors} {totalAssignedAuditors === 1 ? 'auditor' : 'auditors'}
@@ -6600,7 +6649,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                                     <span>{itemCount} checklist items</span>
                                                                                                     {totalAssignedCatAuditors > 0 && (
                                                                                                         <span className="text-amber-600 font-bold">
-                                                                                                             Assigned to {totalAssignedCatAuditors} {totalAssignedCatAuditors === 1 ? 'auditor' : 'auditors'}
+                                                                                                            ‚Ä¢ Assigned to {totalAssignedCatAuditors} {totalAssignedCatAuditors === 1 ? 'auditor' : 'auditors'}
                                                                                                         </span>
                                                                                                     )}
                                                                                                 </div>
@@ -6680,7 +6729,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                     <span>{itemCount} checklist items</span>
                                                                                     {totalAssignedCatAuditors > 0 && (
                                                                                         <span className="text-amber-600 font-bold">
-                                                                                             Assigned to {totalAssignedCatAuditors} {totalAssignedCatAuditors === 1 ? 'auditor' : 'auditors'}
+                                                                                            ‚Ä¢ Assigned to {totalAssignedCatAuditors} {totalAssignedCatAuditors === 1 ? 'auditor' : 'auditors'}
                                                                                         </span>
                                                                                     )}
                                                                                 </div>
@@ -7132,8 +7181,8 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                     })()}
                                 </div>
                             </div>
-                    ) : (
-                        <React.Fragment>
+                        ) : (
+                            <React.Fragment>
                                 {(() => {
                                     const hotel = hotels.find(h => h.id === selectedInspectionHotelId);
                                 if (!hotel) return (
@@ -7266,7 +7315,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                         <p className="text-slate-400 font-bold text-xs mt-2 uppercase tracking-widest flex items-center gap-2 flex-wrap">
                                                             <span className="flex items-center gap-1">
                                                                 <MapPin size={12} className="text-indigo-400" />
-                                                                {hotel.location || 'Swiss-Belhotel Property'}  {hotel.brand || 'Luxury Standards'}
+                                                                {hotel.location || 'Swiss-Belhotel Property'} ‚Ä¢ {hotel.brand || 'Luxury Standards'}
                                                             </span>
                                                             <span className="text-slate-600 font-normal select-none">|</span>
                                                             <span className="flex items-center gap-1.5 text-indigo-300">
@@ -7539,7 +7588,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                                             {submission._is_demo ? 'Demo Pool Evidence' : 'Property Evidence'}
                                                                                                         </span>
                                                                                                     </div>
-                                                                                                    <span className="text-slate-400 text-[10px]">Submitted by <strong className="text-slate-700 font-bold">{getSubmitterName(submission, hotel)}</strong>  {safeFormatDateTime(submission.created_at)}</span>
+                                                                                                    <span className="text-slate-400 text-[10px]">Submitted by <strong className="text-slate-700 font-bold">{getSubmitterName(submission, hotel)}</strong> ‚Ä¢ {safeFormatDateTime(submission.created_at)}</span>
                                                                                                 </div>
 
                                                                                                 {submission.is_na ? (
@@ -7559,7 +7608,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                                                      <div 
                                                                                                                          key={urlIdx}
                                                                                                                          className="group/img relative rounded-xl border border-slate-200 overflow-hidden bg-slate-900/5 flex items-center justify-center aspect-square cursor-zoom-in transition-all hover:border-indigo-300 hover:shadow-sm"
-                                                                                                                         onClick={() => setEnlargedImage({ url: url, title: `${item.name}  Photo ${urlIdx + 1}  ${hotel.name}` })}
+                                                                                                                         onClick={() => setEnlargedImage({ url: url, title: `${item.name} ‚Äî Photo ${urlIdx + 1} ‚Äî ${hotel.name}` })}
                                                                                                                      >
                                                                                                                          <img loading="lazy" decoding="async" 
                                                                                                                              src={url} 
@@ -7643,7 +7692,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                                     ? (isPass ? 'text-emerald-600' : isFail ? 'text-red-600' : isNA ? 'text-amber-600' : 'text-slate-900') 
                                                                                                     : 'text-slate-300'
                                                                                             }`}>
-                                                                                                {currentScore !== undefined ? (isPass ? 'PASS' : isFail ? 'FAIL' : isNA ? 'N/A' : currentScore) : ''}
+                                                                                                {currentScore !== undefined ? (isPass ? 'PASS' : isFail ? 'FAIL' : isNA ? 'N/A' : currentScore) : '‚Äî'}
                                                                                             </span>
                                                                                             <span className="text-[10px] font-black text-slate-400">({item.points ?? 5} PTS)</span>
                                                                                         </div>
@@ -7652,25 +7701,3848 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                     {/* PASS / FAIL / N/A CONTROLS */}
                                                                                     <div className="space-y-2">
                                                                                         <div className="grid grid-cols-3 gap-2">
-                                       xúÏ]{s€∂≤ˇ?üı§’òí•$M„ Œ»é”zÆc˚ZNœ=ìõI(≤xBë,I≈÷Uı›Ô.¿¯ Iâí”¥ÊLSK"`øKB÷∏z√ôÔ€÷£uû]ÂÚÁ=ÿ·çÌlΩ5C?X|˙ñÍhûß>^>ù∂}˘iπı¶mÎÿ4FüJìí≈÷ƒÀ≈.°≥Õ{j/O˚BO-œ°#ﬂ∞≠¡»v©2±}j¬PÔí`Ãw…Ã“Èÿ∞®ﬁ¸Â^X[jzÙØ7
-˛ıVªª¥À˜»!Ÿ#ØHÚª}“∏ÏçÊ}’÷[Ynøâë	rÆM)Ë¸ÿ§wlL=uD-ü∫‰?3œ7∆Û„çÊ®ù÷s‚Ã’.qÓ‘ßƒµQ@u’º!C€’·üﬁ˘ÍùG∆∂Â´C€‘âÔjñg‡Ï™öií«˜§’L£ÔMå_ëù·çJß‘’L]˝ioèƒÌ∆3öƒØﬁD”Ì[’õÜÖ?v˜ˆ∂o‚√küqÕôd¸z¶ÊSı0Ãø ¶»ƒ˛B›}∏ùı¸ÿ‹∂À9‹zz«:˙L<„ˇ@¡:œñ§Ω˝6—nµë^õCëÌvÂoÆ∆öa˛c¿’ËÏ∏˙ÀÇ´ΩƒT˝˙#&T”{FL.ï°•óR¬PR|˝P“ˇ‹/Bz”?={@HïØØÑê,ÌÉèŒ˚ËË/ãévŒ€˝ùÑT˝˙#§Û˛=„#m:|ëèê‚ﬂ2âˇÙÄí‚ÎoÄí˙&u˝c√ôÙ~Ò¿o.ı⁄∫Òe}Ú¡„Î?èfq«Ò’ÓNΩﬁˆLmHMë(S∫˜ù=ÁÓC`)MmÙY‘≈g†z3«°ÓHG6tÙŸ∞@g4≤C”ÜªßCµSì3º˙3›mó\—©Ê~Æ∑ﬂk≥Æ÷.Õ•ZÌÆπˆ≠w∞Ë÷∑&_4s:<öπ.∏¬c{:Öˇ’'0v¢Y7@Y°»&aN–N–°-°Í∑gÕ˙¨8 Ät˛ö∫;}]'Z cJı!
-'¸m#^´’™Ô]∏U«3¿!pp‘.@å,∞»8¶»ÉçÌ—Ã€∑gæ	Xµl+¸ EçÈäK7nlpb{\Ì¶T7fS±Û˚I¨◊”ˆæÜ\Û—5[ÒënØÄ·ó%R_“Z¡œ9çßK=-|ÑáóMnÔµØ®6Ú[o\Ì’¯˚í›ÿÊÕÜøÙñêÜ„⁄7.ıºè.ul◊o §Tπ¥;ÚUuÆ˛D4Àò¢îé5lq¿àéj—˛ëıèˇãΩªææ8'?êﬂN˙ØOÆ»èÌ∏+iÍ,¿‘ëmo∫œ˛3äÁÜCÍﬂRj±ÿ‡Y¨ì0Í˚Ó3Ùs=nˇa‚;/ÂŒzπS¨•ê‹π´º2‡Q¿g@iËö7⁄ö´7
-‰∏fi@5w4˘ÔuÁJCˆå$z°ßºÓÄe
-«-6ã1<Å2æ–}o§ôT}˘<\%ç`&û∏ú -nÉÄ›¨ÈÀ◊ñ^ﬂ9£c?D∫?IëÓC96yxvr•¯≤7Èf T˜Œî‡ßóÜÖ®…7n&æd<¿€H@TÔHs¡?ª˛”LªÅÅ°⁄	:›ïwö, ‡,‘úéO∫9ùv2máÛÊ—©ëû;tlS_
-¡ ô0SJ¶∂Öﬁáÿc÷ê¶?7«*Û¸ddOì¢dH{ª"F¸Aœ◊¸~oÈ1Õ“ÃπoåºVNù√"# æ 3HŸ9ÀÈ_—
-k (xsk‘7Õæ>5¨◊öØ)æ+≈P¢∫ﬁÅÖck	uMip7åˇc•˙Œ,_ë+md$”F†≤¢^—1H‡‰¯∂<$¿õU¥˙»ÕÚ»∂<üwr@ﬁ:¯˜çﬂìc[ßç]|¬π¬O«0Ëæ;«?è`àu¸#uœJ:◊ÃìcˆÂl85|üÍ‰g ø∫∂}Õå?≤;<µ‚{Å"a+í¬câÔ·÷“û|ê{Ü˚Ω÷ÿvO¥—Dôî/uÛ—÷©5∂a !B`£Ú∆ µÑ9◊Ò{eRÇÆ8ï	Ù'§2Ó5pcò ïäáÃ^¸À€eM)^ãÒ˝√îIYÇ_–>¿∆N‡ô}Æ»+0e¬îBFçjú`2$Ç=áÁ-ùws‡£ΩÉé°^Bøö≥ﬂèUIct©?s-Ú›w–FÒ›ÀfÀ§÷ç?©“sü…g¢„¸aÚÁü§SÖs9ÚÅD 6-√˚8Âp(⁄∏}ÚVÛ'-f»%Ì6oºI~ƒ{*Õì«’D:OFrâﬂ{ˇÈÒbÇ{J/∂∑ÙÅ|cÔw¨0T¨qﬁU±7OkÙ<ÉqLÑ ~@É–Íù;Ã¿˚M.Hé HN+%CJ‡Z˚å ^‚aMxXã‘+Ab¬ƒU+†ÙëB˘—ãà‰Ô¨ê„Fq˜
-D€‹rfﬁD)6œxMZ#0Œ¨Ò∆nÖª#V+›=‚&æ˙CtUoOÕn˘˝iD∆∑zËOän@‹‚B¸±qn3w‰Ç™¿a0ıúd≥Ú˝\ŒÀo›„∂a˘˝ß ƒπ6U§($–/º˝CÅ6.~„Z:Úæ⁄•ÖPœ◊ÿOæˇe‚∫Éô?Vﬁmê'\∫ßö£P‘9 ˛Q fÈ”Œ„ˇ¿D®ŸÇ`WéîˆN˚ú˛ŒN£π‹˘‘l˝«6,•±€hÜ˛ØUYr>©Ö∫¢øs¡ﬁ]ù*1˚• Ù˚œÍˆhÜ6§5r)@–ì≤UƒÜVƒ>€Ç°Ë˚0è ‰®“ò∏tX&Êkµ«¨Z¶≠!˙ƒtËc(Íy6›¢∑à2©“l˘ˆÈ‡"¢fÀ¥HïΩ›Œ^sŸÇ!¯T–v‘ﬂ°≠œ[ö„PK?û¶Æ WeLèó*ï…ªt
-xøî|Ö‡_å&‚x2'ÇÔ^$˜7KLıµcâ◊¡Ïñá'w8Ÿ‰xª<ÙÕ)ÚóÿÎ[oOÆØNè‰‚˜ì´ﬂOO˛Eé˚WØâÆÖíqp}˘fYgX”!IGÿFß F√*¡~É¸CÍk}6ùŒ”™%Ä≥®°π\‘—6â_‡°ΩÏ=Ü*R¡MñÌé§‡&∆]ª¯ÇÃÇõ/mäCìfoO‹/vµ$|âBñÇp%·R≥
-∑Âx%b£ã≠D≈QDA‰Ä…K–æ,w))wOû‰–Ê)?úNàad‰R"Z@/ˇ˘îÙÊ>/É’bIπT?…	™d¬¡QO®i€ndä<¨$üC§îc£¢ôÁëëh≤8HMF~	Û‘o#'¿±{y∆0àLVÖ÷rG?€∂¨œm9ï$K	ûER≤Œ(µy„Ç±«pKƒS;∏ÏÛF¯¯åÔÉ»îS§Ö›íÁ¬nI∑Ínâƒ¡Àöœc·VÌt…ˇ	€«%ı°∞SJRﬁ9ç¶“ƒº	ò±œÍ^™	òèí§Öﬁ—–[aÊKÎ≈ô3e˚|•{éÈ1	í3:©‰!#ô¶ëLŒÿ9‰KÜó|E‹†^Ömœ\ä77¶æ∫á[AóÎ6ïHE…ﬂS`çıZv4@∫˛.kQ¢Œ∑§)·i–PUƒ££ÎÍJH£Ç≤∞SãâL≥oM_"¥G‚E˘ç*ç8#ë⁄$]ŸíÙ<G≥§õmi•¿‘êCe!:œÂ˜Õ^ânVsπO¨%ÄÊ<®$O©2ŒΩ]W9Ö* »ÛæM5÷7©|ÒËG¬õB˜€˜Z∑ö·3<E:Ú≈∞!™èî$¯XGK‘d01®©ãÁÌø5e	∑|‚dÕMÍå0ë“d¬ßÂ˜€÷d≈≠Ì⁄jS·k!HÁâtâ%ø7ßg◊'WÚúÙØé#«Á◊WgÉ¬º6â"VŒK#a⁄]ZıäË 6åË∏By>û£	˛RöN˜4GçpÇéã˝ï±„RË"v∆Ü,-®«ÛŸÑÙ-ÅÑ6ÙlsCg“±Ø>≈Ï1€Q;Ì.QŸr3Ø9˚"Öèd
-›3,gñ]/~Ñi…ìoÉ|l'õè'œ	Õ$['H“˝Râ◊≈˚®çKÌÜ*ù¢ç,9Áâ‹Ï`ÆÿSúv5ú‹;›%∏W≥K Üh,uL€Ù,L⁄Œ&c;&òq†ûIxzû6˙q“ìlg" S[+O;ükâdÂ	.ÿgWy¬´ π‹ïõÆö)*y∂Td*9#òß».fC™O´Íq∞#ï uòãê∂]‚ï*"/>lîì±'g±Á ØØ..__¸Î|P…Ä∆ˆ¸÷’újôàaÉ«Ô¿5˝;l8Ø9÷§GMÄUm]ê◊ˆÜ-,o√⁄%¯*ˆ.πK˙tÉ&(ïòπAãT ƒ∂√L1ü«¿é&Ê,‚ ≥≈A˛≥¸˘EﬂuµykÏ⁄S˜À48ƒÛÇç  ¶Ó8Ÿ !5´Ÿl∂<€ıï&œd¿õÂ÷Pd˜3ù,FÀËË”Ú˛+Á∂)…£ÌµπòK"'vZ·™˛z√⁄¬R?∑ß+˘MŸé¶∞!ﬁòö00T¢$√ïd)…îd∏]%\˜Øﬂ6¨%<z{j"“OÈ	—<¢YÛu©≠.öirç≥⁄´8òùhM[Xô_ôàa}ÖkÁP»r\ôêe˚=æXòZ¢,"T¶HJ^†Áü$dâ?_¸Zpû≥—h~ª±GÆ˙¥ËW}6a+¯0~Õ®)∂í˝†∞ˆYP Ìπê¡áü;)Îë»–[7~∫¢–a¬«H~`›Ë©‡´º$ºÀ´ã_ØNr›?:;©ú|«]0-ÃøÀä;¶±ÙªÉdVËbÚÎ +/ÃÛk¶G≥2ë˘¢›&¡À®7πÌÁÿé`˘©“î•CÒˇùÃ}÷>≥o©{¨y,ñQ _Nzﬁj∏äxÄÉÁÃ7S§kdŒtÍ)“√%#Å^ú±ø.=√üãÙ‡cM˛ò-J∞($˛ØIï!AÅ¶p6`eä(ﬂ≈”VˇªxPŸßhH¯oBáãòó2Å]fàl`≠ù*⁄§gc…¨·h¢ﬂ Ω-ÕTÃ‰Wa@Ù†¨y>b„¬-UöÊ£J€27]§µµ2Sc2kqªácxuOœmÌ‘\˘iπíSrR=ÕïÊ6∆Ò9TJñ-[¨çÂ4Ã®b%ôp»·ûΩf˝fîú◊ÃaÖFr,K ûé.I%E-Ñ f6Òu“«Û[—v…Pf1ÕpCBîy¡πe9Ó>
-Ô&Ó.6¿…‹ÉÊ√«Lê‘ Gå¡E‰Or√)ºS»§ñnﬂî±ÙÈÒBK:√%a_E.w˘©êS 0Ãñ(Ô@$Û•∂µ/5ÆZu„
-7IÈ´”c„ık⁄Z≠Ylò‚ñéj∂4,i)6»Ø»KvÒ∫3^øP*ÿp¶û8™d1P$X≥=F+≤9¢òº6\û1¡EEÛFXÌFÌ@C9Áï#äá´RDÇj≈Ä¿^πIÉP§	Áƒ/,Ì6Ã¯O∫ºYû¬’O!è®a*±v‘5ºm "€Ã9  c^èo…MK	Ï
-MÊûQbn„‚”;ƒ¡"Eït0Å>ÕNáèîÕ•M?;œ∑µ+∂˚$€Âu≥ı£Dèuí<0nõ˜ƒ–ujIì>dçcrâ3Tã2®Ç¸é¢ÆI∂‹å7-HóV	¨^;EºxçTÕeKËRHmo,>LûVœR+]T}VöT6òÿ∑ò„'p"IHZÖΩ%»ˆ"RóBI‹Ωπƒb9‚Pt#	ÑëDﬁ©⁄Ã∑ãƒ∆◊Ü&ï’’√‹ùP¯G∂ijéGÀíÙ¸	’ÙÚjm=ﬂM( odò[Ø/\goø≤≥%0+g‡ï2t"°†s\ÃªCÖÊbHÚº◊ˆ'u)ûÖ97?`x4√4√~Pã`4≈ 7B>ÏÊòçs"YÓ ÃY}Í¡Z+fÆS(‡v™QÖª‹IoWıûè«øEﬁ@UA’9	˛à+B÷¨Çå.Ré3¨›¬‚¬®`iÀzòºYßmÕ:X$S˝`¥;¡:w‡0R:ò0œ+ñû=∑ì9k‡=Ä8i2≈Ö/4›s{Ê¿Åå\\Æ°eÀàI;÷ˆ+ò´‡Œ
-Üß´çz£˝ÊÍ•Œ7S∏)KÒ^ä8Â4ª~Aß,1ÊoŸ√9l+; “Âã#2¬´ïè Rﬂb))Ò™^VJº*ñòØ7>j±Vq)aV⁄iàK4≠ S|x¯˛éj≥dı~RVúj√£°m(¢¢é¶mû9´r’´¬ÿqSE¨V√d°¶K^Çk˝j\qØíÂ¥VaiºZt!íf	EL“D«úy∆≠©b/7 1ŒÂ‡q˜∑ãÎì3‹»Ω<π∫˛∑4´®òy=‹M!›rœôº,Ë§-U*öwxb›n’ódˇ	˚¯≈'‰„p¶Ù,U˘÷=4_v-Çç›WAM∂®¬yä€ùÔ0Ï‚€ùXá¢±~M˘∫op®ıtH!!"	$·Í
-SUHtfS–3¿Õ∂∏~¡w›´\\ï’LX,]¡≤ß˚—º‚b˝yªﬂ®À”◊®;è∏}-ªuvq‹ø>e≈ÕyÚ6,Wﬁ¸¥YÎ´c≥“«◊se˛Á‹„ù¨*X›wúº’úK√
-œutóŸEÃ“ÉaUØÖêT¬d~ó´Aºç≈æ≠°ÏˇÊÊBTÍ|gToãW∏‚Éübj ‡0µzDMüPŸ◊ÁÙ˛’µˇÓıÈı≈ÈßøûülZ]◊î‡Ö?V]}…erÌ2ÊuZπU_ Nyë|Å@Ñ#æ5%îªjÖãÔﬁ7$Ô∏VÌ´õt”ÿï†ˇÆÜn≥q€å€Æ?ïp œ‚äbÈ‡mì‰±∆e‡ed¡§ãÇ2ÈT3Ãç ¶Øp™ØÊ6úˆ
-Ü≈NH¸1ö¥.Ÿb'˘¬Å‘i˝ÏÎB“Á˚k*m\6˙´x‘5^nU√GNŒﬁ®ÃQë¡ª£∑ß‡™ _˛%ïÏU@X–u™›©∑0Ò?◊4“Âé+]© [I£æƒ-$´ÖÎ+_‘ø\hV\≤ã´c‘o¿2V≤ïª6∑I¥Ë_øª5ë,^Õ®jπ∞y∏¬ˆT!ÉπÛQXmPúé˙¢1"ñn
-ÊA8∑Ùóôâmy üÛëMú∑⁄ ˇ5a[„/ÀnÄB˚X*ßfHWI+'7c¬l∑¸Â_©Ñ§MÑµ≈G|cÙ$ …ïh}Ê≤Dà,:Ÿ–ªüe/ZHc‹k»ÌV#QrùΩy!öÑßEm.7Òcœüõ0»rkË˛d?xÉ(‘üÍæ!¸Îºüí=./j‰Äï]ã¥<	]‚óÃﬂÑo@´{ø°≈‘puÊÙ|pyrÃñU«WßÁø>¿ﬂ˚Öø˘é.(
-˜"±f∏ù≈\∆D∂H_ ãxA∏ö1|}4Q^¶·@fü˝DLlÏL¢EG°ÜaU|Pˇµ“9>3gÊ¸Êä◊"ùÜRË7)ñn–˛9~ì˘ ¸rb•Õ ˜≈Ñ◊ıF¢Byâ¢kÂ“EæmôU‰¿L∆0∑ägÍ<Ìgµ¥∑<˙·€ú„‰≠*•#dWëS>"a‘_ÊºÊÈß¸◊<ô7ÂØyíæñØ0Øgn◊∑$¡ƒØo ã|qmÎäΩÕπR¡BrÖÂ1äü¨öi,<±BävE©] OﬂDîäÖÿ¬¨ˆ¢åÏX…ÍYXaê˛ØßÁ<?„Õ≈Eaπ™ÃA™gaîü<H“	ós_R_˛Ü˙*gKˆl#}Lm√¨íœ†Î·æ‰ÿ∫évC˜´¿—≤≤^·ï*Ôûe*∑h+ñ¯
-ØT˘lK9üa·˜tUºä¢Ωj=º*Ï§aÓ¶ˆ÷*‘ˇ 7«eµøämÖ#,âíXãŒﬁÚ∞≥W^IKÚx˜˘Ú∞˚|Ì«üCÎœ◊oπØH Æ„%øCnÑÿÔï¥∫,`Æä•“/öOâ1K;ÊÁµ;•≥Kv»∂¬∫∏nxhàıÉE‚ÃÔ¡È¨&ˆâdeXpô§
- áÌ€éÜŸXfƒﬂìûÌÇ˚àPÏ[™ìLsÂZXxUê≥ ú·Q«∏íy	8®2K¨+5¿;õJq^ÖËäù€.s‚«∆Â◊∞îòA‰'uπjÒ˙GItÔnB§∑Ûö·>‹®¥f¶π|‘kO5X	¯Â—Ú—£ˇ  ˇˇ µœ«∆
+                                                                                            <button
+                                                                                                type="button"
+                                                                                                id={`btn-pass-${item.id}`}
+                                                                                                onClick={() => {
+                                                                                                    if (isPass) {
+                                                                                                        saveInspectionScore(hotel.id, item.id, undefined);
+                                                                                                    } else {
+                                                                                                        saveInspectionScore(hotel.id, item.id, itemMaxPoints > 0 ? itemMaxPoints : 'PASS');
+                                                                                                    }
+                                                                                                }}
+                                                                                                className={`py-2.5 px-1.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all duration-150 cursor-pointer flex flex-col items-center justify-center gap-0.5 border ${
+                                                                                                    isPass
+                                                                                                        ? 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600 shadow-sm shadow-emerald-100'
+                                                                                                        : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-200 hover:border-emerald-400'
+                                                                                                }`}
+                                                                                            >
+                                                                                                <span className="text-xs">Pass</span>
+                                                                                                <span className={`text-[9px] font-bold ${isPass ? 'text-emerald-100' : 'text-emerald-600'}`}>
+                                                                                                    +{itemMaxPoints} pts
+                                                                                                </span>
+                                                                                            </button>
+                                                                                            <button
+                                                                                                type="button"
+                                                                                                id={`btn-fail-${item.id}`}
+                                                                                                onClick={() => {
+                                                                                                    if (isFail) {
+                                                                                                        saveInspectionScore(hotel.id, item.id, undefined);
+                                                                                                    } else {
+                                                                                                        saveInspectionScore(hotel.id, item.id, itemMaxPoints > 0 ? 0 : 'FAIL');
+                                                                                                    }
+                                                                                                }}
+                                                                                                className={`py-2.5 px-1.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all duration-150 cursor-pointer flex flex-col items-center justify-center gap-0.5 border ${
+                                                                                                    isFail
+                                                                                                        ? 'bg-red-600 hover:bg-red-700 text-white border-red-600 shadow-sm shadow-red-100'
+                                                                                                        : 'bg-red-50 hover:bg-red-100 text-red-800 border-red-200 hover:border-red-400'
+                                                                                                }`}
+                                                                                            >
+                                                                                                <span className="text-xs">Fail</span>
+                                                                                                <span className={`text-[9px] font-bold ${isFail ? 'text-red-100' : 'text-red-600'}`}>
+                                                                                                    0 pts
+                                                                                                </span>
+                                                                                            </button>
+                                                                                            <button
+                                                                                                type="button"
+                                                                                                id={`btn-na-${item.id}`}
+                                                                                                onClick={() => {
+                                                                                                    if (isNA) {
+                                                                                                        saveInspectionScore(hotel.id, item.id, undefined);
+                                                                                                    } else {
+                                                                                                        saveInspectionScore(hotel.id, item.id, 'N/A');
+                                                                                                    }
+                                                                                                }}
+                                                                                                className={`py-2.5 px-1.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all duration-150 cursor-pointer flex flex-col items-center justify-center gap-0.5 border ${
+                                                                                                    isNA
+                                                                                                        ? 'bg-amber-500 hover:bg-amber-600 text-white border-amber-500 shadow-sm shadow-amber-100 ring-2 ring-amber-500 ring-offset-2'
+                                                                                                        : submission?.is_na
+                                                                                                        ? 'bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-300 hover:border-amber-400 animate-pulse'
+                                                                                                        : 'bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-200 hover:border-amber-400'
+                                                                                                }`}
+                                                                                            >
+                                                                                                <span className="text-xs">{submission?.is_na ? 'Approve N/A' : 'N/A'}</span>
+                                                                                                <span className={`text-[9px] font-bold ${isNA ? 'text-amber-100' : 'text-amber-600'}`}>
+                                                                                                    Exempt
+                                                                                                </span>
+                                                                                            </button>
+                                                                                        </div>
+                                                                                    </div>
+
+                                                                                    <div className="space-y-1">
+                                                                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">AUDITOR NOTES/REMARKS</label>
+                                                                                        <textarea 
+                                                                                            value={currentComment}
+                                                                                            onChange={(e) => saveInspectionComment(hotel.id, item.id, e.target.value)}
+                                                                                            placeholder="Describe non-compliance or specific findings..."
+                                                                                            className="w-full h-20 bg-white border border-slate-200 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 rounded-xl p-2.5 text-xs text-slate-700 outline-none transition-all resize-none placeholder:text-slate-300"
+                                                                                        />
+                                                                                    </div>
+                                                                                </div>
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+
+                                        {/* FINALIZE FOOTER */}
+                                        <div className="bg-slate-900 rounded-[32px] p-8 text-white shadow-2xl flex flex-col md:flex-row md:items-center justify-between gap-8 border border-white/5">
+                                            <div className="flex items-center gap-5">
+                                                <div className="w-16 h-16 rounded-[22px] bg-emerald-500/10 text-emerald-400 flex items-center justify-center shrink-0 border border-emerald-500/20">
+                                                    <ShieldCheck size={32} />
+                                                </div>
+                                                <div>
+                                                    <h3 className="text-xl font-black tracking-tight">Finalize Internal Brand Audit</h3>
+                                                    <p className="text-slate-400 font-bold text-xs mt-1 uppercase tracking-widest">
+                                                        Property: {hotel.name} ‚Ä¢ Total Scored: {scoredItems.length}/{allHotelItems.length} Items
+                                                    </p>
+                                                </div>
+                                            </div>
+
+                                            <div className="flex flex-col sm:flex-row items-center gap-4">
+                                                {(() => {
+                                                    const isFullyScored = allHotelItems.length > 0 && scoredItems.length === allHotelItems.length;
+                                                    const scoringProgressPct = allHotelItems.length > 0 ? Math.round((scoredItems.length / allHotelItems.length) * 100) : 0;
+                                                    return (
+                                                        <React.Fragment>
+                                                            {!isFullyScored && (
+                                                                <div className="text-xs font-bold text-amber-300 bg-amber-500/10 border border-amber-500/20 px-4 py-2.5 rounded-2xl flex items-center gap-2">
+                                                                    <AlertCircle size={15} className="shrink-0 text-amber-400" />
+                                                                    <span>Scoring progress must be 100% to submit ({scoredItems.length}/{allHotelItems.length} scored)</span>
+                                                                </div>
+                                                            )}
+                                                            <button 
+                                                                disabled={!isFullyScored}
+                                                                onClick={() => {
+                                                                    if (!isFullyScored) return;
+                                                                    setToastMessage("Audit Finalized Successfully!");
+                                                                    setTimeout(() => setToastMessage(null), 3000);
+                                                                    setSelectedInspectionHotelId('');
+                                                                    setSelectedInspectionCategoryId('');
+                                                                }}
+                                                                className={`h-16 px-10 rounded-[22px] font-black text-sm uppercase tracking-widest transition-all outline-none flex items-center gap-3 group ${
+                                                                    isFullyScored
+                                                                        ? 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-xl shadow-indigo-600/20 active:scale-95 cursor-pointer'
+                                                                        : 'bg-slate-800 text-slate-500 border border-slate-700/60 cursor-not-allowed opacity-60 shadow-none'
+                                                                }`}
+                                                                title={!isFullyScored ? `Scoring progress is ${scoringProgressPct}%. All items must be scored to submit full report.` : "Submit Full Report"}
+                                                            >
+                                                                <FileCheck size={20} className={isFullyScored ? "group-hover:scale-110 transition-transform text-white" : "text-slate-500"} />
+                                                                Submit Full Report
+                                                            </button>
+                                                        </React.Fragment>
+                                                    );
+                                                })()}
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })()}
+                            </React.Fragment>
+                        )}
+                    </div>
+                ) : subView === 'progress_report' ? (
+                    <div className="space-y-6 animate-fadeIn">
+                        {/* BACK BUTTON & HEADER */}
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                            <div>
+                                <button 
+                                    onClick={() => { setSubView('dashboard'); setSearchQuery(''); }} 
+                                    className="inline-flex items-center gap-1.5 text-xs font-bold text-indigo-600 bg-indigo-50/50 hover:bg-indigo-55/80 px-3.5 py-1.5 rounded-full border border-indigo-100/50 mb-3 hover:shadow-sm active:scale-95 transition-all outline-none"
+                                >
+                                    <ArrowLeft size={12} /> Back to Dashboard
+                                </button>
+                                <h2 className="text-2xl font-extrabold text-slate-900 tracking-tight">Audit Progress Report</h2>
+                                <p className="text-xs text-slate-500 mt-1">
+                                    Real-time monitoring of self-audit checklist compliance across all properties.
+                                </p>
+                            </div>
+                        </div>
+
+                        {(() => {
+                            // Filter out corporate hotels/properties at the start of progress report calculations
+                            const nonCorporateHotels = hotels.filter(h => {
+                                const bClass = (h.brandClass || '').toLowerCase();
+                                const hType = (h as any).type ? String((h as any).type).toLowerCase() : '';
+                                return bClass !== 'corporate' && hType !== 'corporate';
+                            });
+
+                            // Pre-index valid local storage entries ONCE to avoid heavy O(Hotels * Storage) CPU overhead
+                            const localAuditEntries: Array<{ keyHotelId: string; keyItemId: string; parsed: any }> = [];
+                            try {
+                                for (let i = 0; i < localStorage.length; i++) {
+                                    const key = localStorage.key(i);
+                                    if (key && key.startsWith('sbi_audit_')) {
+                                        if (key.includes('_finalized')) continue;
+                                        const raw = localStorage.getItem(key);
+                                        if (!raw) continue;
+                                        
+                                        const rest = key.replace('sbi_audit_', '');
+                                        const parts = rest.split('_');
+                                        if (parts.length >= 2) {
+                                            const keyHotelId = parts[0];
+                                            const keyItemId = parts.slice(1).join('_');
+                                            try {
+                                                const parsed = JSON.parse(raw);
+                                                if (parsed.value !== undefined || parsed.is_na || (parsed.evidence_urls && parsed.evidence_urls.length > 0) || parsed.isSubmitted) {
+                                                    localAuditEntries.push({ keyHotelId, keyItemId, parsed });
+                                                }
+                                            } catch (e) {}
+                                        }
+                                    }
+                                }
+                            } catch (e) {
+                                console.warn("Could not pre-scan localStorage:", e);
+                            }
+
+                            // 1. Helper to calculate progress for a single hotel
+                            const getHotelProgress = (hotelId: string) => {
+                                const hIdLower = String(hotelId).toLowerCase();
+                                const currentHotel = hotels.find(h => 
+                                    String(h.id).toLowerCase() === hIdLower || 
+                                    (h.code && String(h.code).toLowerCase() === hIdLower) ||
+                                    (h.name && String(h.name).toLowerCase() === hIdLower)
+                                ) || { id: hotelId } as Hotel;
+                                
+                                const possibleIds = [
+                                    hIdLower,
+                                    currentHotel?.id ? String(currentHotel.id).toLowerCase() : null,
+                                    currentHotel?.code ? String(currentHotel.code).toLowerCase() : null,
+                                    currentHotel?.name ? String(currentHotel.name).toLowerCase() : null
+                                ].filter(Boolean) as string[];
+
+                                (profilesList || []).forEach(p => {
+                                    const matchesCode = p.hotel_code && currentHotel?.code && String(p.hotel_code).trim().toLowerCase() === String(currentHotel.code).trim().toLowerCase();
+                                    const matchesName = p.hotel_name && currentHotel?.name && String(p.hotel_name).trim().toLowerCase() === String(currentHotel.name).trim().toLowerCase();
+                                    const matchesId = p.hotel_id && currentHotel?.id && String(p.hotel_id).trim().toLowerCase() === String(currentHotel.id).trim().toLowerCase();
+                                    if (matchesCode || matchesName || matchesId) {
+                                        if (p.hotel_id) possibleIds.push(String(p.hotel_id).toLowerCase());
+                                        if (p.hotel_code) possibleIds.push(String(p.hotel_code).toLowerCase());
+                                        if (p.hotel_name) possibleIds.push(String(p.hotel_name).toLowerCase());
+                                        if (p.id) possibleIds.push(String(p.id).toLowerCase());
+                                    }
+                                });
+
+                                const assignedGroups = groups.filter(g => {
+                                    const hotelIds = g.hotelIds || g.hotel_id || [];
+                                    return hotelIds.some((hId: any) => possibleIds.includes(String(hId).toLowerCase()));
+                                });
+
+                                let assignedCategoryIds: string[] | null = null;
+                                let assignedItemIds: string[] | null = null;
+
+                                if (assignedGroups.length > 0) {
+                                    const allCatIds = new Set<string>();
+                                    const allItemIds = new Set<string>();
+                                    assignedGroups.forEach((g: any) => {
+                                        const cids = g.categoryIds || g.category_ids || [];
+                                        const iids = g.itemIds || g.item_ids || [];
+                                        cids.forEach((id: any) => allCatIds.add(String(id)));
+                                        iids.forEach((id: any) => allItemIds.add(String(id)));
+                                    });
+                                    if (allCatIds.size > 0) assignedCategoryIds = Array.from(allCatIds);
+                                    if (allItemIds.size > 0) assignedItemIds = Array.from(allItemIds);
+                                }
+
+                                const hotelItems = items.filter((item: any) => {
+                                    if (assignedCategoryIds && assignedCategoryIds.length > 0 && !assignedCategoryIds.includes(String(item.categoryId || item.category_id))) {
+                                        return false;
+                                    }
+                                    if (assignedItemIds && assignedItemIds.length > 0 && !assignedItemIds.includes(String(item.id))) {
+                                        return false;
+                                    }
+                                    return item.filled_by_hotel !== false && item.filled_by_hotel !== 'false';
+                                });
+
+                                const submittedItemIdsForHotel = new Set<string>();
+                                const naItemIdsForHotel = new Set<string>();
+
+                                // 1. Match from Supabase submissions
+                                (allSubmissions || []).forEach((sub: any) => {
+                                    if (sub.item_id !== undefined && sub.item_id !== null) {
+                                        const itemIdStr = String(sub.item_id);
+                                        if (currentHotel && isSubmissionForHotel(sub.hotel_id, currentHotel)) {
+                                            submittedItemIdsForHotel.add(itemIdStr);
+                                            if (sub.is_na === true || String(sub.is_na) === 'true') {
+                                                naItemIdsForHotel.add(itemIdStr);
+                                            }
+                                        } else if (possibleIds.includes(String(sub.hotel_id || '').toLowerCase())) {
+                                            submittedItemIdsForHotel.add(itemIdStr);
+                                            if (sub.is_na === true || String(sub.is_na) === 'true') {
+                                                naItemIdsForHotel.add(itemIdStr);
+                                            }
+                                        }
+                                    }
+                                });
+
+                                // 2. Match from pre-indexed Local Storage
+                                localAuditEntries.forEach(({ keyHotelId, keyItemId, parsed }) => {
+                                    if ((currentHotel && isSubmissionForHotel(keyHotelId, currentHotel)) || possibleIds.includes(keyHotelId.toLowerCase())) {
+                                        submittedItemIdsForHotel.add(String(keyItemId));
+                                        if (parsed.is_na) {
+                                            naItemIdsForHotel.add(String(keyItemId));
+                                        }
+                                    }
+                                });
+
+                                let completedT = 0;
+                                let totalT = 0;
+                                hotelItems.forEach((item: any) => {
+                                    const itemIdStr = String(item.id);
+                                    const isSubmitted = submittedItemIdsForHotel.has(itemIdStr);
+
+                                    // Determine if auditor approved N/A or made it N/A themselves
+                                    let isAuditorNa = false;
+                                    for (const pid of possibleIds) {
+                                        if (inspectionScores[`${pid}_${item.id}`] === 'N/A') {
+                                            isAuditorNa = true;
+                                            break;
+                                        }
+                                    }
+                                    if (currentHotel?.id && inspectionScores[`${currentHotel.id}_${item.id}`] === 'N/A') {
+                                        isAuditorNa = true;
+                                    }
+
+                                    if (!isAuditorNa) {
+                                        totalT++;
+                                        if (isSubmitted) {
+                                            completedT++;
+                                        }
+                                    }
+                                });
+
+                                const finalInfo = getHotelFinalizedInfo(currentHotel || hotelId);
+                                let percentage = totalT > 0 ? Math.round((completedT / totalT) * 100) : (hotelItems.length > 0 && naItemIdsForHotel.size === hotelItems.length ? 100 : 0);
+
+                                if (finalInfo.is_finalized) {
+                                    percentage = 100;
+                                    if (totalT > 0) {
+                                        completedT = totalT;
+                                    } else if (submittedItemIdsForHotel.size > 0) {
+                                        completedT = submittedItemIdsForHotel.size;
+                                        totalT = submittedItemIdsForHotel.size;
+                                    } else {
+                                        completedT = 1;
+                                        totalT = 1;
+                                    }
+                                }
+
+                                return { completed: completedT, total: totalT, percentage, isFinalized: finalInfo.is_finalized };
+                            };
+
+                            // Memoized Map cache per render for O(1) repeated lookups
+                            const hotelProgressMap = new Map<string, { completed: number; total: number; percentage: number; isFinalized: boolean; statusText: string; statusOrder: number }>();
+                            const getHotelProgressCached = (hotelId: string) => {
+                                const hKey = String(hotelId).toLowerCase();
+                                if (hotelProgressMap.has(hKey)) {
+                                    return hotelProgressMap.get(hKey)!;
+                                }
+                                const res = getHotelProgress(hotelId);
+                                const finInfo = getHotelFinalizedInfo(hotelId);
+                                const isFin = res.isFinalized || finInfo.is_finalized;
+
+                                let statusText = "Not Started";
+                                let statusOrder = 4;
+                                if (isFin) {
+                                    statusText = "Finalized";
+                                    statusOrder = 1;
+                                } else if (res.percentage === 100) {
+                                    statusText = "Completed";
+                                    statusOrder = 2;
+                                } else if (res.percentage > 0) {
+                                    statusText = "In Progress";
+                                    statusOrder = 3;
+                                }
+                                const fullResult = { ...res, isFinalized: isFin, statusText, statusOrder };
+                                hotelProgressMap.set(hKey, fullResult);
+                                return fullResult;
+                            };
+
+                            // Helper to check if a hotel is completed
+                            const isHotelCompleted = (hotelId: string) => {
+                                const { percentage, isFinalized } = getHotelProgressCached(hotelId);
+                                return isFinalized || percentage === 100;
+                            };
+
+                            // 2. Helper to calculate combined average progress across a group of hotels
+                            const calculateHotelBasedProgress = (hotelList: Hotel[]) => {
+                                const totalHotels = hotelList.length;
+                                if (totalHotels === 0) {
+                                    return { completedHotels: 0, inProgressHotels: 0, totalHotels: 0, percentage: 0 };
+                                }
+
+                                let completedHotels = 0;
+                                let inProgressHotels = 0;
+                                let sumPercentage = 0;
+
+                                hotelList.forEach(h => {
+                                    const { percentage, isFinalized } = getHotelProgressCached(h.id);
+                                    const effPct = isFinalized ? 100 : percentage;
+                                    
+                                    sumPercentage += effPct;
+                                    if (isFinalized || effPct === 100) {
+                                        completedHotels++;
+                                    } else if (effPct > 0) {
+                                        inProgressHotels++;
+                                    }
+                                });
+
+                                const avgPercentage = Math.round(sumPercentage / totalHotels);
+                                return { completedHotels, inProgressHotels, totalHotels, percentage: avgPercentage };
+                            };
+
+                            // Unique categories for filtering / summary cards (excluding corporate assets)
+                            const uniqueRegions = Array.from(new Set(nonCorporateHotels.map(h => h.region).filter(Boolean))) as string[];
+                            const uniqueCountries = Array.from(new Set(nonCorporateHotels.map(h => h.country).filter(Boolean))) as string[];
+                            const uniqueBrands = Array.from(new Set(nonCorporateHotels.map(h => h.brandClass).filter(Boolean))) as string[];
+
+                            // Summaries
+                            const regionProgresses = uniqueRegions.map(region => {
+                                const regionHotels = nonCorporateHotels.filter(h => h.region === region);
+                                const prog = calculateHotelBasedProgress(regionHotels);
+                                return { name: region, ...prog };
+                            });
+                            const countryProgresses = uniqueCountries.map(country => {
+                                const countryHotels = nonCorporateHotels.filter(h => h.country === country);
+                                const prog = calculateHotelBasedProgress(countryHotels);
+                                return { name: country, ...prog };
+                            });
+                            const brandProgresses = uniqueBrands.map(brand => {
+                                const brandHotels = nonCorporateHotels.filter(h => h.brandClass === brand);
+                                const prog = calculateHotelBasedProgress(brandHotels);
+                                return { name: brand, ...prog };
+                            });
+
+                            // Helper to find Brand Leads for a hotel
+                            const brandLeadsMap = new Map<string, any[]>();
+                            const getBrandLeadsForHotel = (hotel: any) => {
+                                const hKey = String(hotel.id).toLowerCase();
+                                if (brandLeadsMap.has(hKey)) {
+                                    return brandLeadsMap.get(hKey)!;
+                                }
+                                if (!profilesList || !Array.isArray(profilesList)) return [];
+                                const res = profilesList.filter(p => {
+                                    if (!p.is_brand_audit_lead) return false;
+                                    if (!p.hotel_id) return false;
+                                    const ids = String(p.hotel_id).split(',').map(id => id.trim());
+                                    const codes = p.hotel_code ? String(p.hotel_code).split(',').map(c => c.trim().toLowerCase()) : [];
+                                    const names = p.hotel_name ? String(p.hotel_name).split(',').map(n => n.trim().toLowerCase()) : [];
+                                    
+                                    return ids.includes(String(hotel.id)) || 
+                                           (hotel.code && codes.includes(String(hotel.code).toLowerCase())) || 
+                                           (hotel.name && names.includes(String(hotel.name).toLowerCase()));
+                                });
+                                brandLeadsMap.set(hKey, res);
+                                return res;
+                            };
+
+                            // Filtered Hotels
+                            const filteredHotels = nonCorporateHotels.filter(h => {
+                                const matchesRegion = !progressRegionFilter || h.region === progressRegionFilter;
+                                const matchesCountry = !progressCountryFilter || h.country === progressCountryFilter;
+                                const matchesBrand = !progressBrandFilter || h.brandClass === progressBrandFilter;
+                                
+                                const brandLeads = getBrandLeadsForHotel(h);
+                                const matchesBrandLead = progressBrandLeadFilter === 'all' || 
+                                    (progressBrandLeadFilter === 'has_lead' && brandLeads.length > 0) ||
+                                    (progressBrandLeadFilter === 'no_lead' && brandLeads.length === 0);
+                                
+                                const q = progressSearchQuery.toLowerCase().trim();
+                                const matchesSearch = !q || 
+                                    (h.name || '').toLowerCase().includes(q) || 
+                                    (h.code || '').toLowerCase().includes(q);
+
+                                let matchesStatus = true;
+                                if (progressStatusFilter !== 'all') {
+                                    const progInfo = getHotelProgressCached(h.id);
+                                    if (progressStatusFilter === 'finalized') {
+                                        matchesStatus = progInfo.isFinalized;
+                                    } else if (progressStatusFilter === 'in_progress') {
+                                        matchesStatus = !progInfo.isFinalized && progInfo.percentage > 0;
+                                    } else if (progressStatusFilter === 'not_started') {
+                                        matchesStatus = !progInfo.isFinalized && progInfo.percentage === 0;
+                                    }
+                                }
+
+                                return matchesRegion && matchesCountry && matchesBrand && matchesBrandLead && matchesSearch && matchesStatus;
+                            });
+
+                            // Sorting logic optimized for audit report
+                            const sortedHotels = [...filteredHotels].sort((a, b) => {
+                                let comparison = 0;
+                                if (progressSortField === 'name') {
+                                    const nameA = (a.name || '').toLowerCase();
+                                    const nameB = (b.name || '').toLowerCase();
+                                    comparison = nameA.localeCompare(nameB);
+                                } else if (progressSortField === 'brand') {
+                                    const brandA = (a.brandClass || '').toLowerCase();
+                                    const brandB = (b.brandClass || '').toLowerCase();
+                                    comparison = brandA.localeCompare(brandB);
+                                } else if (progressSortField === 'location') {
+                                    const locA = `${a.country || ''} ${a.region || ''}`.toLowerCase();
+                                    const locB = `${b.country || ''} ${b.region || ''}`.toLowerCase();
+                                    comparison = locA.localeCompare(locB);
+                                } else if (progressSortField === 'progress') {
+                                    const progA = getHotelProgressCached(a.id);
+                                    const progB = getHotelProgressCached(b.id);
+                                    comparison = progA.percentage - progB.percentage;
+                                    if (comparison === 0) {
+                                        comparison = progA.completed - progB.completed;
+                                    }
+                                } else if (progressSortField === 'status') {
+                                    const progA = getHotelProgressCached(a.id);
+                                    const progB = getHotelProgressCached(b.id);
+                                    comparison = progA.statusOrder - progB.statusOrder;
+                                }
+
+                                if (comparison === 0) {
+                                    comparison = (a.name || '').localeCompare(b.name || '');
+                                }
+
+                                return progressSortDirection === 'asc' ? comparison : -comparison;
+                            });
+
+                            // Pagination calculations
+                            const totalHotelsCount = sortedHotels.length;
+                            const totalPages = Math.max(1, Math.ceil(totalHotelsCount / progressPageSize));
+                            const safePage = Math.min(Math.max(1, progressPage), totalPages);
+                            const startIndex = (safePage - 1) * progressPageSize;
+                            const endIndex = Math.min(startIndex + progressPageSize, totalHotelsCount);
+                            const paginatedHotels = sortedHotels.slice(startIndex, endIndex);
+
+                            const handleSortToggle = (field: 'name' | 'brand' | 'location' | 'progress' | 'status') => {
+                                if (progressSortField === field) {
+                                    setProgressSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+                                } else {
+                                    setProgressSortField(field);
+                                    setProgressSortDirection('asc');
+                                }
+                                setProgressPage(1);
+                            };
+
+                            return (
+                                <div className="space-y-6">
+                                    {/* PROGRESS CARDS ROW (Region, Country, Brand) */}
+                                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                                        {/* Region Progress Column */}
+                                        <div className="bg-slate-50/60 p-5 rounded-3xl border border-slate-150/50 shadow-[0_4px_20px_rgba(15,23,42,0.01)] flex flex-col h-[320px]">
+                                            <h3 className="text-xs font-black uppercase text-slate-500 tracking-wider mb-4 flex items-center gap-1.5 shrink-0">
+                                                <Percent size={14} className="text-indigo-600" />
+                                                Region Progress Summary
+                                            </h3>
+                                            <div className="space-y-2.5 overflow-y-auto pr-1 flex-1 custom-scrollbar">
+                                                {regionProgresses.map((rp, i) => (
+                                                    <div 
+                                                        key={rp.name || i}
+                                                        onClick={() => setProgressRegionFilter(progressRegionFilter === rp.name ? '' : rp.name)}
+                                                        className={`p-3.5 rounded-2xl border transition-all cursor-pointer hover:scale-[1.015] active:scale-[0.99] duration-200 ${
+                                                            progressRegionFilter === rp.name 
+                                                                ? 'bg-gradient-to-br from-indigo-600 to-indigo-700 text-white border-indigo-600 shadow-md shadow-indigo-600/10' 
+                                                                : 'bg-white hover:bg-slate-50 border-slate-150/60 text-slate-800'
+                                                        }`}
+                                                    >
+                                                        <div className="flex justify-between items-center text-xs font-bold mb-2">
+                                                            <span className="truncate max-w-[170px] tracking-tight">{rp.name}</span>
+                                                            <span className={progressRegionFilter === rp.name ? 'text-white' : 'text-indigo-600'}>{rp.percentage}%</span>
+                                                        </div>
+                                                        <div className="w-full h-2 bg-slate-100/80 rounded-full overflow-hidden border border-slate-200/10">
+                                                            <div 
+                                                                className={`h-full rounded-full transition-all duration-300 ${progressRegionFilter === rp.name ? 'bg-white' : 'bg-indigo-600'}`}
+                                                                style={{ width: `${rp.percentage}%` }}
+                                                            />
+                                                        </div>
+                                                        <p className={`text-[10px] font-medium mt-1.5 flex justify-between items-center ${progressRegionFilter === rp.name ? 'text-indigo-200' : 'text-slate-400'}`}>
+                                                            <span>
+                                                                {rp.completedHotels > 0 ? `${rp.completedHotels} done ‚Ä¢ ` : ''}
+                                                                {rp.inProgressHotels} in progress ({rp.totalHotels} {rp.totalHotels === 1 ? 'hotel' : 'hotels'})
+                                                            </span>
+                                                            {progressRegionFilter === rp.name && <span className="text-[9px] font-black uppercase bg-indigo-500/50 px-1.5 py-0.5 rounded">Active Filter</span>}
+                                                        </p>
+                                                    </div>
+                                                ))}
+                                                {regionProgresses.length === 0 && (
+                                                    <p className="text-xs text-slate-400 text-center py-10 font-bold">No region data available</p>
+                                                )}
+                                            </div>
+                                        </div>
+
+                                        {/* Country Progress Column */}
+                                        <div className="bg-slate-50/60 p-5 rounded-3xl border border-slate-150/50 shadow-[0_4px_20px_rgba(15,23,42,0.01)] flex flex-col h-[320px]">
+                                            <h3 className="text-xs font-black uppercase text-slate-500 tracking-wider mb-4 flex items-center gap-1.5 shrink-0">
+                                                <MapPin size={14} className="text-emerald-600" />
+                                                Country Progress Summary
+                                            </h3>
+                                            <div className="space-y-2.5 overflow-y-auto pr-1 flex-1 custom-scrollbar">
+                                                {countryProgresses.map((cp, i) => (
+                                                    <div 
+                                                        key={cp.name || i}
+                                                        onClick={() => setProgressCountryFilter(progressCountryFilter === cp.name ? '' : cp.name)}
+                                                        className={`p-3.5 rounded-2xl border transition-all cursor-pointer hover:scale-[1.015] active:scale-[0.99] duration-200 ${
+                                                            progressCountryFilter === cp.name 
+                                                                ? 'bg-gradient-to-br from-emerald-600 to-emerald-700 text-white border-emerald-600 shadow-md shadow-emerald-600/10' 
+                                                                : 'bg-white hover:bg-slate-50 border-slate-150/60 text-slate-800'
+                                                        }`}
+                                                    >
+                                                        <div className="flex justify-between items-center text-xs font-bold mb-2">
+                                                            <span className="truncate max-w-[170px] tracking-tight">{cp.name}</span>
+                                                            <span className={progressCountryFilter === cp.name ? 'text-white' : 'text-emerald-600'}>{cp.percentage}%</span>
+                                                        </div>
+                                                        <div className="w-full h-2 bg-slate-100/80 rounded-full overflow-hidden border border-slate-200/10">
+                                                            <div 
+                                                                className={`h-full rounded-full transition-all duration-300 ${progressCountryFilter === cp.name ? 'bg-white' : 'bg-emerald-600'}`}
+                                                                style={{ width: `${cp.percentage}%` }}
+                                                            />
+                                                        </div>
+                                                        <p className={`text-[10px] font-medium mt-1.5 flex justify-between items-center ${progressCountryFilter === cp.name ? 'text-emerald-200' : 'text-slate-400'}`}>
+                                                            <span>
+                                                                {cp.completedHotels > 0 ? `${cp.completedHotels} done ‚Ä¢ ` : ''}
+                                                                {cp.inProgressHotels} in progress ({cp.totalHotels} {cp.totalHotels === 1 ? 'hotel' : 'hotels'})
+                                                            </span>
+                                                            {progressCountryFilter === cp.name && <span className="text-[9px] font-black uppercase bg-emerald-500/50 px-1.5 py-0.5 rounded">Active Filter</span>}
+                                                        </p>
+                                                    </div>
+                                                ))}
+                                                {countryProgresses.length === 0 && (
+                                                    <p className="text-xs text-slate-400 text-center py-10 font-bold">No country data available</p>
+                                                )}
+                                            </div>
+                                        </div>
+
+                                        {/* Brand Progress Column */}
+                                        <div className="bg-slate-50/60 p-5 rounded-3xl border border-slate-150/50 shadow-[0_4px_20px_rgba(15,23,42,0.01)] flex flex-col h-[320px]">
+                                            <h3 className="text-xs font-black uppercase text-slate-500 tracking-wider mb-4 flex items-center gap-1.5 shrink-0">
+                                                <Building size={14} className="text-amber-600" />
+                                                Brand Progress Summary
+                                            </h3>
+                                            <div className="space-y-2.5 overflow-y-auto pr-1 flex-1 custom-scrollbar">
+                                                {brandProgresses.map((bp, i) => (
+                                                    <div 
+                                                        key={bp.name || i}
+                                                        onClick={() => setProgressBrandFilter(progressBrandFilter === bp.name ? '' : bp.name)}
+                                                        className={`p-3.5 rounded-2xl border transition-all cursor-pointer hover:scale-[1.015] active:scale-[0.99] duration-200 ${
+                                                            progressBrandFilter === bp.name 
+                                                                ? 'bg-gradient-to-br from-amber-600 to-amber-700 text-white border-amber-600 shadow-md shadow-amber-600/10' 
+                                                                : 'bg-white hover:bg-slate-50 border-slate-150/60 text-slate-800'
+                                                        }`}
+                                                    >
+                                                        <div className="flex justify-between items-center text-xs font-bold mb-2">
+                                                            <span className="truncate max-w-[170px] tracking-tight">{bp.name}</span>
+                                                            <span className={progressBrandFilter === bp.name ? 'text-white' : 'text-amber-600'}>{bp.percentage}%</span>
+                                                        </div>
+                                                        <div className="w-full h-2 bg-slate-100/80 rounded-full overflow-hidden border border-slate-200/10">
+                                                            <div 
+                                                                className={`h-full rounded-full transition-all duration-300 ${progressBrandFilter === bp.name ? 'bg-white' : 'bg-amber-600'}`}
+                                                                style={{ width: `${bp.percentage}%` }}
+                                                            />
+                                                        </div>
+                                                        <p className={`text-[10px] font-medium mt-1.5 flex justify-between items-center ${progressBrandFilter === bp.name ? 'text-amber-200' : 'text-slate-400'}`}>
+                                                            <span>
+                                                                {bp.completedHotels > 0 ? `${bp.completedHotels} done ‚Ä¢ ` : ''}
+                                                                {bp.inProgressHotels} in progress ({bp.totalHotels} {bp.totalHotels === 1 ? 'hotel' : 'hotels'})
+                                                            </span>
+                                                            {progressBrandFilter === bp.name && <span className="text-[9px] font-black uppercase bg-amber-500/50 px-1.5 py-0.5 rounded">Active Filter</span>}
+                                                        </p>
+                                                    </div>
+                                                ))}
+                                                {brandProgresses.length === 0 && (
+                                                    <p className="text-xs text-slate-400 text-center py-10 font-bold">No brand data available</p>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* SEARCH & FILTERS BAR */}
+                                    <div className="bg-white p-5 rounded-3xl border border-slate-150/80 shadow-[0_12px_40px_rgba(15,23,42,0.015)]">
+                                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                                            {/* Search box */}
+                                            <div className="relative flex-1">
+                                                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                                                    <Search size={16} />
+                                                </div>
+                                                <input
+                                                    type="text"
+                                                    className="w-full pl-10 pr-8 py-2.5 text-xs border border-slate-200 rounded-xl bg-slate-50/50 focus:bg-white focus:outline-none focus:border-indigo-500 font-medium transition-all"
+                                                    placeholder="Search registered hotel properties by name or code..."
+                                                    value={progressSearchQuery}
+                                                    onChange={(e) => {
+                                                        setProgressSearchQuery(e.target.value);
+                                                        setProgressPage(1);
+                                                    }}
+                                                />
+                                                {progressSearchQuery && (
+                                                    <button 
+                                                        onClick={() => {
+                                                            setProgressSearchQuery('');
+                                                            setProgressPage(1);
+                                                        }}
+                                                        className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-600"
+                                                    >
+                                                        <X size={14} />
+                                                    </button>
+                                                )}
+                                            </div>
+
+                                            {/* Dropdowns */}
+                                            <div className="flex flex-wrap items-center gap-3">
+                                                {/* Region Filter */}
+                                                <div className="w-full sm:w-[150px]">
+                                                    <select
+                                                        className="w-full px-3 py-2.5 text-xs border border-slate-200 rounded-xl bg-slate-50/50 focus:bg-white focus:outline-none focus:border-indigo-500 font-bold transition-all text-slate-700"
+                                                        value={progressRegionFilter}
+                                                        onChange={(e) => {
+                                                            setProgressRegionFilter(e.target.value);
+                                                            setProgressPage(1);
+                                                        }}
+                                                    >
+                                                        <option value="">All Regions</option>
+                                                        {uniqueRegions.map(r => (
+                                                            <option key={r} value={r}>{r}</option>
+                                                        ))}
+                                                    </select>
+                                                </div>
+
+                                                {/* Country Filter */}
+                                                <div className="w-full sm:w-[150px]">
+                                                    <select
+                                                        className="w-full px-3 py-2.5 text-xs border border-slate-200 rounded-xl bg-slate-50/50 focus:bg-white focus:outline-none focus:border-indigo-500 font-bold transition-all text-slate-700"
+                                                        value={progressCountryFilter}
+                                                        onChange={(e) => {
+                                                            setProgressCountryFilter(e.target.value);
+                                                            setProgressPage(1);
+                                                        }}
+                                                    >
+                                                        <option value="">All Countries</option>
+                                                        {uniqueCountries.map(c => (
+                                                            <option key={c} value={c}>{c}</option>
+                                                        ))}
+                                                    </select>
+                                                </div>
+
+                                                {/* Brand Filter */}
+                                                <div className="w-full sm:w-[150px]">
+                                                    <select
+                                                        className="w-full px-3 py-2.5 text-xs border border-slate-200 rounded-xl bg-slate-50/50 focus:bg-white focus:outline-none focus:border-indigo-500 font-bold transition-all text-slate-700"
+                                                        value={progressBrandFilter}
+                                                        onChange={(e) => {
+                                                            setProgressBrandFilter(e.target.value);
+                                                            setProgressPage(1);
+                                                        }}
+                                                    >
+                                                        <option value="">All Brands</option>
+                                                        {uniqueBrands.map(b => (
+                                                            <option key={b} value={b}>{b}</option>
+                                                        ))}
+                                                    </select>
+                                                </div>
+
+                                                {/* Brand Lead Filter */}
+                                                <div className="w-full sm:w-[170px]">
+                                                    <select
+                                                        className="w-full px-3 py-2.5 text-xs border border-slate-200 rounded-xl bg-slate-50/50 focus:bg-white focus:outline-none focus:border-indigo-500 font-bold transition-all text-slate-700"
+                                                        value={progressBrandLeadFilter}
+                                                        onChange={(e) => {
+                                                            setProgressBrandLeadFilter(e.target.value as any);
+                                                            setProgressPage(1);
+                                                        }}
+                                                    >
+                                                        <option value="all">All Representation</option>
+                                                        <option value="has_lead">Has Brand Lead</option>
+                                                        <option value="no_lead">No Brand Lead</option>
+                                                    </select>
+                                                </div>
+
+                                                {/* Audit Status Filter */}
+                                                <div className="w-full sm:w-[180px]">
+                                                    <select
+                                                        className="w-full px-3 py-2.5 text-xs border border-slate-200 rounded-xl bg-slate-50/50 focus:bg-white focus:outline-none focus:border-indigo-500 font-bold transition-all text-slate-700"
+                                                        value={progressStatusFilter}
+                                                        onChange={(e) => {
+                                                            setProgressStatusFilter(e.target.value as any);
+                                                            setProgressPage(1);
+                                                        }}
+                                                    >
+                                                        <option value="all">All Audit Statuses</option>
+                                                        <option value="finalized">Finalised & Submitted</option>
+                                                        <option value="in_progress">In Progress</option>
+                                                        <option value="not_started">Not Started</option>
+                                                    </select>
+                                                </div>
+
+                                                {/* Clear filters trigger */}
+                                                {(progressRegionFilter || progressCountryFilter || progressBrandFilter || progressSearchQuery || progressBrandLeadFilter !== 'all' || progressStatusFilter !== 'all') && (
+                                                    <button
+                                                        onClick={() => {
+                                                            setProgressRegionFilter('');
+                                                            setProgressCountryFilter('');
+                                                            setProgressBrandFilter('');
+                                                            setProgressSearchQuery('');
+                                                            setProgressBrandLeadFilter('all');
+                                                            setProgressStatusFilter('all');
+                                                            setProgressPage(1);
+                                                        }}
+                                                        className="text-xs text-indigo-600 hover:text-indigo-800 font-black uppercase tracking-wider flex items-center gap-1.5 px-3 py-2.5 hover:bg-indigo-50 rounded-xl transition-all"
+                                                    >
+                                                        <X size={12} /> Reset Filters
+                                                    </button>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* LIST TABLE CONTAINING ALL HOTELS AND THEIR PROGRESS */}
+                                    <div className="bg-white border border-slate-150/80 rounded-3xl overflow-hidden shadow-[0_12px_40px_rgba(15,23,42,0.015)]">
+                                        <div className="overflow-x-auto">
+                                            <table className="w-full text-left border-collapse">
+                                                <thead>
+                                                    <tr className="bg-slate-50/70 border-b border-slate-150/50 text-[10px] font-black uppercase text-slate-500 tracking-widest select-none">
+                                                        <th 
+                                                            onClick={() => handleSortToggle('name')}
+                                                            className="px-6 py-4.5 cursor-pointer hover:bg-slate-100/80 transition-colors"
+                                                            title="Click to sort by Hotel Name"
+                                                        >
+                                                            <div className="inline-flex items-center gap-1.5">
+                                                                <span>Hotel Property</span>
+                                                                {progressSortField === 'name' ? (
+                                                                    progressSortDirection === 'asc' ? <ChevronUp size={13} className="text-indigo-600 shrink-0" /> : <ChevronDown size={13} className="text-indigo-600 shrink-0" />
+                                                                ) : (
+                                                                    <ArrowUpDown size={12} className="text-slate-300 opacity-60 shrink-0" />
+                                                                )}
+                                                            </div>
+                                                        </th>
+                                                        <th 
+                                                            onClick={() => handleSortToggle('brand')}
+                                                            className="px-6 py-4.5 cursor-pointer hover:bg-slate-100/80 transition-colors"
+                                                            title="Click to sort by Brand"
+                                                        >
+                                                            <div className="inline-flex items-center gap-1.5">
+                                                                <span>Brand</span>
+                                                                {progressSortField === 'brand' ? (
+                                                                    progressSortDirection === 'asc' ? <ChevronUp size={13} className="text-indigo-600 shrink-0" /> : <ChevronDown size={13} className="text-indigo-600 shrink-0" />
+                                                                ) : (
+                                                                    <ArrowUpDown size={12} className="text-slate-300 opacity-60 shrink-0" />
+                                                                )}
+                                                            </div>
+                                                        </th>
+                                                        <th 
+                                                            onClick={() => handleSortToggle('location')}
+                                                            className="px-6 py-4.5 cursor-pointer hover:bg-slate-100/80 transition-colors"
+                                                            title="Click to sort by Location"
+                                                        >
+                                                            <div className="inline-flex items-center gap-1.5">
+                                                                <span>Location</span>
+                                                                {progressSortField === 'location' ? (
+                                                                    progressSortDirection === 'asc' ? <ChevronUp size={13} className="text-indigo-600 shrink-0" /> : <ChevronDown size={13} className="text-indigo-600 shrink-0" />
+                                                                ) : (
+                                                                    <ArrowUpDown size={12} className="text-slate-300 opacity-60 shrink-0" />
+                                                                )}
+                                                            </div>
+                                                        </th>
+                                                        <th 
+                                                            onClick={() => handleSortToggle('progress')}
+                                                            className="px-6 py-4.5 cursor-pointer hover:bg-slate-100/80 transition-colors"
+                                                            title="Click to sort by Audit Progress"
+                                                        >
+                                                            <div className="inline-flex items-center gap-1.5">
+                                                                <span>Audit Progress</span>
+                                                                {progressSortField === 'progress' ? (
+                                                                    progressSortDirection === 'asc' ? <ChevronUp size={13} className="text-indigo-600 shrink-0" /> : <ChevronDown size={13} className="text-indigo-600 shrink-0" />
+                                                                ) : (
+                                                                    <ArrowUpDown size={12} className="text-slate-300 opacity-60 shrink-0" />
+                                                                )}
+                                                            </div>
+                                                        </th>
+                                                        <th 
+                                                            onClick={() => handleSortToggle('status')}
+                                                            className="px-6 py-4.5 cursor-pointer hover:bg-slate-100/80 transition-colors"
+                                                            title="Click to sort by Status"
+                                                        >
+                                                            <div className="inline-flex items-center gap-1.5">
+                                                                <span>Status</span>
+                                                                {progressSortField === 'status' ? (
+                                                                    progressSortDirection === 'asc' ? <ChevronUp size={13} className="text-indigo-600 shrink-0" /> : <ChevronDown size={13} className="text-indigo-600 shrink-0" />
+                                                                ) : (
+                                                                    <ArrowUpDown size={12} className="text-slate-300 opacity-60 shrink-0" />
+                                                                )}
+                                                            </div>
+                                                        </th>
+                                                        <th className="px-6 py-4.5 text-right">Actions</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody className="divide-y divide-slate-100 text-xs text-slate-700">
+                                                    {paginatedHotels.length > 0 ? (
+                                                        paginatedHotels.map((h, i) => {
+                                                            const { completed, total, percentage, statusText } = getHotelProgressCached(h.id);
+                                                            const finalInfo = getHotelFinalizedInfo(h);
+                                                            
+                                                            let statusStyle = "bg-slate-50 text-slate-600 border-slate-200/50";
+                                                            
+                                                            if (statusText === 'Finalized') {
+                                                                statusStyle = "bg-emerald-50 text-emerald-700 border-emerald-200/60";
+                                                            } else if (statusText === 'Completed') {
+                                                                statusStyle = "bg-indigo-50 text-indigo-700 border-indigo-200/60";
+                                                            } else if (statusText === 'In Progress') {
+                                                                statusStyle = "bg-amber-50 text-amber-700 border-amber-200/60";
+                                                            }
+
+                                                            return (
+                                                                <tr key={h.id || i} className="hover:bg-slate-50/40 transition-colors group">
+                                                                    <td className="px-6 py-4">
+                                                                        <div className="flex items-center gap-3">
+                                                                            <div className="w-9 h-9 rounded-xl bg-indigo-50/80 group-hover:bg-indigo-600 group-hover:text-white text-indigo-600 flex items-center justify-center font-black text-xs shrink-0 transition-all">
+                                                                                {(h.name || '?').charAt(0).toUpperCase()}
+                                                                            </div>
+                                                                            <div>
+                                                                                <span className="font-extrabold text-slate-900 block tracking-tight leading-tight group-hover:text-indigo-600 transition-colors">{h.name}</span>
+                                                                                {h.code && (
+                                                                                    <span className="text-[10px] text-slate-400 font-bold font-mono">ID: {h.code}</span>
+                                                                                )}
+                                                                                {(() => {
+                                                                                    const leads = getBrandLeadsForHotel(h);
+                                                                                    if (leads.length === 0) return null;
+                                                                                    return (
+                                                                                        <div className="mt-1.5 flex flex-wrap gap-1">
+                                                                                            {leads.map(bl => (
+                                                                                                <span key={bl.id} className="inline-flex items-center gap-1 text-[9px] bg-indigo-50 text-indigo-700 border border-indigo-100/50 px-2 py-0.5 rounded-md font-extrabold uppercase tracking-wider shadow-2xs">
+                                                                                                    <ShieldCheck size={10} className="text-indigo-600 shrink-0" />
+                                                                                                    Brand Lead: {bl.display_name || `${bl.first_name || ''} ${bl.last_name || ''}`.trim() || bl.email.split('@')[0]}
+                                                                                                </span>
+                                                                                            ))}
+                                                                                        </div>
+                                                                                    );
+                                                                                })()}
+                                                                            </div>
+                                                                        </div>
+                                                                    </td>
+                                                                    <td className="px-6 py-4 font-extrabold text-slate-600">
+                                                                        {h.brandClass}
+                                                                    </td>
+                                                                    <td className="px-6 py-4 text-slate-500 font-medium">
+                                                                        <div className="flex flex-col">
+                                                                            <span className="font-bold text-slate-800">{h.country || 'Unknown Country'}</span>
+                                                                            <span className="text-[10px] text-slate-400 font-bold">{h.region || 'Unknown Region'}</span>
+                                                                        </div>
+                                                                    </td>
+                                                                    <td className="px-6 py-4">
+                                                                        <div className="w-[180px]">
+                                                                            <div className="flex items-center justify-between text-[10px] font-black text-slate-500 mb-1">
+                                                                                <span>{completed} / {total} Tasks</span>
+                                                                                <span className="text-indigo-600">{percentage}%</span>
+                                                                            </div>
+                                                                            <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden border border-slate-200/20">
+                                                                                <div 
+                                                                                    className={`h-full rounded-full transition-all duration-500 ease-out ${
+                                                                                        percentage === 100 ? 'bg-indigo-600' : 'bg-emerald-500'
+                                                                                    }`}
+                                                                                    style={{ width: `${percentage}%` }}
+                                                                                />
+                                                                            </div>
+                                                                        </div>
+                                                                    </td>
+                                                                    <td className="px-6 py-4">
+                                                                        <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full border text-[9px] font-black uppercase tracking-wider ${statusStyle}`}>
+                                                                            <span className={`w-1.5 h-1.5 rounded-full ${
+                                                                                statusText === 'Finalized' ? 'bg-emerald-500 animate-pulse' :
+                                                                                statusText === 'Completed' ? 'bg-indigo-500' :
+                                                                                statusText === 'In Progress' ? 'bg-amber-500 animate-pulse' : 'bg-slate-400'
+                                                                            }`} />
+                                                                            {statusText}
+                                                                        </span>
+                                                                    </td>
+                                                                    <td className="px-6 py-4 text-right">
+                                                                        <div className="flex items-center justify-end gap-2">
+                                                                            {finalInfo.is_finalized && (
+                                                                                <button
+                                                                                    onClick={() => handleUnlockHotel(h.id)}
+                                                                                    className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-emerald-700 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100/80 px-3 py-2 rounded-xl border border-emerald-200/60 active:scale-95 transition-all shadow-2xs"
+                                                                                    title={`Finalised by ${finalInfo.finalized_by || 'Representative'} on ${finalInfo.finalized_at ? new Date(finalInfo.finalized_at).toLocaleDateString() : ''}. Click to unlock.`}
+                                                                                >
+                                                                                    <Unlock size={11} />
+                                                                                    <span>Unlock Audit</span>
+                                                                                </button>
+                                                                            )}
+                                                                            <button
+                                                                                onClick={() => {
+                                                                                    setHotelToReset(h);
+                                                                                    setIsResetPinModalOpen(true);
+                                                                                    setResetPinValue('');
+                                                                                    setResetPinError('');
+                                                                                }}
+                                                                                className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-rose-600 hover:text-rose-800 bg-rose-50 hover:bg-rose-100/80 px-3 py-2 rounded-xl border border-rose-100/60 active:scale-95 transition-all shadow-2xs"
+                                                                                title="Reset all progress made by this hotel"
+                                                                            >
+                                                                                <RefreshCw size={11} />
+                                                                                <span>Reset Progress</span>
+                                                                            </button>
+                                                                            <button
+                                                                                onClick={() => {
+                                                                                    setSelectedInspectionHotelId(h.id);
+                                                                                    setSubView('inspection');
+                                                                                }}
+                                                                                className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-indigo-600 hover:text-indigo-800 bg-indigo-50/50 hover:bg-indigo-100/80 px-3.5 py-2 rounded-xl border border-indigo-100/60 active:scale-95 transition-all shadow-2xs"
+                                                                            >
+                                                                                <span>Review</span>
+                                                                                <ChevronRight size={12} />
+                                                                            </button>
+                                                                        </div>
+                                                                    </td>
+                                                                </tr>
+                                                            );
+                                                        })
+                                                    ) : (
+                                                        <tr>
+                                                            <td colSpan={6} className="text-center py-16 text-slate-400 font-extrabold text-sm bg-slate-50/20">
+                                                                <AlertCircle className="mx-auto text-slate-300 mb-2" size={24} />
+                                                                No hotel properties match the filter criteria.
+                                                            </td>
+                                                        </tr>
+                                                    )}
+                                                </tbody>
+                                            </table>
+                                        </div>
+
+                                        {/* PAGINATION FOOTER BAR */}
+                                        <div className="px-6 py-4 bg-slate-50/70 border-t border-slate-150/60 flex flex-col sm:flex-row items-center justify-between gap-4">
+                                            <div className="flex flex-wrap items-center gap-4 text-xs font-medium text-slate-500">
+                                                <span>
+                                                    Showing <strong className="text-slate-800 font-bold">{totalHotelsCount === 0 ? 0 : startIndex + 1}</strong> to <strong className="text-slate-800 font-bold">{endIndex}</strong> of <strong className="text-slate-800 font-bold">{totalHotelsCount}</strong> properties
+                                                </span>
+                                                <div className="flex items-center gap-2 pl-3 border-l border-slate-200">
+                                                    <span className="text-[11px] font-bold text-slate-400">Rows per page:</span>
+                                                    <select
+                                                        value={progressPageSize}
+                                                        onChange={(e) => {
+                                                            setProgressPageSize(Number(e.target.value));
+                                                            setProgressPage(1);
+                                                        }}
+                                                        className="px-2 py-1 text-xs border border-slate-200 rounded-lg bg-white font-bold text-slate-700 focus:outline-none focus:border-indigo-500 cursor-pointer shadow-2xs"
+                                                    >
+                                                        <option value={10}>10</option>
+                                                        <option value={25}>25</option>
+                                                        <option value={50}>50</option>
+                                                        <option value={100}>100</option>
+                                                    </select>
+                                                </div>
+                                            </div>
+
+                                            {/* Navigation buttons */}
+                                            {totalPages > 1 && (
+                                                <div className="flex items-center gap-1.5">
+                                                    <button
+                                                        onClick={() => setProgressPage(1)}
+                                                        disabled={safePage === 1}
+                                                        className="p-1.5 text-xs font-bold rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-2xs"
+                                                        title="First Page"
+                                                    >
+                                                        <ChevronsLeft size={14} />
+                                                    </button>
+                                                    <button
+                                                        onClick={() => setProgressPage(p => Math.max(1, p - 1))}
+                                                        disabled={safePage === 1}
+                                                        className="p-1.5 text-xs font-bold rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-2xs"
+                                                        title="Previous Page"
+                                                    >
+                                                        <ChevronLeft size={14} />
+                                                    </button>
+
+                                                    {/* Numeric page buttons */}
+                                                    {(() => {
+                                                        const pages: number[] = [];
+                                                        const maxButtons = 5;
+                                                        let startP = Math.max(1, safePage - 2);
+                                                        let endP = Math.min(totalPages, startP + maxButtons - 1);
+                                                        if (endP - startP + 1 < maxButtons) {
+                                                            startP = Math.max(1, endP - maxButtons + 1);
+                                                        }
+                                                        for (let p = startP; p <= endP; p++) {
+                                                            pages.push(p);
+                                                        }
+
+                                                        return pages.map(pageNum => (
+                                                            <button
+                                                                key={pageNum}
+                                                                onClick={() => setProgressPage(pageNum)}
+                                                                className={`px-3 py-1 text-xs font-extrabold rounded-lg border transition-all ${
+                                                                    pageNum === safePage
+                                                                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
+                                                                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50 shadow-2xs'
+                                                                }`}
+                                                            >
+                                                                {pageNum}
+                                                            </button>
+                                                        ));
+                                                    })()}
+
+                                                    <button
+                                                        onClick={() => setProgressPage(p => Math.min(totalPages, p + 1))}
+                                                        disabled={safePage === totalPages}
+                                                        className="p-1.5 text-xs font-bold rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-2xs"
+                                                        title="Next Page"
+                                                    >
+                                                        <ChevronRight size={14} />
+                                                    </button>
+                                                    <button
+                                                        onClick={() => setProgressPage(totalPages)}
+                                                        disabled={safePage === totalPages}
+                                                        className="p-1.5 text-xs font-bold rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-2xs"
+                                                        title="Last Page"
+                                                    >
+                                                        <ChevronsRight size={14} />
+                                                    </button>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            );
+                        })()}
+                    </div>
+                ) : (
+                    <div className="space-y-6">
+                        {/* Hotels Layout */}
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                            <div>
+                                <button 
+                                    onClick={() => { setSubView('dashboard'); setSearchQuery(''); }} 
+                                    className="inline-flex items-center gap-1.5 text-xs font-bold text-indigo-600 bg-indigo-50/50 hover:bg-indigo-55/80 px-3.5 py-1.5 rounded-full border border-indigo-100/50 mb-3 hover:shadow-sm active:scale-95 transition-all outline-none"
+                                >
+                                    <ArrowLeft size={12} /> Back to Dashboard
+                                </button>
+                                <h2 className="text-2xl font-extrabold text-slate-900 tracking-tight">Master Hotel Properties</h2>
+                                <p className="text-xs text-slate-500 mt-1">Manage Swiss-Belhotel brand properties list, brands and locations.</p>
+                            </div>
+                            <button 
+                                onClick={handleOpenAddHotel} 
+                                className="bg-indigo-600 hover:bg-indigo-700 text-white transition-all px-4 py-2.5 rounded-full font-bold text-sm flex items-center gap-2 justify-center shadow-lg hover:shadow-indigo-500/10 active:scale-95 outline-none"
+                            >
+                                <Plus size={16} />
+                                <span>Add Hotel Property</span>
+                            </button>
+                        </div>
+
+                        {/* Supabase Connectivity Indicator */}
+                        <div className="bg-white p-4.5 rounded-2xl border border-slate-150/80 shadow-[0_4px_24px_rgba(15,23,42,0.015)] flex flex-col sm:flex-row sm:items-center justify-between gap-3 select-none animate-fadeIn">
+                            <div className="flex items-center gap-2.5">
+                                <div className="relative">
+                                    <span className={`block h-3 w-3 rounded-full ${
+                                        supabaseConnected === true ? 'bg-emerald-500' :
+                                        supabaseConnected === false ? 'bg-red-500' :
+                                        'bg-amber-400'
+                                    }`}></span>
+                                    {supabaseConnected === null && (
+                                        <span className="absolute inset-0 rounded-full bg-amber-400 animate-ping opacity-75"></span>
+                                    )}
+                                    {supabaseConnected === true && (
+                                        <span className="absolute inset-0 rounded-full bg-emerald-500 animate-ping opacity-60"></span>
+                                    )}
+                                </div>
+                                <div>
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-xs font-extrabold text-slate-800 uppercase tracking-wider">Database Status</span>
+                                        <span className="text-[9px] bg-slate-100 text-slate-600 font-bold px-1.5 py-0.5 rounded">Supabase REST</span>
+                                    </div>
+                                    <p className="text-xs text-slate-500 mt-0.5 font-medium">
+                                        {supabaseConnected === true ? (
+                                            <span className="text-emerald-600 font-bold">Connected to main ‚Ä∫ public.hotels</span>
+                                        ) : supabaseConnected === false ? (
+                                            <span className="text-red-500 font-bold">Disconnected/Offline - Utilizing Cached Fallback</span>
+                                        ) : (
+                                            <span className="text-amber-500 font-bold">Verifying database connectivity...</span>
+                                        )}
+                                    </p>
+                                </div>
+                            </div>
+                            
+                            <div className="flex items-center gap-2 shrink-0">
+                                {supabaseErrorMsg && (
+                                    <div className="text-[10px] bg-red-50 border border-red-100 text-red-600 px-2.5 py-1 rounded-lg font-bold max-w-xs truncate animate-pulse" title={supabaseErrorMsg}>
+                                        {supabaseErrorMsg}
+                                    </div>
+                                )}
+                                <button 
+                                    type="button"
+                                    onClick={fetchHotelsFromSupabase}
+                                    disabled={isSupabaseLoading}
+                                    className={`text-xs font-bold px-3 py-1.5 bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-700 hover:text-indigo-605 rounded-xl transition-all flex items-center gap-1.5 ${isSupabaseLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                >
+                                    <Clock size={12} className={isSupabaseLoading ? 'animate-spin' : ''} />
+                                    <span>{isSupabaseLoading ? 'Syncing...' : 'Sync Now'}</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Search and Filters */}
+                        <div className="flex flex-col lg:flex-row gap-3 items-stretch lg:items-center">
+                            {/* Search Bar */}
+                            <div className="flex-1 bg-white p-4 rounded-2xl border border-slate-150/80 shadow-[0_4px_24px_rgba(15,23,42,0.015)] flex items-center gap-3 hover:border-slate-300 focus-within:border-indigo-400 focus-within:shadow-[0_8px_30px_rgba(99,102,241,0.03)] transition-all">
+                                <Search className="text-slate-400 shrink-0" size={18} />
+                                <input 
+                                    type="text" 
+                                    placeholder="Search by name, code, region, city/country..." 
+                                    className="w-full text-sm text-slate-700 bg-transparent outline-none border-none placeholder-slate-400 focus:ring-0"
+                                    value={searchQuery}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                />
+                                {searchQuery && (
+                                    <button 
+                                        onClick={() => setSearchQuery('')} 
+                                        className="p-1 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100"
+                                    >
+                                        <X size={14} />
+                                    </button>
+                                )}
+                            </div>
+
+                            {/* Filters row */}
+                            <div className="flex flex-wrap sm:flex-nowrap gap-3">
+                                {/* Brand Filter Dropdown */}
+                                <div className="flex items-center gap-1.5 bg-white px-3 py-2 rounded-2xl border border-slate-150/80 shadow-[0_4px_24px_rgba(15,23,42,0.015)] hover:border-slate-300 focus-within:border-indigo-400 transition-all select-none min-w-[145px] flex-1 sm:flex-none">
+                                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider whitespace-nowrap pl-1">Brand:</span>
+                                    <select
+                                        className="text-xs font-bold text-slate-700 bg-transparent border-none focus:ring-0 p-0 cursor-pointer w-full outline-none"
+                                        value={hotelFilterBrand}
+                                        onChange={(e) => setHotelFilterBrand(e.target.value)}
+                                    >
+                                        <option value="All">All Brands</option>
+                                        {uniqueBrands.map(b => (
+                                            <option key={b} value={b}>{b}</option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                {/* Star Filter Dropdown */}
+                                <div className="flex items-center gap-1.5 bg-white px-3 py-2 rounded-2xl border border-slate-150/80 shadow-[0_4px_24px_rgba(15,23,42,0.015)] hover:border-slate-300 focus-within:border-indigo-400 transition-all select-none min-w-[130px] flex-1 sm:flex-none">
+                                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider whitespace-nowrap pl-1">Stars:</span>
+                                    <select
+                                        className="text-xs font-bold text-slate-700 bg-transparent border-none focus:ring-0 p-0 cursor-pointer w-full outline-none"
+                                        value={hotelFilterStars}
+                                        onChange={(e) => setHotelFilterStars(e.target.value)}
+                                    >
+                                        <option value="All">All Ratings</option>
+                                        {uniqueStars.map(s => (
+                                            <option key={s} value={String(s)}>{s} Star{s > 1 ? 's' : ''}</option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                {/* Clear Filters button */}
+                                {(hotelFilterBrand !== 'All' || hotelFilterStars !== 'All' || searchQuery) && (
+                                    <button
+                                        onClick={() => {
+                                            setHotelFilterBrand('All');
+                                            setHotelFilterStars('All');
+                                            setSearchQuery('');
+                                        }}
+                                        className="text-xs font-bold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 transition-all px-3.5 py-2.5 rounded-2xl border border-indigo-100/50 hover:shadow-sm active:scale-95 shrink-0 flex items-center justify-center gap-1 w-full sm:w-auto"
+                                    >
+                                        <RefreshCw size={12} />
+                                        <span>Reset</span>
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Hotels Grid or Table */}
+                        {filteredHotels.length === 0 ? (
+                            <div className="bg-white/40 backdrop-blur-sm p-12 rounded-[24px] border border-dashed border-slate-200 text-center">
+                                <Search size={28} className="text-slate-300 mx-auto mb-3" />
+                                <h3 className="text-sm font-bold text-slate-800">No hotel properties match your filter</h3>
+                                <p className="text-xs text-slate-400 mt-1">Try resetting the search query or add a brand-new hotel property.</p>
+                            </div>
+                        ) : (
+                            <div className="bg-white rounded-[24px] border border-slate-150/80 shadow-[0_8px_30px_rgba(15,23,42,0.012)] overflow-hidden animate-fadeIn">
+                                <div className="overflow-x-auto">
+                                    <table className="w-full text-left border-collapse">
+                                        <thead>
+                                            <tr className="border-b border-slate-100 bg-slate-50/50 select-none text-[10px] font-extrabold text-slate-400 tracking-wider uppercase">
+                                                <th className="px-6 py-4.5">Hotel Name</th>
+                                                <th className="px-6 py-4.5">Region</th>
+                                                <th className="px-6 py-4.5">Country</th>
+                                                <th className="px-6 py-4.5">Brand</th>
+                                                <th className="px-6 py-4.5">Star Rating</th>
+                                                <th className="px-6 py-4.5 text-right">Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-slate-100">
+                                            {paginatedHotels.map((hotel) => (
+                                                <tr key={hotel.id} className="hover:bg-slate-50/20 transition-colors">
+                                                    <td className="px-6 py-4 whitespace-nowrap">
+                                                        <div className="flex items-center gap-3">
+                                                            <div className="w-9 h-9 rounded-xl bg-indigo-50/80 text-indigo-700 flex items-center justify-center font-black text-xs uppercase shadow-sm shrink-0">
+                                                                <Building size={14} />
+                                                            </div>
+                                                            <div className="flex flex-col">
+                                                                <span className="text-sm font-bold text-slate-800 leading-tight">{hotel.name}</span>
+                                                                {hotel.code && (
+                                                                    <span className="text-[10px] font-extrabold text-slate-400 font-mono uppercase tracking-wider mt-0.5">{hotel.code}</span>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    </td>
+                                                    <td className="px-6 py-4 whitespace-nowrap">
+                                                        <span className="text-xs font-bold text-slate-600 bg-slate-100 px-2 py-1 rounded-md border border-slate-200/50">
+                                                            {hotel.region || 'Asia Pacific'}
+                                                        </span>
+                                                    </td>
+                                                    <td className="px-6 py-4 whitespace-nowrap">
+                                                        <span className="text-sm font-bold text-slate-600">
+                                                            {hotel.country || 'Indonesia'}
+                                                        </span>
+                                                    </td>
+                                                    <td className="px-6 py-4 whitespace-nowrap">
+                                                        <span className="text-xs font-bold text-indigo-600 bg-indigo-50/75 px-2 py-1 rounded-md">
+                                                            {hotel.brandClass}
+                                                        </span>
+                                                    </td>
+                                                    <td className="px-6 py-4 whitespace-nowrap">
+                                                        <div className="flex items-center gap-0.5 text-amber-500">
+                                                            {Array.from({ length: hotel.stars || 4 }).map((_, i) => (
+                                                                <Star key={i} size={14} fill="currentColor" className="shrink-0" />
+                                                            ))}
+                                                        </div>
+                                                    </td>
+                                                    <td className="px-6 py-4 whitespace-nowrap text-right text-xs">
+                                                        {confirmHotelDeleteId === hotel.id ? (
+                                                            <div className="inline-flex items-center gap-2 bg-red-50/85 px-3 py-1.5 rounded-xl border border-red-105 text-left animate-fadeIn">
+                                                                <span className="text-[10px] text-red-600 font-bold whitespace-nowrap">Are you sure?</span>
+                                                                <button 
+                                                                    onClick={() => handleDeleteHotel(hotel.id)}
+                                                                    className="bg-red-600 hover:bg-red-700 text-white px-2.5 py-1 rounded-lg text-[10px] font-bold tracking-wide transition-all"
+                                                                >
+                                                                    Yes, delete
+                                                                </button>
+                                                                <button 
+                                                                    onClick={() => setConfirmHotelDeleteId(null)}
+                                                                    className="bg-slate-200 hover:bg-slate-300 text-slate-700 px-2.5 py-1 rounded-lg text-[10px] font-bold tracking-wide transition-all"
+                                                                >
+                                                                    Cancel
+                                                                </button>
+                                                            </div>
+                                                        ) : (
+                                                            <div className="inline-flex gap-2">
+                                                                <button 
+                                                                    onClick={() => handleOpenEditHotel(hotel)}
+                                                                    className="px-3 py-1.5 text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 border border-slate-200 hover:border-indigo-100 rounded-xl transition-all font-bold flex items-center gap-1.5 active:scale-95"
+                                                                >
+                                                                    <Edit size={13} />
+                                                                    <span>Edit</span>
+                                                                </button>
+                                                                <button 
+                                                                    onClick={() => setConfirmHotelDeleteId(hotel.id)}
+                                                                    className="px-3 py-1.5 text-slate-600 hover:text-red-800 hover:bg-red-50 border border-slate-200 hover:border-red-100 rounded-xl transition-all font-bold flex items-center gap-1.5 active:scale-95"
+                                                                >
+                                                                    <Trash2 size={13} />
+                                                                    <span>Delete</span>
+                                                                </button>
+                                                            </div>
+                                                        )}
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+
+                                {/* PAGINATION FOOTER BAR */}
+                                <div className="px-6 py-4 bg-slate-50/70 border-t border-slate-150/60 flex flex-col sm:flex-row items-center justify-between gap-4">
+                                    <div className="flex flex-wrap items-center gap-4 text-xs font-medium text-slate-500">
+                                        <span>
+                                            Showing <strong className="text-slate-800 font-bold">{totalMasterHotelsCount === 0 ? 0 : masterHotelStartIndex + 1}</strong> to <strong className="text-slate-800 font-bold">{masterHotelEndIndex}</strong> of <strong className="text-slate-800 font-bold">{totalMasterHotelsCount}</strong> properties
+                                        </span>
+                                        <div className="flex items-center gap-2 pl-3 border-l border-slate-200">
+                                            <span className="text-[11px] font-bold text-slate-400">Rows per page:</span>
+                                            <select
+                                                value={hotelPageSize}
+                                                onChange={(e) => {
+                                                    setHotelPageSize(Number(e.target.value));
+                                                    setHotelPage(1);
+                                                }}
+                                                className="px-2 py-1 text-xs border border-slate-200 rounded-lg bg-white font-bold text-slate-700 focus:outline-none focus:border-indigo-500 cursor-pointer shadow-2xs"
+                                            >
+                                                <option value={10}>10</option>
+                                                <option value={25}>25</option>
+                                                <option value={50}>50</option>
+                                                <option value={100}>100</option>
+                                            </select>
+                                        </div>
+                                    </div>
+
+                                    {/* Navigation buttons */}
+                                    {totalMasterHotelPages > 1 && (
+                                        <div className="flex items-center gap-1.5">
+                                            <button
+                                                onClick={() => setHotelPage(1)}
+                                                disabled={safeMasterHotelPage === 1}
+                                                className="p-1.5 text-xs font-bold rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-2xs"
+                                                title="First Page"
+                                            >
+                                                <ChevronsLeft size={14} />
+                                            </button>
+                                            <button
+                                                onClick={() => setHotelPage(p => Math.max(1, p - 1))}
+                                                disabled={safeMasterHotelPage === 1}
+                                                className="p-1.5 text-xs font-bold rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-2xs"
+                                                title="Previous Page"
+                                            >
+                                                <ChevronLeft size={14} />
+                                            </button>
+
+                                            {/* Numeric page buttons */}
+                                            {(() => {
+                                                const pages: number[] = [];
+                                                const maxButtons = 5;
+                                                let startP = Math.max(1, safeMasterHotelPage - 2);
+                                                let endP = Math.min(totalMasterHotelPages, startP + maxButtons - 1);
+                                                if (endP - startP + 1 < maxButtons) {
+                                                    startP = Math.max(1, endP - maxButtons + 1);
+                                                }
+                                                for (let p = startP; p <= endP; p++) {
+                                                    pages.push(p);
+                                                }
+
+                                                return pages.map(pageNum => (
+                                                    <button
+                                                        key={pageNum}
+                                                        onClick={() => setHotelPage(pageNum)}
+                                                        className={`px-3 py-1.5 text-xs font-bold rounded-lg border transition-all ${
+                                                            safeMasterHotelPage === pageNum
+                                                                ? 'bg-indigo-600 border-indigo-600 text-white shadow-xs'
+                                                                : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 shadow-2xs'
+                                                        }`}
+                                                    >
+                                                        {pageNum}
+                                                    </button>
+                                                ));
+                                            })()}
+
+                                            <button
+                                                onClick={() => setHotelPage(p => Math.min(totalMasterHotelPages, p + 1))}
+                                                disabled={safeMasterHotelPage === totalMasterHotelPages}
+                                                className="p-1.5 text-xs font-bold rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-2xs"
+                                                title="Next Page"
+                                            >
+                                                <ChevronRight size={14} />
+                                            </button>
+                                            <button
+                                                onClick={() => setHotelPage(totalMasterHotelPages)}
+                                                disabled={safeMasterHotelPage === totalMasterHotelPages}
+                                                className="p-1.5 text-xs font-bold rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-2xs"
+                                                title="Last Page"
+                                            >
+                                                <ChevronsRight size={14} />
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                )}
+            </main>
+
+            {/* Department Form Dialog */}
+            {isDeptFormOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-fadeIn">
+                    <div className="bg-white w-full max-w-md p-6 rounded-3xl border border-slate-200 shadow-xl relative animate-scaleUp">
+                        <button 
+                            onClick={() => setIsDeptFormOpen(false)}
+                            className="absolute top-4 right-4 p-2 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100 transition-all"
+                        >
+                            <X size={18} />
+                        </button>
+
+                        <h3 className="text-lg font-bold text-slate-900 mb-1">
+                            {editingDept ? 'Edit Department' : 'Create New Department'}
+                        </h3>
+                        <p className="text-xs text-slate-500 mb-6 font-medium">
+                            {editingDept ? 'Modify the details of your master audit department below.' : 'Add a brand new corporate department to audit.'}
+                        </p>
+
+                        <form onSubmit={handleSaveDept} className="space-y-4">
+                            {deptError && (
+                                <div className="bg-red-50 border border-red-100 p-3 rounded-xl flex items-center gap-2 text-xs text-red-600 font-bold">
+                                    <AlertCircle size={15} />
+                                    <span>{deptError}</span>
+                                </div>
+                            )}
+
+                            <div>
+                                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Department Name</label>
+                                <input 
+                                    type="text" 
+                                    placeholder="e.g. Front Office / Reception"
+                                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all focus:ring-1 focus:ring-indigo-100"
+                                    value={deptName}
+                                    onChange={(e) => setDeptName(e.target.value)}
+                                    required
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Department Head</label>
+                                <input 
+                                    type="text" 
+                                    placeholder="e.g. Rangga Permana"
+                                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all focus:ring-1 focus:ring-indigo-100"
+                                    value={deptHead}
+                                    onChange={(e) => setDeptHead(e.target.value)}
+                                    required
+                                />
+                            </div>
+
+                            <div className="flex gap-3 mt-6 pt-4 border-t border-slate-100">
+                                <button 
+                                    type="submit"
+                                    className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-full font-bold text-sm transition-all shadow-lg hover:shadow-indigo-500/10 active:scale-95 outline-none"
+                                >
+                                    {editingDept ? 'Save Changes' : 'Create Department'}
+                                </button>
+                                <button 
+                                    type="button"
+                                    onClick={() => setIsDeptFormOpen(false)}
+                                    className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-600 py-3 rounded-full font-bold text-sm transition-all active:scale-95 outline-none"
+                                >
+                                    Cancel
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {/* Batch Form Dialog */}
+            {isBatchFormOpen && (() => {
+                const availableHotels = hotels.filter(h => !assignedHotelIds.includes(h.id));
+                const assignedHotels = hotels.filter(h => assignedHotelIds.includes(h.id));
+
+                const filteredAvailable = availableHotels.filter(h => 
+                    h.name.toLowerCase().includes(availableSearchQuery.toLowerCase()) ||
+                    (h.brandClass && h.brandClass.toLowerCase().includes(availableSearchQuery.toLowerCase()))
+                );
+
+                const filteredAssigned = assignedHotels.filter(h => 
+                    h.name.toLowerCase().includes(assignedSearchQuery.toLowerCase()) ||
+                    (h.brandClass && h.brandClass.toLowerCase().includes(assignedSearchQuery.toLowerCase()))
+                );
+
+                return (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/45 backdrop-blur-sm animate-fadeIn">
+                        <div className="bg-white w-full max-w-5xl p-6 md:p-8 rounded-3xl border border-slate-200 shadow-2xl relative animate-scaleUp max-h-[90vh] overflow-y-auto">
+                            <button 
+                                onClick={() => setIsBatchFormOpen(false)}
+                                className="absolute top-6 right-6 p-2 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100 transition-all z-10"
+                            >
+                                <X size={18} />
+                            </button>
+
+                            <div className="mb-6">
+                                <h3 className="text-xl font-bold text-slate-900 mb-1 flex items-center gap-2">
+                                    <Calendar className="text-indigo-600" size={22} />
+                                    <span>{editingBatch ? 'Edit Audit Batch' : 'Create New Audit Batch'}</span>
+                                </h3>
+                                <p className="text-xs text-slate-500 font-medium">
+                                    {editingBatch ? 'Modify details and assign Swiss-Belhotel properties to this audit batch.' : 'Add a brand new audit batch cycle and assign Swiss-Belhotel properties.'}
+                                </p>
+                            </div>
+
+                            <form onSubmit={handleSaveBatch} className="space-y-6">
+                                {batchError && (
+                                    <div className="bg-red-50 border border-red-100 p-4 rounded-2xl flex items-center gap-2 text-xs text-red-600 font-bold">
+                                        <AlertCircle size={15} />
+                                        <span>{batchError}</span>
+                                    </div>
+                                )}
+
+                                {/* Compact metadata grid */}
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-slate-50/50 p-4 rounded-2xl border border-slate-200/50">
+                                    <div>
+                                        <label className="block text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-1.5">Batch Name</label>
+                                        <input 
+                                            type="text" 
+                                            placeholder="e.g. Q3 2026 Inspection"
+                                            className="w-full px-4 py-2.5 bg-white border border-slate-200 hover:border-slate-300 focus:border-indigo-500 rounded-xl text-xs text-slate-800 outline-none transition-all font-semibold"
+                                            value={batchName}
+                                            onChange={(e) => setBatchName(e.target.value)}
+                                            required
+                                        />
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-1.5">Status</label>
+                                        <select 
+                                            className="w-full px-4 py-2.5 bg-white border border-slate-200 hover:border-slate-300 focus:border-indigo-500 rounded-xl text-xs text-slate-800 outline-none transition-all font-semibold"
+                                            value={batchStatus}
+                                            onChange={(e: any) => setBatchStatus(e.target.value)}
+                                        >
+                                            <option value="Active">Active</option>
+                                            <option value="Completed">Completed</option>
+                                            <option value="Upcoming">Upcoming</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                {/* Dual Transfer List Box */}
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">Assign Hotel Properties</label>
+                                    <div className="flex flex-col md:flex-row items-stretch gap-4">
+                                        
+                                        {/* AVAILABLE COLUMN */}
+                                        <div className="flex-1 min-w-0 bg-white border border-slate-200 rounded-2xl p-4 flex flex-col h-[420px] shadow-sm hover:shadow-md/50 transition-shadow">
+                                            <div className="flex items-center justify-between mb-2">
+                                                <h4 className="text-xs font-bold text-slate-700 tracking-wide select-none">
+                                                    AVAILABLE HOTELS ({filteredAvailable.length})
+                                                </h4>
+                                            </div>
+                                            <div className="relative mb-3">
+                                                <Search className="absolute left-3 top-2.5 text-slate-400 shrink-0" size={14} />
+                                                <input 
+                                                    type="text" 
+                                                    placeholder="Search available..." 
+                                                    value={availableSearchQuery}
+                                                    onChange={(e) => setAvailableSearchQuery(e.target.value)}
+                                                    className="w-full pl-9 pr-8 py-2 bg-slate-50 hover:bg-slate-100/50 border border-slate-200/80 focus:border-indigo-500 focus:bg-white rounded-xl text-xs outline-none transition-all placeholder:text-slate-400 font-medium"
+                                                />
+                                                {availableSearchQuery && (
+                                                    <button 
+                                                        type="button" 
+                                                        onClick={() => setAvailableSearchQuery('')}
+                                                        className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600"
+                                                    >
+                                                        <X size={14} />
+                                                    </button>
+                                                )}
+                                            </div>
+                                            <div className="flex-1 overflow-y-auto pr-1 space-y-1.5 scrollbar-thin scrollbar-thumb-slate-200">
+                                                {filteredAvailable.map(hotel => {
+                                                    const code = getHotelCode(hotel);
+                                                    const isChecked = selectedAvailableIds.includes(hotel.id);
+                                                    return (
+                                                        <label 
+                                                            key={hotel.id} 
+                                                            className={`flex items-start gap-3 p-2.5 rounded-xl border cursor-pointer transition-all ${
+                                                                isChecked 
+                                                                ? 'bg-indigo-50/50 border-indigo-200/80' 
+                                                                : 'border-slate-100 hover:border-slate-200 bg-slate-50/25 hover:bg-slate-50'
+                                                            }`}
+                                                        >
+                                                            <input 
+                                                                type="checkbox" 
+                                                                checked={isChecked}
+                                                                onChange={() => toggleAvailableSelected(hotel.id)}
+                                                                className="mt-0.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 h-3.5 w-3.5 cursor-pointer"
+                                                            />
+                                                            <div className="min-w-0 flex-1">
+                                                                <span className="block text-xs font-bold text-slate-800 leading-tight">
+                                                                    {hotel.name}
+                                                                </span>
+                                                                <span className="block text-[9px] font-extrabold text-slate-400 tracking-wide font-mono uppercase mt-0.5">
+                                                                    {code} ‚Ä¢ {hotel.brandClass}
+                                                                </span>
+                                                            </div>
+                                                        </label>
+                                                    );
+                                                })}
+                                                {filteredAvailable.length === 0 && (
+                                                    <div className="h-full flex flex-col items-center justify-center text-slate-400 text-xs py-12">
+                                                        <Search size={22} className="mb-2 text-slate-300" />
+                                                        <span className="font-semibold">No available hotels match</span>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+
+                                        {/* TRANSFER OPERATIONS MIDDLE */}
+                                        <div className="flex flex-row md:flex-col justify-center gap-2.5 py-2 shrink-0 md:h-full self-center">
+                                            <button 
+                                                type="button"
+                                                onClick={moveAllToAssigned}
+                                                title="Move all filtered to assigned"
+                                                className="w-10 h-10 rounded-xl bg-slate-50 hover:bg-indigo-600 hover:text-white transition-all flex items-center justify-center font-black border border-slate-200 text-slate-600 hover:border-indigo-600 shadow-xs hover:scale-105 active:scale-95"
+                                            >
+                                                &gt;&gt;
+                                            </button>
+                                            <button 
+                                                type="button"
+                                                onClick={moveSelectedToAssigned}
+                                                disabled={selectedAvailableIds.length === 0}
+                                                title="Move checked available to assigned"
+                                                className={`w-10 h-10 rounded-xl transition-all flex items-center justify-center font-black border shadow-xs ${
+                                                    selectedAvailableIds.length === 0 
+                                                    ? 'bg-slate-50/50 text-slate-300 border-slate-100 cursor-not-allowed' 
+                                                    : 'bg-slate-50 hover:bg-indigo-600 hover:text-white text-slate-600 border-slate-200 hover:border-indigo-600 hover:scale-105 active:scale-95'
+                                                }`}
+                                            >
+                                                &gt;
+                                            </button>
+                                            <button 
+                                                type="button"
+                                                onClick={moveSelectedToAvailable}
+                                                disabled={selectedAssignedIds.length === 0}
+                                                title="Remove checked assigned from batch"
+                                                className={`w-10 h-10 rounded-xl transition-all flex items-center justify-center font-black border shadow-xs ${
+                                                    selectedAssignedIds.length === 0 
+                                                    ? 'bg-slate-50/50 text-slate-300 border-slate-100 cursor-not-allowed' 
+                                                    : 'bg-slate-50 hover:bg-indigo-600 hover:text-white text-slate-600 border-slate-200 hover:border-indigo-600 hover:scale-105 active:scale-95'
+                                                }`}
+                                            >
+                                                &lt;
+                                            </button>
+                                            <button 
+                                                type="button"
+                                                onClick={moveAllToAvailable}
+                                                title="Remove all filtered from batch"
+                                                className="w-10 h-10 rounded-xl bg-slate-50 hover:bg-indigo-600 hover:text-white transition-all flex items-center justify-center font-black border border-slate-200 text-slate-600 hover:border-indigo-600 shadow-xs hover:scale-105 active:scale-95"
+                                            >
+                                                &lt;&lt;
+                                            </button>
+                                        </div>
+
+                                        {/* ASSIGNED COLUMN */}
+                                        <div className="flex-1 min-w-0 bg-white border border-slate-200 rounded-2xl p-4 flex flex-col h-[420px] shadow-sm hover:shadow-md/50 transition-shadow">
+                                            <div className="flex items-center justify-between mb-2">
+                                                <h4 className="text-xs font-bold text-slate-700 tracking-wide select-none">
+                                                    ASSIGNED HOTELS ({filteredAssigned.length})
+                                                </h4>
+                                            </div>
+                                            <div className="relative mb-3">
+                                                <Search className="absolute left-3 top-2.5 text-slate-400 shrink-0" size={14} />
+                                                <input 
+                                                    type="text" 
+                                                    placeholder="Search assigned..." 
+                                                    value={assignedSearchQuery}
+                                                    onChange={(e) => setAssignedSearchQuery(e.target.value)}
+                                                    className="w-full pl-9 pr-8 py-2 bg-slate-50 hover:bg-slate-100/50 border border-slate-200/80 focus:border-indigo-500 focus:bg-white rounded-xl text-xs outline-none transition-all placeholder:text-slate-400 font-medium"
+                                                />
+                                                {assignedSearchQuery && (
+                                                    <button 
+                                                        type="button" 
+                                                        onClick={() => setAssignedSearchQuery('')}
+                                                        className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600"
+                                                    >
+                                                        <X size={14} />
+                                                    </button>
+                                                )}
+                                            </div>
+                                            <div className="flex-1 overflow-y-auto pr-1 space-y-1.5 scrollbar-thin scrollbar-thumb-slate-200">
+                                                {filteredAssigned.map(hotel => {
+                                                    const code = getHotelCode(hotel);
+                                                    const isChecked = selectedAssignedIds.includes(hotel.id);
+                                                    return (
+                                                        <label 
+                                                            key={hotel.id} 
+                                                            className={`flex items-start gap-3 p-2.5 rounded-xl border cursor-pointer transition-all ${
+                                                                isChecked 
+                                                                ? 'bg-indigo-50/50 border-indigo-200/80' 
+                                                                : 'border-slate-100 hover:border-slate-200 bg-slate-50/25 hover:bg-slate-50'
+                                                            }`}
+                                                        >
+                                                            <input 
+                                                                type="checkbox" 
+                                                                checked={isChecked}
+                                                                onChange={() => toggleAssignedSelected(hotel.id)}
+                                                                className="mt-0.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 h-3.5 w-3.5 cursor-pointer"
+                                                            />
+                                                            <div className="min-w-0 flex-1">
+                                                                <span className="block text-xs font-bold text-slate-800 leading-tight">
+                                                                    {hotel.name}
+                                                                </span>
+                                                                <span className="block text-[9px] font-extrabold text-slate-400 tracking-wide font-mono uppercase mt-0.5">
+                                                                    {code} ‚Ä¢ {hotel.brandClass}
+                                                                </span>
+                                                            </div>
+                                                        </label>
+                                                    );
+                                                })}
+                                                {filteredAssigned.length === 0 && (
+                                                    <div className="h-full flex flex-col items-center justify-center text-slate-400 p-6 text-center select-none py-12 bg-slate-50/25 border border-dashed border-slate-100 rounded-2xl">
+                                                        <div className="w-10 h-10 rounded-full border-2 border-slate-200 flex items-center justify-center text-slate-300 mb-2">
+                                                            <CheckCircle size={16} />
+                                                        </div>
+                                                        <span className="text-xs text-slate-400 font-semibold">No hotels assigned</span>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+
+                                    </div>
+                                </div>
+
+                                <div className="flex gap-3 justify-end pt-5 border-t border-slate-100">
+                                    <button 
+                                        type="button"
+                                        onClick={() => setIsBatchFormOpen(false)}
+                                        className="px-6 py-3 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-full font-bold text-xs tracking-wider transition-all uppercase outline-none active:scale-95"
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button 
+                                        type="submit"
+                                        className="px-7 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full font-bold text-xs tracking-wider transition-all uppercase shadow-lg hover:shadow-indigo-500/10 flex items-center gap-2 outline-none active:scale-95"
+                                    >
+                                        <CheckCircle size={14} />
+                                        <span>Save Changes</span>
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                );
+            })()}
+
+            {/* Hotel Form Dialog */}
+            {isHotelFormOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-fadeIn">
+                    <div className="bg-white w-full max-w-md p-6 rounded-3xl border border-slate-200 shadow-xl relative animate-scaleUp">
+                        <button 
+                            onClick={() => setIsHotelFormOpen(false)}
+                            className="absolute top-4 right-4 p-2 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100 transition-all"
+                        >
+                            <X size={18} />
+                        </button>
+
+                        <h3 className="text-lg font-bold text-slate-900 mb-1">
+                            {editingHotel ? 'Edit Hotel Property' : 'Create New Hotel Property'}
+                        </h3>
+                        <p className="text-xs text-slate-500 mb-6 font-medium">
+                            {editingHotel ? 'Modify the details of your Swiss-Belhotel brand property below.' : 'Add a brand new Swiss-Belhotel corporate brand property.'}
+                        </p>
+
+                        <form onSubmit={handleSaveHotel} className="space-y-4">
+                            {hotelError && (
+                                <div className="bg-red-50 border border-red-100 p-3 rounded-xl flex items-center gap-2 text-xs text-red-600 font-bold">
+                                    <AlertCircle size={15} />
+                                    <span>{hotelError}</span>
+                                </div>
+                            )}
+
+                            <div>
+                                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Hotel Name</label>
+                                <input 
+                                    type="text" 
+                                    placeholder="e.g. Swiss-Belhotel Seef"
+                                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all focus:ring-1 focus:ring-indigo-100 font-semibold"
+                                    value={hotelName}
+                                    onChange={(e) => setHotelName(e.target.value)}
+                                    required
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Hotel Code</label>
+                                <input 
+                                    type="text" 
+                                    placeholder="e.g. CWS"
+                                    maxLength={8}
+                                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all focus:ring-1 focus:ring-indigo-100 font-mono uppercase font-bold"
+                                    value={hotelCode}
+                                    onChange={(e) => setHotelCode(e.target.value)}
+                                    required
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Brand Segment</label>
+                                <select 
+                                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all focus:ring-1 focus:ring-indigo-100"
+                                    value={hotelBrandClass}
+                                    onChange={(e) => setHotelBrandClass(e.target.value)}
+                                >
+                                    {HOTEL_BRANDS.map((brand) => (
+                                        <option key={brand} value={brand}>{brand}</option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Region</label>
+                                    <select 
+                                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all focus:ring-1 focus:ring-indigo-100"
+                                        value={hotelRegion}
+                                        onChange={(e) => setHotelRegion(e.target.value)}
+                                    >
+                                        <option value="ANZPAC">ANZPAC</option>
+                                        <option value="Indonesia">Indonesia</option>
+                                        <option value="Philippines">Philippines</option>
+                                        <option value="Central Asia">Central Asia</option>
+                                        <option value="EMEA">EMEA</option>
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Country</label>
+                                    <input 
+                                        type="text" 
+                                        placeholder="e.g. Bahrain"
+                                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all focus:ring-1 focus:ring-indigo-100"
+                                        value={hotelCountry}
+                                        onChange={(e) => setHotelCountry(e.target.value)}
+                                        required
+                                    />
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Star Rating</label>
+                                <div className="flex items-center gap-2 bg-slate-50 px-4 py-2 rounded-xl border border-slate-200 select-none">
+                                    <div className="flex gap-1">
+                                        {[1, 2, 3, 4, 5].map((star) => (
+                                            <button
+                                                type="button"
+                                                key={star}
+                                                onClick={() => setHotelStars(star)}
+                                                className="p-1 hover:scale-110 transition-transform"
+                                            >
+                                                <Star 
+                                                    size={18} 
+                                                    fill={star <= hotelStars ? "currentColor" : "none"} 
+                                                    className={star <= hotelStars ? "text-amber-500" : "text-slate-300"} 
+                                                />
+                                            </button>
+                                        ))}
+                                    </div>
+                                    <span className="text-xs font-bold text-slate-500 ml-auto">
+                                        {hotelStars} {hotelStars === 1 ? 'Star' : 'Stars'}
+                                    </span>
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Location / City & Country</label>
+                                <input 
+                                    type="text" 
+                                    placeholder="e.g. Manama, Bahrain"
+                                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all focus:ring-1 focus:ring-indigo-100"
+                                    value={hotelLocation}
+                                    onChange={(e) => setHotelLocation(e.target.value)}
+                                    required
+                                />
+                            </div>
+
+                            <div className="flex gap-3 mt-6 pt-4 border-t border-slate-100">
+                                <button 
+                                    type="submit"
+                                    className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-full font-bold text-sm transition-all shadow-lg hover:shadow-indigo-500/10 active:scale-95 outline-none"
+                                >
+                                    {editingHotel ? 'Save Changes' : 'Create Property'}
+                                </button>
+                                <button 
+                                    type="button"
+                                    onClick={() => setIsHotelFormOpen(false)}
+                                    className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-600 py-3 rounded-full font-bold text-sm transition-all active:scale-95 outline-none"
+                                >
+                                    Cancel
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {/* Category Form Dialog */}
+            {isCatFormOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-fadeIn">
+                    <div className="bg-white w-full max-w-md p-6 rounded-3xl border border-slate-200 shadow-xl relative animate-scaleUp">
+                        <button 
+                            onClick={() => setIsCatFormOpen(false)}
+                            className="absolute top-4 right-4 p-2 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100 transition-all"
+                        >
+                            <X size={18} />
+                        </button>
+
+                        <h3 className="text-lg font-bold text-slate-900 mb-1">
+                            {editingCat ? 'Edit Audit Category' : 'Create New Audit Category'}
+                        </h3>
+                        <p className="text-xs text-slate-500 mb-6 font-medium">
+                            {editingCat ? 'Modify the details of your master audit category group below.' : 'Add a brand-new master audit checklist category.'}
+                        </p>
+
+                        <form onSubmit={handleSaveCat} className="space-y-4">
+                            {catError && (
+                                <div className="bg-red-50 border border-red-100 p-3 rounded-xl flex items-center gap-2 text-xs text-red-600 font-bold">
+                                    <AlertCircle size={15} />
+                                    <span>{catError}</span>
+                                </div>
+                            )}
+
+                            <div>
+                                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Category Name</label>
+                                <input 
+                                    type="text" 
+                                    placeholder="e.g. XI. BRAND CUSTOMS & ACCENTS"
+                                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all focus:ring-1 focus:ring-indigo-100"
+                                    value={catName}
+                                    onChange={(e) => setCatName(e.target.value)}
+                                    required
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Department Link (Optional)</label>
+                                <select
+                                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all focus:ring-1 focus:ring-indigo-100"
+                                    value={catDepartmentId}
+                                    onChange={(e) => setCatDepartmentId(e.target.value)}
+                                >
+                                    <option value="">-- No specific department --</option>
+                                    {departments.map((dept) => (
+                                        <option key={dept.id} value={dept.id}>
+                                            {dept.name} ({dept.head})
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <div className="flex gap-3 mt-6 pt-4 border-t border-slate-100">
+                                <button 
+                                    type="submit"
+                                    className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-full font-bold text-sm transition-all shadow-lg hover:shadow-indigo-500/10 active:scale-95 outline-none"
+                                >
+                                    {editingCat ? 'Save Changes' : 'Create Category'}
+                                </button>
+                                <button 
+                                    type="button"
+                                    onClick={() => setIsCatFormOpen(false)}
+                                    className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-600 py-3 rounded-full font-bold text-sm transition-all active:scale-95 outline-none"
+                                >
+                                    Cancel
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {/* Item Form Dialog */}
+            {isItemFormOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-fadeIn">
+                    <div className="bg-white w-full max-w-4xl p-6 rounded-3xl border border-slate-200 shadow-xl relative animate-scaleUp max-h-[90vh] flex flex-col">
+                        <button 
+                            onClick={() => setIsItemFormOpen(false)}
+                            className="absolute top-4 right-4 p-2 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100 transition-all z-10"
+                        >
+                            <X size={18} />
+                        </button>
+
+                        <div className="shrink-0 mb-6 pr-6">
+                            <h3 className="text-xl font-bold text-slate-900 mb-1">
+                                {editingItem ? 'Edit Audit Item' : 'Create New Audit Item'}
+                            </h3>
+                            <p className="text-sm text-slate-500 font-medium">
+                                {editingItem ? 'Modify the details of your audit checklist item below.' : 'Add a brand-new audit checklist item.'}
+                            </p>
+                        </div>
+
+                        <div className="flex-1 overflow-y-auto pr-2 pb-2 scrollbar-thin">
+                            <form onSubmit={handleSaveItem} className="flex flex-col h-full">
+                                {itemError && (
+                                    <div className="bg-red-50 border border-red-100 p-3 rounded-xl flex items-center gap-2 text-xs text-red-600 font-bold mb-4 shrink-0">
+                                        <AlertCircle size={15} />
+                                        <span>{itemError}</span>
+                                    </div>
+                                )}
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-5">
+                                    {/* Left Column */}
+                                    <div className="space-y-5">
+                                        <div>
+                                            <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Item Name</label>
+                                            <input 
+                                                type="text" 
+                                                placeholder="e.g. Ensure logo is visible"
+                                                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all focus:ring-1 focus:ring-indigo-100"
+                                                value={itemName}
+                                                onChange={(e) => setItemName(e.target.value)}
+                                                required
+                                            />
+                                        </div>
+
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <div>
+                                                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Department</label>
+                                                <select
+                                                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all focus:ring-1 focus:ring-indigo-100"
+                                                    value={itemDepartmentId}
+                                                    onChange={(e) => setItemDepartmentId(e.target.value)}
+                                                    required
+                                                >
+                                                    <option value="">-- Select Dept --</option>
+                                                    {departments.map((dept) => (
+                                                        <option key={dept.id} value={dept.id}>
+                                                            {dept.name}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Category</label>
+                                                <select
+                                                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all focus:ring-1 focus:ring-indigo-100"
+                                                    value={itemCategoryId}
+                                                    onChange={(e) => setItemCategoryId(e.target.value)}
+                                                    required
+                                                >
+                                                    <option value="">-- Select Cat --</option>
+                                                    {[...catList]
+                                                        .sort((a, b) => {
+                                                            const idA = Number(a.id);
+                                                            const idB = Number(b.id);
+                                                            if (!isNaN(idA) && !isNaN(idB)) {
+                                                                return idA - idB;
+                                                            }
+                                                            return a.id.localeCompare(b.id);
+                                                        })
+                                                        .map((cat) => (
+                                                            <option key={cat.id} value={cat.id}>
+                                                                {cat.name}
+                                                            </option>
+                                                        ))}
+                                                </select>
+                                            </div>
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Point (Weight)</label>
+                                            <input 
+                                                type="number" 
+                                                min="0"
+                                                max="1000"
+                                                placeholder="e.g. 5"
+                                                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all focus:ring-1 focus:ring-indigo-100"
+                                                value={itemPoints}
+                                                onChange={(e) => setItemPoints(Number(e.target.value))}
+                                                required
+                                            />
+                                        </div>
+
+                                        <div className="flex items-center justify-between bg-slate-50 border border-slate-200 hover:border-slate-300 p-4 rounded-2xl">
+                                            <div className="pr-4">
+                                                <label className="block text-xs font-bold text-slate-800 uppercase tracking-wider mb-0.5">Filled by Hotel</label>
+                                                <p className="text-[10px] text-slate-400 font-bold leading-tight">True if the hotel property fills this checklist item as part of self-audit</p>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={() => setItemFilledByHotel(!itemFilledByHotel)}
+                                                className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                                                    itemFilledByHotel ? 'bg-indigo-600' : 'bg-slate-300'
+                                                }`}
+                                            >
+                                                <span
+                                                    className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                                                        itemFilledByHotel ? 'translate-x-5' : 'translate-x-0'
+                                                    }`}
+                                                />
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {/* Right Column */}
+                                    <div className="space-y-5">
+                                        <div>
+                                            <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Input Type</label>
+                                            <div className="grid grid-cols-3 gap-2">
+                                                {[
+                                                    { id: 'camera', label: 'Camera', icon: Camera },
+                                                    { id: 'image', label: 'Image', icon: ImageIcon },
+                                                    { id: 'document', label: 'Document', icon: FileText },
+                                                    { id: 'numeric', label: 'Numeric', icon: Hash },
+                                                    { id: 'text', label: 'Text', icon: Type },
+                                                    { id: 'checkbox', label: 'Checkbox', icon: CheckSquare }
+                                                ].map((type) => (
+                                                    <button
+                                                        type="button"
+                                                        key={type.id}
+                                                        onClick={() => setItemInputType(type.id as AuditItem['inputType'])}
+                                                        className={`flex flex-col items-center justify-center p-3 rounded-xl border transition-all ${
+                                                            itemInputType === type.id 
+                                                                ? 'bg-indigo-50 border-indigo-500 text-indigo-700' 
+                                                                : 'bg-slate-50 border-slate-200 text-slate-600 hover:border-slate-300'
+                                                        }`}
+                                                    >
+                                                        <type.icon size={20} />
+                                                        <span className="text-[10px] font-bold mt-1 uppercase">{type.label}</span>
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+
+                                        {itemInputType === 'numeric' && (
+                                            <div className="animate-fadeIn">
+                                                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Minimum Value</label>
+                                                <input 
+                                                    type="number" 
+                                                    placeholder="e.g. 10"
+                                                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all focus:ring-1 focus:ring-indigo-100"
+                                                    value={itemMinValue}
+                                                    onChange={(e) => setItemMinValue(e.target.value === '' ? '' : Number(e.target.value))}
+                                                    required
+                                                />
+                                                <p className="text-[10px] text-slate-500 mt-1">
+                                                    The audit will require the inputted number to be at least this minimum value.
+                                                </p>
+                                            </div>
+                                        )}
+
+                                        <div>
+                                            <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Item Description (Optional)</label>
+                                            <textarea 
+                                                placeholder="Add item description..."
+                                                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all focus:ring-1 focus:ring-indigo-100"
+                                                value={itemItemDescription}
+                                                onChange={(e) => setItemItemDescription(e.target.value)}
+                                                rows={2}
+                                            />
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Instruction (Optional)</label>
+                                            <textarea 
+                                                placeholder="Add instruction..."
+                                                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all focus:ring-1 focus:ring-indigo-100"
+                                                value={itemInstruction}
+                                                onChange={(e) => setItemInstruction(e.target.value)}
+                                                rows={2}
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="flex gap-3 mt-auto pt-6 border-t border-slate-100 shrink-0">
+                                    <button 
+                                        type="submit"
+                                        className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white py-3.5 rounded-full font-bold text-sm transition-all shadow-lg hover:shadow-indigo-500/20 active:scale-95 outline-none"
+                                    >
+                                        {editingItem ? 'Save Changes' : 'Create Item'}
+                                    </button>
+                                    <button 
+                                        type="button"
+                                        onClick={() => setIsItemFormOpen(false)}
+                                        className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-600 py-3.5 rounded-full font-bold text-sm transition-all active:scale-95 outline-none"
+                                    >
+                                        Cancel
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Audit Group Form Dialog */}
+            {isGroupFormOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-fadeIn">
+                    <div className="bg-white w-full max-w-4xl p-6 sm:p-8 rounded-[28px] border border-slate-200 shadow-2xl relative animate-scaleUp max-h-[90vh] flex flex-col overflow-hidden">
+                        <button 
+                            type="button"
+                            onClick={() => setIsGroupFormOpen(false)}
+                            className="absolute top-5 right-5 p-2 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100 transition-all outline-none"
+                        >
+                            <X size={18} />
+                        </button>
+
+                        <div className="mb-4">
+                            <h3 className="text-xl font-bold text-slate-900">
+                                {editingGroup ? 'Edit Audit Checklist Group' : 'Create New Audit Checklist Group'}
+                            </h3>
+                            <p className="text-xs text-slate-500 font-medium mt-1">
+                                Configure the group information and build your checklist by dragging entire Audit Categories, then check/uncheck individual checklist items.
+                            </p>
+                        </div>
+
+                        <form onSubmit={handleSaveGroup} className="flex-1 flex flex-col overflow-hidden gap-5">
+                            {groupError && (
+                                <div className="bg-red-50 border border-red-100 p-3 rounded-xl flex items-center gap-2 text-xs text-red-600 font-bold">
+                                    <AlertCircle size={15} />
+                                    <span>{groupError}</span>
+                                </div>
+                            )}
+
+                            {/* Group Information Fields */}
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 col-span-full">
+                                <div className="md:col-span-1">
+                                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Group Title</label>
+                                    <input 
+                                        type="text" 
+                                        placeholder="e.g. Front Office SOP Group"
+                                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all focus:ring-1 focus:ring-indigo-100"
+                                        value={groupName}
+                                        onChange={(e) => setGroupName(e.target.value)}
+                                        required
+                                    />
+                                </div>
+                                <div className="md:col-span-2">
+                                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Group Description</label>
+                                    <input 
+                                        type="text" 
+                                        placeholder="Brief summary of the checklist grouped criteria..."
+                                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all focus:ring-1 focus:ring-indigo-100"
+                                        value={groupDescription}
+                                        onChange={(e) => setGroupDescription(e.target.value)}
+                                    />
+                                </div>
+                            </div>
+
+                            {/* Drag and Drop Workspace */}
+                            <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-2 gap-6 pb-2">
+                                {/* Left Panel: Available Master Categories */}
+                                <div className="flex flex-col bg-slate-50/60 rounded-2xl border border-slate-150 p-4 min-h-0"
+                                     onDragOver={(e) => e.preventDefault()}
+                                     onDrop={handleDropOnAvailableCatZone}>
+                                    <div className="flex items-center justify-between gap-2 mb-3 shrink-0">
+                                        <h4 className="text-xs font-extrabold text-slate-700 uppercase tracking-widest">Available Audit Categories ({catList.filter(cat => !groupCategoryIds.includes(cat.id)).length})</h4>
+                                        <span className="text-[10px] text-indigo-600 bg-indigo-50 px-2.5 py-0.5 rounded-full font-bold">Drag card to assign</span>
+                                    </div>
+                                    
+                                    {/* Dialog Search box */}
+                                    <div className="bg-white px-3 py-2 rounded-xl border border-slate-200 flex items-center gap-2 mb-3 focus-within:border-indigo-300 transition-all select-none shrink-0">
+                                        <Search className="text-slate-400 shrink-0" size={14} />
+                                        <input
+                                            type="text"
+                                            placeholder="Look up categories..."
+                                            className="w-full text-xs text-slate-700 bg-transparent outline-none border-none placeholder-slate-400 p-0 focus:ring-0"
+                                            value={dialogSearchQuery}
+                                            onChange={(e) => setDialogSearchQuery(e.target.value)}
+                                        />
+                                        {dialogSearchQuery && (
+                                            <button type="button" onClick={() => setDialogSearchQuery('')} className="p-0.5 text-slate-300 hover:text-slate-500">
+                                                <X size={12} />
+                                            </button>
+                                        )}
+                                    </div>
+
+                                    {/* Draggable available list */}
+                                    <div className="flex-grow overflow-y-auto space-y-2 pr-1 scrollbar-thin">
+                                        {catList.filter(cat => !groupCategoryIds.includes(cat.id) && (
+                                            cat.name.toLowerCase().includes(dialogSearchQuery.toLowerCase())
+                                        )).length === 0 ? (
+                                            <div className="h-full flex flex-col items-center justify-center p-8 text-center text-slate-400 border border-dashed border-slate-200 rounded-xl bg-white/50">
+                                                <Search size={22} className="text-slate-300 mb-1.5" />
+                                                <p className="text-xs font-bold text-slate-700">No categories found</p>
+                                                <p className="text-[10px] text-slate-400 mt-0.5">All categories assigned or none match query</p>
+                                            </div>
+                                        ) : (
+                                            catList.filter(cat => !groupCategoryIds.includes(cat.id) && (
+                                                cat.name.toLowerCase().includes(dialogSearchQuery.toLowerCase())
+                                            )).map((cat) => {
+                                                const catItemsCount = items.filter(i => i.categoryId === cat.id).length;
+                                                return (
+                                                    <div 
+                                                        key={`available-cat-${cat.id}`}
+                                                        draggable
+                                                        onDragStart={(e) => handleDragStartAvailableCat(e, cat.id)}
+                                                        className="bg-white p-3 rounded-xl border border-slate-200 hover:border-indigo-200 cursor-grab active:cursor-grabbing hover:shadow-sm transition-all flex items-center justify-between gap-2.5 group select-none relative"
+                                                    >
+                                                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                                                            <div className="w-5 h-5 rounded hover:bg-slate-100 text-slate-400 shrink-0 cursor-grab active:cursor-grabbing flex items-center justify-center pointer-events-none">
+                                                                <GripVertical size={13} />
+                                                            </div>
+                                                            <div className="min-w-0 pr-1 pointer-events-none flex-1">
+                                                                <p className="text-xs font-bold text-slate-800 leading-tight block truncate pr-2" title={cat.name}>{cat.name}</p>
+                                                                <p className="text-[10px] text-slate-400 mt-0.5 font-medium">{catItemsCount} checklist items</p>
+                                                            </div>
+                                                        </div>
+                                                        <button 
+                                                            type="button"
+                                                            onClick={() => handleQuickAddCat(cat.id)}
+                                                            className="p-1.5 text-indigo-600 hover:text-white bg-indigo-50 hover:bg-indigo-600 border border-indigo-100 rounded-lg transition-all shadow-sm flex items-center justify-center outline-none shrink-0"
+                                                            title="Add Category"
+                                                        >
+                                                            <Plus size={12} />
+                                                        </button>
+                                                    </div>
+                                                );
+                                            })
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* Right Panel: Assigned checkbox checklist dropzone */}
+                                <div className={`flex flex-col rounded-2xl border-2 p-4 min-h-0 transition-all ${
+                                         isDragOverAssigned 
+                                             ? 'bg-indigo-50/50 border-dashed border-indigo-500 scale-[1.002]' 
+                                             : 'bg-indigo-50/10 border-indigo-100/50 border'
+                                     }`}
+                                     onDragOver={(e) => { e.preventDefault(); setIsDragOverAssigned(true); }}
+                                     onDragLeave={() => setIsDragOverAssigned(false)}
+                                     onDrop={handleDropOnAssignedCatZone}>
+                                    <div className="flex items-center justify-between gap-2 mb-3 shrink-0">
+                                        <div className="flex items-center gap-1.5">
+                                            <h4 className="text-xs font-extrabold text-indigo-900 uppercase tracking-widest">Assigned Categories ({groupCategoryIds.length})</h4>
+                                            <span className="text-[10px] bg-indigo-100 text-indigo-700 rounded-md px-1.5 py-0.5 font-extrabold">{groupItemIds.length} items checked</span>
+                                        </div>
+                                        <span className="text-[10px] text-indigo-500 font-bold bg-indigo-100/50 px-2 py-0.5 rounded-full">Drop cards here</span>
+                                    </div>
+
+                                    {/* Draggable assigned category elements */}
+                                    <div className="flex-grow overflow-y-auto space-y-3 pr-1 scrollbar-thin">
+                                        {groupCategoryIds.length === 0 ? (
+                                            <div className="h-full flex flex-col items-center justify-center p-8 text-center text-slate-400 border border-dashed border-slate-250 rounded-xl bg-white/50 select-none">
+                                                <Layers size={26} className="text-slate-300 mb-1.5 animate-bounce" />
+                                                <p className="text-xs font-bold text-slate-700">No categories assigned yet</p>
+                                                <p className="text-[10px] text-slate-400 mt-0.5">Drag an Audit Category from the left and drop it here. You can then expand it to select/deselect specific items!</p>
+                                            </div>
+                                        ) : (
+                                            groupCategoryIds.map((catId, index) => {
+                                                const catObj = catList.find(c => c.id === catId);
+                                                if (!catObj) return null;
+                                                
+                                                const categoryItems = items.filter(i => i.categoryId === catId);
+                                                const selectedCatItemsCount = categoryItems.filter(i => groupItemIds.includes(i.id)).length;
+                                                const isExpanded = expandedCategoryIds.includes(catId);
+                                                const isAllChecked = categoryItems.length > 0 && categoryItems.every(i => groupItemIds.includes(i.id));
+                                                const isSomeChecked = categoryItems.length > 0 && categoryItems.some(i => groupItemIds.includes(i.id)) && !isAllChecked;
+
+                                                return (
+                                                    <div 
+                                                        key={`assigned-cat-${catId}-${index}`}
+                                                        draggable
+                                                        onDragStart={(e) => handleDragStartAssignedCat(e, catId, index)}
+                                                        onDragOver={(e) => e.preventDefault()}
+                                                        onDrop={(e) => handleDropOnAssignedCatItem(e, index)}
+                                                        className="bg-white rounded-xl border border-indigo-100 hover:border-indigo-250 shadow-sm hover:shadow transition-all overflow-hidden flex flex-col"
+                                                    >
+                                                        {/* Category Card Header */}
+                                                        <div className="px-3 py-2.5 bg-slate-50/50 flex items-center justify-between gap-1.5 border-b border-indigo-50/30">
+                                                            <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                                                                <div className="w-5 h-5 rounded text-slate-400 shrink-0 cursor-grab active:cursor-grabbing flex items-center justify-center hover:bg-slate-100">
+                                                                    <GripVertical size={13} />
+                                                                </div>
+                                                                
+                                                                <input 
+                                                                    type="checkbox"
+                                                                    checked={isAllChecked}
+                                                                    ref={el => {
+                                                                        if (el) el.indeterminate = isSomeChecked;
+                                                                    }}
+                                                                    onChange={(e) => handleToggleCategoryAllItems(catId, e.target.checked)}
+                                                                    className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300 cursor-pointer shrink-0"
+                                                                    title="Select/Deselect All items in Category"
+                                                                />
+
+                                                                <div className="min-w-0 pr-1 cursor-pointer flex-1" onClick={() => toggleExpandCategory(catId)}>
+                                                                    <p className="text-xs font-bold text-slate-800 leading-snug truncate hover:text-indigo-600 transition-colors" title={catObj.name}>
+                                                                        {catObj.name}
+                                                                    </p>
+                                                                    <p className="text-[10px] text-indigo-600 font-extrabold mt-0.5">
+                                                                        {selectedCatItemsCount} of {categoryItems.length} items checked
+                                                                    </p>
+                                                                </div>
+                                                            </div>
+
+                                                            {/* Action buttons */}
+                                                            <div className="flex items-center gap-1 shrink-0">
+                                                                <button 
+                                                                    type="button"
+                                                                    onClick={() => handleMoveCatUp(index)}
+                                                                    disabled={index === 0}
+                                                                    className={`p-1 rounded hover:bg-slate-100 ${index === 0 ? 'text-slate-200' : 'text-slate-500 hover:text-slate-800'}`}
+                                                                    title="Move Up"
+                                                                >
+                                                                    <ChevronUp size={14} />
+                                                                </button>
+                                                                <button 
+                                                                    type="button"
+                                                                    onClick={() => handleMoveCatDown(index)}
+                                                                    disabled={index === groupCategoryIds.length - 1}
+                                                                    className={`p-1 rounded hover:bg-slate-100 ${index === groupCategoryIds.length - 1 ? 'text-slate-200' : 'text-slate-500 hover:text-slate-800'}`}
+                                                                    title="Move Down"
+                                                                >
+                                                                    <ChevronDown size={14} />
+                                                                </button>
+
+                                                                {/* Expansion Control */}
+                                                                <button 
+                                                                    type="button"
+                                                                    onClick={() => toggleExpandCategory(catId)}
+                                                                    className="p-1 hover:bg-indigo-50 text-slate-500 rounded transition-all"
+                                                                    title={isExpanded ? "Collapse" : "Expand"}
+                                                                >
+                                                                    {isExpanded ? (
+                                                                        <ChevronUp size={15} className="text-indigo-600 font-bold" />
+                                                                    ) : (
+                                                                        <ChevronDown size={15} />
+                                                                    )}
+                                                                </button>
+
+                                                                <button 
+                                                                    type="button"
+                                                                    onClick={() => handleQuickRemoveCat(catId)}
+                                                                    className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                                                                    title="Remove category"
+                                                                >
+                                                                    <Trash2 size={13} />
+                                                                </button>
+                                                            </div>
+                                                        </div>
+
+                                                        {/* Expandable Item Checkbox List */}
+                                                        {isExpanded && (
+                                                            <div className="p-3 bg-white border-t border-slate-50 space-y-1.5 max-h-52 overflow-y-auto scrollbar-thin divide-y divide-slate-100/40 animate-fadeIn">
+                                                                {categoryItems.length === 0 ? (
+                                                                    <p className="text-[10px] italic text-slate-400 py-1">No checklist items configured for this category.</p>
+                                                                ) : (
+                                                                    categoryItems.map((item) => {
+                                                                        const isChecked = groupItemIds.includes(item.id);
+                                                                        return (
+                                                                            <label 
+                                                                                key={item.id}
+                                                                                className="flex items-start gap-2 py-1.5 cursor-pointer group hover:bg-slate-50/50 rounded transition-colors"
+                                                                            >
+                                                                                <input 
+                                                                                    type="checkbox"
+                                                                                    checked={isChecked}
+                                                                                    onChange={() => handleToggleItemCheckbox(item.id)}
+                                                                                    className="w-3.5 h-3.5 rounded text-indigo-600 focus:ring-indigo-450 border-slate-300 mt-0.5 cursor-pointer shrink-0"
+                                                                                />
+                                                                                <div className="flex-1 min-w-0 ml-1">
+                                                                                    <p className="text-xs text-slate-700 font-semibold leading-normal group-hover:text-indigo-600 transition-colors whitespace-normal break-words">
+                                                                                        {item.name}
+                                                                                    </p>
+                                                                                    {item.description && (
+                                                                                        <p className="text-[10px] text-slate-400 mt-0.5 block truncate whitespace-normal line-clamp-1 leading-tight">
+                                                                                            {item.description}
+                                                                                        </p>
+                                                                                    )}
+                                                                                </div>
+                                                                            </label>
+                                                                        );
+                                                                    })
+                                                                )}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Footer Submit Buttons */}
+                            <div className="flex gap-3 justify-end pt-4 border-t border-slate-100 shrink-0">
+                                <button 
+                                    type="button"
+                                    onClick={() => setIsGroupFormOpen(false)}
+                                    className="px-6 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-full font-bold text-sm transition-all active:scale-95 outline-none"
+                                >
+                                    Cancel
+                                </button>
+                                <button 
+                                    type="submit"
+                                    className="px-8 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full font-bold text-sm transition-all shadow-lg hover:shadow-indigo-500/10 active:scale-95 outline-none"
+                                >
+                                    {editingGroup ? 'Save Changes' : 'Create Group'}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {/* User Form Modal */}
+            {isUserFormOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-fadeIn">
+                    <div className="bg-white w-full max-w-lg p-6 sm:p-8 rounded-[28px] border border-slate-200 shadow-2xl relative animate-scaleUp max-h-[90vh] flex flex-col overflow-y-auto">
+                        <button 
+                            type="button"
+                            onClick={() => setIsUserFormOpen(false)}
+                            className="absolute top-5 right-5 p-2 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100 transition-all outline-none"
+                        >
+                            <X size={18} />
+                        </button>
+
+                        <div className="mb-6">
+                            <h3 className="text-xl font-bold text-slate-900">
+                                {editingUser ? 'Edit User Profile' : 'Create New User Profile'}
+                            </h3>
+                            <p className="text-xs text-slate-500 font-medium mt-1">
+                                {editingUser ? 'Update role, property bindings, and brand audit privileges.' : 'Manually provision a new user profile with specific access rights.'}
+                            </p>
+                        </div>
+
+                        <form onSubmit={handleSaveUser} className="space-y-4">
+                            {userFormError && (
+                                <div className="bg-red-50 border border-red-100 p-3 rounded-xl flex items-center gap-2 text-xs text-red-600 font-bold">
+                                    <AlertCircle size={15} />
+                                    <span>{userFormError}</span>
+                                </div>
+                            )}
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">First Name</label>
+                                    <input 
+                                        type="text" 
+                                        placeholder="e.g. John"
+                                        className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all focus:ring-1 focus:ring-indigo-100"
+                                        value={userFormFirstName}
+                                        onChange={(e) => {
+                                            setUserFormFirstName(e.target.value);
+                                            if (!userFormDisplayName) {
+                                                setUserFormDisplayName(`${e.target.value} ${userFormLastName}`.trim());
+                                            }
+                                        }}
+                                        required
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Last Name</label>
+                                    <input 
+                                        type="text" 
+                                        placeholder="e.g. Doe"
+                                        className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all focus:ring-1 focus:ring-indigo-100"
+                                        value={userFormLastName}
+                                        onChange={(e) => {
+                                            setUserFormLastName(e.target.value);
+                                            if (!userFormDisplayName) {
+                                                setUserFormDisplayName(`${userFormFirstName} ${e.target.value}`.trim());
+                                            }
+                                        }}
+                                    />
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Display Name</label>
+                                <input 
+                                    type="text" 
+                                    placeholder="e.g. John Doe (Internal)"
+                                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all focus:ring-1 focus:ring-indigo-100"
+                                    value={userFormDisplayName}
+                                    onChange={(e) => setUserFormDisplayName(e.target.value)}
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Email Address</label>
+                                <input 
+                                    type="email" 
+                                    placeholder="e.g. johndoe@swiss-belhotel.com"
+                                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all focus:ring-1 focus:ring-indigo-100"
+                                    value={userFormEmail}
+                                    onChange={(e) => setUserFormEmail(e.target.value)}
+                                    disabled={!!editingUser}
+                                    required
+                                />
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Access Level</label>
+                                    <select 
+                                        className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all focus:ring-1 focus:ring-indigo-100"
+                                        value={userFormAccessLevel}
+                                        onChange={(e) => setUserFormAccessLevel(e.target.value as any)}
+                                    >
+                                        <option value="admin">Admin</option>
+                                        <option value="auditor">Auditor</option>
+                                        <option value="auditee">Auditee</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Role / Title</label>
+                                    <select
+                                        className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-xl text-sm text-slate-800 outline-none transition-all focus:ring-1 focus:ring-indigo-100"
+                                        value={userFormRole}
+                                        onChange={(e) => setUserFormRole(e.target.value)}
+                                    >
+                                        {['General Manager', 'Hotel Manager', 'GM Secretary', 'Marcomm/PR', 'Graphic Design', 'Housekeeping', 'Room Division', 'Front Office', 'Sales & Marketing', 'Auditor', 'Director of Finance', 'Executive Housekeeper', 'Admin'].map(r => (
+                                            <option key={r} value={r}>{r}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 flex justify-between items-center">
+                                    <span>Assigned Hotel Properties</span>
+                                    <span className="text-[10px] text-indigo-600 font-extrabold normal-case">
+                                        {userFormHotelIds.length} properties selected
+                                    </span>
+                                </label>
+                                
+                                <div className="space-y-2">
+                                    {/* Quick Search */}
+                                    <input 
+                                        type="text"
+                                        placeholder="Filter properties... (e.g. Seef, Zest)"
+                                        className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:bg-white rounded-lg outline-none transition-all placeholder:text-slate-450"
+                                        value={adminHotelSearch}
+                                        onChange={(e) => setAdminHotelSearch(e.target.value)}
+                                    />
+                                    
+                                    {/* Scrollable multi-select container */}
+                                    <div className="max-h-[160px] overflow-y-auto border border-slate-200 rounded-xl p-2.5 space-y-1 bg-slate-50 divide-y divide-slate-100">
+                                        {hotels.filter(h => 
+                                            h.name.toLowerCase().includes(adminHotelSearch.toLowerCase()) ||
+                                            (h.code && h.code.toLowerCase().includes(adminHotelSearch.toLowerCase()))
+                                        ).map(h => {
+                                            const isChecked = userFormHotelIds.includes(h.id);
+                                            return (
+                                                <label 
+                                                    key={h.id} 
+                                                    className="flex items-start gap-2.5 py-2 px-1.5 hover:bg-white rounded-lg cursor-pointer transition-colors"
+                                                >
+                                                    <input 
+                                                        type="checkbox"
+                                                        className="mt-0.5 rounded text-indigo-600 focus:ring-indigo-500 h-3.5 w-3.5 cursor-pointer"
+                                                        checked={isChecked}
+                                                        onChange={() => {
+                                                            if (isChecked) {
+                                                                setUserFormHotelIds(userFormHotelIds.filter(id => id !== h.id));
+                                                            } else {
+                                                                setUserFormHotelIds([...userFormHotelIds, h.id]);
+                                                            }
+                                                        }}
+                                                    />
+                                                    <div className="min-w-0 leading-none">
+                                                        <p className="text-xs font-black text-slate-750 truncate">{h.name}</p>
+                                                        <p className="text-[9px] text-slate-400 font-bold uppercase tracking-tight mt-0.5">
+                                                            {h.code || 'N/A'} - {h.region || 'Region'} - {h.brandClass || 'Brand'}
+                                                        </p>
+                                                    </div>
+                                                </label>
+                                            );
+                                        })}
+                                        {hotels.filter(h => 
+                                            h.name.toLowerCase().includes(adminHotelSearch.toLowerCase()) ||
+                                            (h.code && h.code.toLowerCase().includes(adminHotelSearch.toLowerCase()))
+                                        ).length === 0 && (
+                                            <p className="text-center py-4 text-slate-400 text-xs font-bold">No property matches search</p>
+                                        )}
+                                    </div>
+
+                                    {/* Tag pills */}
+                                    {userFormHotelIds.length > 0 && (
+                                        <div className="flex flex-wrap gap-1.5 pt-1.5">
+                                            {hotels.filter(h => userFormHotelIds.includes(h.id)).map(h => (
+                                                <span 
+                                                    key={h.id}
+                                                    className="inline-flex items-center gap-1 pl-2 pr-1.5 py-0.5 bg-indigo-50 border border-indigo-100 rounded-md text-[10px] font-bold text-indigo-950"
+                                                >
+                                                    <span>{h.code || h.name.slice(0, 8)}</span>
+                                                    <button 
+                                                        type="button"
+                                                        onClick={() => setUserFormHotelIds(userFormHotelIds.filter(id => id !== h.id))}
+                                                        className="p-0.5 hover:bg-indigo-100 rounded text-indigo-500 hover:text-indigo-800 transition-colors"
+                                                    >
+                                                        <span className="text-[8px] font-black">√ó</span>
+                                                    </button>
+                                                </span>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+
+                            <div className="flex flex-col gap-2.5 pt-2">
+                                <div className="flex items-center gap-2.5">
+                                    <input 
+                                        type="checkbox" 
+                                        id="userFormIsBrandAuditLead"
+                                        checked={userFormIsBrandAuditLead}
+                                        onChange={(e) => setUserFormIsBrandAuditLead(e.target.checked)}
+                                        className="w-4 h-4 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500"
+                                    />
+                                    <label htmlFor="userFormIsBrandAuditLead" className="text-xs font-bold text-slate-600 select-none cursor-pointer">
+                                        Brand Audit Lead Designation
+                                    </label>
+                                </div>
+
+                                {(!editingUser || editingUser.email !== 'brandaudit@swiss-belhotel.com') && (
+                                    <div className="flex items-center gap-2.5">
+                                        <input 
+                                            type="checkbox" 
+                                            id="userFormIsApproved"
+                                            checked={userFormIsApproved}
+                                            onChange={(e) => setUserFormIsApproved(e.target.checked)}
+                                            className="w-4 h-4 text-emerald-600 border-slate-300 rounded focus:ring-emerald-500"
+                                        />
+                                        <label htmlFor="userFormIsApproved" className="text-xs font-bold text-slate-600 select-none cursor-pointer">
+                                            Approved and Active (Access Allowed)
+                                        </label>
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="flex gap-3 justify-end pt-4 border-t border-slate-100">
+                                <button 
+                                    type="button"
+                                    onClick={() => setIsUserFormOpen(false)}
+                                    className="px-6 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-full font-bold text-sm transition-all active:scale-95 outline-none"
+                                >
+                                    Cancel
+                                </button>
+                                <button 
+                                    type="submit"
+                                    className="px-8 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full font-bold text-sm transition-all shadow-lg hover:shadow-indigo-500/10 active:scale-95 outline-none"
+                                >
+                                    {editingUser ? 'Save Changes' : 'Create Profile'}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {/* Confirm User Delete Dialog */}
+            {confirmUserDeleteId && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-fadeIn">
+                    <div className="bg-white w-full max-w-sm p-6 rounded-3xl border border-slate-200 shadow-xl relative animate-scaleUp">
+                        <div className="w-12 h-12 rounded-full bg-red-50 text-red-600 flex items-center justify-center mb-4">
+                            <Trash2 size={24} />
+                        </div>
+                        <h3 className="text-lg font-bold text-slate-900 mb-2">Delete User Profile?</h3>
+                        <p className="text-xs text-slate-500 leading-relaxed mb-6 font-medium">
+                            Are you absolutely sure you want to permanently delete this user registry profile? This action cannot be undone.
+                        </p>
+                        <div className="flex gap-3">
+                            <button 
+                                onClick={() => handleDeleteUser(confirmUserDeleteId)}
+                                className="flex-1 bg-red-600 hover:bg-red-700 text-white py-2.5 rounded-full font-bold text-sm transition-all shadow-md active:scale-95"
+                            >
+                                Delete User
+                            </button>
+                            <button 
+                                onClick={() => setConfirmUserDeleteId(null)}
+                                className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-600 py-2.5 rounded-full font-bold text-sm transition-all active:scale-95"
+                            >
+                                Cancel
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Confirm Approval & Send Webhook Modal */}
+            {confirmApprovalUser && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-fadeIn">
+                    <div className="bg-white w-full max-w-lg p-6 sm:p-8 rounded-[28px] border border-slate-200 shadow-2xl relative animate-scaleUp max-h-[90vh] flex flex-col overflow-y-auto">
+                        <button 
+                            onClick={() => setConfirmApprovalUser(null)}
+                            className="absolute top-5 right-5 p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-50 rounded-xl transition-all"
+                        >
+                            <X size={18} />
+                        </button>
+
+                        <div className="flex items-center gap-4 mb-6">
+                            <div className="w-12 h-12 rounded-full bg-emerald-50 text-emerald-600 border border-emerald-100 flex items-center justify-center shrink-0">
+                                <ShieldCheck size={26} />
+                            </div>
+                            <div>
+                                <h3 className="text-lg font-extrabold text-slate-900">Confirm User Approval</h3>
+                                <p className="text-xs text-slate-500 font-medium">Verify credentials and trigger notifications upon approval.</p>
+                            </div>
+                        </div>
+
+                        {/* User Details */}
+                        <div className="bg-slate-50 border border-slate-150 rounded-2xl p-4 mb-5 space-y-3">
+                            <h4 className="text-[10px] font-black uppercase text-slate-400 tracking-wider">User Details</h4>
+                            <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
+                                <div>
+                                    <p className="text-slate-400 font-bold">Full Name</p>
+                                    <p className="text-slate-800 font-black">
+                                        {confirmApprovalUser.display_name || `${confirmApprovalUser.first_name || ''} ${confirmApprovalUser.last_name || ''}`.trim() || 'N/A'}
+                                    </p>
+                                </div>
+                                <div>
+                                    <p className="text-slate-400 font-bold">Email Address</p>
+                                    <p className="text-slate-800 font-mono font-bold break-all">{confirmApprovalUser.email}</p>
+                                </div>
+                                <div className="mt-1">
+                                    <p className="text-slate-400 font-bold">Property Role / Level</p>
+                                    <p className="text-slate-800 font-black">{confirmApprovalUser.role || 'N/A'}</p>
+                                </div>
+                                <div>
+                                    <p className="text-slate-400 font-bold">Access Level</p>
+                                    <span className="inline-flex items-center px-2 py-0.5 mt-0.5 rounded-md text-[10px] font-black uppercase bg-indigo-50 text-indigo-700 border border-indigo-150/50">
+                                        {confirmApprovalUser.access_level || 'auditee'}
+                                    </span>
+                                </div>
+                                <div className="col-span-2 mt-1">
+                                    <p className="text-slate-400 font-bold">Assigned Hotel Property</p>
+                                    <p className="text-slate-800 font-black">{confirmApprovalUser.hotel_name || 'N/A'}</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Zapier Config Section */}
+                        <div className="border border-indigo-100 bg-indigo-50/20 rounded-2xl p-4 sm:p-5 mb-6 space-y-3">
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-1.5">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-indigo-600 animate-pulse"></span>
+                                    <h4 className="text-[10px] font-black uppercase text-indigo-800 tracking-wider">Zapier Webhook Notification</h4>
+                                </div>
+                                <button 
+                                    onClick={() => setIsEditingWebhookUrl(!isEditingWebhookUrl)}
+                                    className="text-[10px] text-indigo-600 hover:text-indigo-800 font-extrabold uppercase tracking-wide flex items-center gap-1"
+                                >
+                                    {isEditingWebhookUrl ? 'Cancel Edit' : (webhookUrl ? 'Change URL' : 'Configure')}
+                                </button>
+                            </div>
+
+                            {isEditingWebhookUrl ? (
+                                <div className="space-y-2">
+                                    <input 
+                                        type="url"
+                                        placeholder="https://hooks.zapier.com/hooks/catch/..."
+                                        value={webhookUrl}
+                                        onChange={(e) => {
+                                            setWebhookUrl(e.target.value);
+                                            localStorage.setItem('sbi_zapier_webhook_url', e.target.value);
+                                        }}
+                                        className="w-full px-3 py-2 text-xs border border-indigo-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 font-mono"
+                                    />
+                                    <p className="text-[10px] text-indigo-600 font-medium leading-normal">
+                                        Webhook URL is saved automatically to local storage for persistent testing.
+                                    </p>
+                                </div>
+                            ) : (
+                                <div className="space-y-1.5">
+                                    {webhookUrl ? (
+                                        <div className="flex items-center justify-between gap-2 bg-white px-3 py-2 rounded-xl border border-indigo-100">
+                                            <span className="text-[11px] font-mono font-medium text-slate-600 truncate flex-1">
+                                                {webhookUrl}
+                                            </span>
+                                            <span className="text-[9px] font-black uppercase bg-emerald-100 text-emerald-800 border border-emerald-200 px-1.5 py-0.5 rounded">
+                                                Connected
+                                            </span>
+                                        </div>
+                                    ) : (
+                                        <div className="bg-amber-50 border border-amber-200/60 rounded-xl p-3 text-xs text-amber-800 flex gap-2">
+                                            <AlertCircle size={16} className="text-amber-600 shrink-0 mt-0.5" />
+                                            <div>
+                                                <p className="font-extrabold">No webhook URL configured yet</p>
+                                                <p className="text-[11px] text-amber-700/90 leading-relaxed mt-0.5">
+                                                    Approval notifications will be skipped. Click <strong className="cursor-pointer underline hover:text-amber-900" onClick={() => setIsEditingWebhookUrl(true)}>Configure</strong> to add your Zapier Catch Hook URL.
+                                                </p>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            <div className="text-[10px] text-slate-500 leading-relaxed">
+                                Once approved, a secure JSON payload with the user's role, hotel, and approval metadata is posted to Zapier to automate email notifications.
+                            </div>
+                        </div>
+
+                        {/* Action Buttons */}
+                        <div className="flex gap-3 mt-2">
+                            <button 
+                                onClick={async () => {
+                                    const userId = confirmApprovalUser.id;
+                                    setConfirmApprovalUser(null);
+                                    await executeApprovalStatusChange(userId, true);
+                                }}
+                                disabled={isSendingWebhook}
+                                className="flex-1 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white py-3 rounded-full font-bold text-sm transition-all shadow-lg shadow-emerald-500/10 active:scale-95 flex items-center justify-center gap-2"
+                            >
+                                {isSendingWebhook ? 'Processing...' : 'Confirm & Approve'}
+                            </button>
+                            <button 
+                                onClick={() => setConfirmApprovalUser(null)}
+                                className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-600 py-3 rounded-full font-bold text-sm transition-all active:scale-95"
+                            >
+                                Cancel
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* RESET PROGRESS SUPER ADMIN PIN MODAL */}
+            {isResetPinModalOpen && hotelToReset && (
+                <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-slate-950/65 backdrop-blur-md animate-fadeIn">
+                    <div className="bg-white w-full max-w-md p-6 rounded-3xl border border-slate-100 shadow-2xl relative animate-scaleUp">
+                        {/* Close button */}
+                        <button 
+                            onClick={() => {
+                                setIsResetPinModalOpen(false);
+                                setResetPinValue('');
+                                setResetPinError('');
+                                setHotelToReset(null);
+                            }}
+                            className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-50 rounded-xl transition-all animate-fadeIn"
+                        >
+                            <X size={18} />
+                        </button>
+
+                        <div className="text-center space-y-2 mb-6">
+                            <div className="w-12 h-12 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center mx-auto border border-rose-100">
+                                <AlertCircle size={24} />
+                            </div>
+                            <h3 className="text-lg font-black text-slate-900">Reset Audit Progress</h3>
+                            <p className="text-xs text-rose-600 font-extrabold max-w-sm mx-auto uppercase tracking-wider bg-rose-50/50 py-1 px-3 rounded-lg border border-rose-100/50">
+                                Warning: Highly Destructive
+                            </p>
+                            <p className="text-xs text-slate-500 leading-relaxed font-semibold">
+                                This will permanently delete all completed task responses and uploaded evidence files for <span className="text-slate-900 font-extrabold">{hotelToReset.name}</span>.
+                            </p>
+                            <p className="text-[11px] text-slate-400 font-bold">
+                                Please enter the <span className="text-indigo-600">Super Admin PIN</span> to proceed.
+                            </p>
+                        </div>
+
+                        {/* PIN Entry Display */}
+                        <div className="space-y-4">
+                            {resetPinError && (
+                                <p className="text-rose-500 text-xs text-center font-extrabold bg-rose-50/70 border border-rose-100 py-2 rounded-xl animate-pulse">
+                                    {resetPinError}
+                                </p>
+                            )}
+
+                            <div className="flex justify-center gap-2.5">
+                                {[0, 1, 2, 3, 4, 5].map((i) => (
+                                    <div 
+                                        key={i} 
+                                        className={`w-11 h-11 rounded-2xl border-2 flex items-center justify-center text-xl font-bold transition-all ${
+                                            resetPinValue[i] 
+                                                ? 'border-rose-500 bg-rose-50/40 text-rose-900 scale-105 shadow-xs' 
+                                                : 'border-slate-200 bg-slate-50/30'
+                                        }`}
+                                    >
+                                        {resetPinValue[i] ? '‚Ä¢' : ''}
+                                    </div>
+                                ))}
+                            </div>
+
+                            {/* PIN Virtual Keyboard */}
+                            <div className="grid grid-cols-3 gap-2.5 max-w-[280px] mx-auto pt-2">
+                                {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((digit) => (
+                                    <button
+                                        key={digit}
+                                        type="button"
+                                        onClick={() => {
+                                            if (resetPinValue.length < 6) {
+                                                setResetPinValue(prev => prev + digit.toString());
+                                                setResetPinError('');
+                                            }
+                                        }}
+                                        className="h-12 bg-slate-50 hover:bg-slate-100/80 active:scale-95 border border-slate-150/40 text-slate-800 font-extrabold text-base rounded-2xl transition-all shadow-3xs"
+                                    >
+                                        {digit}
+                                    </button>
+                                ))}
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setResetPinValue('');
+                                        setResetPinError('');
+                                    }}
+                                    className="h-12 bg-slate-100/60 hover:bg-slate-200 text-slate-600 hover:text-slate-800 font-extrabold text-[10px] uppercase tracking-wider rounded-2xl transition-all active:scale-95"
+                                >
+                                    Clear
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        if (resetPinValue.length < 6) {
+                                            setResetPinValue(prev => prev + '0');
+                                            setResetPinError('');
+                                        }
+                                    }}
+                                    className="h-12 bg-slate-50 hover:bg-slate-100/80 active:scale-95 border border-slate-150/40 text-slate-800 font-extrabold text-base rounded-2xl transition-all shadow-3xs"
+                                >
+                                    0
+                                </button>
+                                <button
+                                    type="button"
+                                    disabled={resetPinValue.length < 6 || isResetting}
+                                    onClick={handleVerifyResetPin}
+                                    className={`h-12 font-extrabold text-[10px] uppercase tracking-widest rounded-2xl transition-all active:scale-95 flex items-center justify-center ${
+                                        resetPinValue.length === 6 && !isResetting
+                                            ? 'bg-rose-600 hover:bg-rose-700 text-white shadow-md shadow-rose-200'
+                                            : 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                                    }`}
+                                >
+                                    {isResetting ? (
+                                        <div className="w-4 h-4 border-2 border-rose-600 border-t-transparent rounded-full animate-spin" />
+                                    ) : (
+                                        "Confirm"
+                                    )}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ENLARGED IMAGE LIGHTBOX MODAL */}
+            {enlargedImage && (
+                <div 
+                    className="fixed inset-0 z-[999] bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-3 sm:p-6 animate-fadeIn"
+                    onClick={() => setEnlargedImage(null)}
+                >
+                    <div 
+                        className="relative max-w-5xl w-full max-h-[92vh] bg-slate-900 border border-slate-700/80 rounded-3xl overflow-hidden shadow-2xl flex flex-col"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        {/* Modal Header */}
+                        <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-800 bg-slate-950/60 shrink-0">
+                            <div className="flex items-center gap-3 min-w-0">
+                                <div className="w-8 h-8 rounded-xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center shrink-0 border border-indigo-500/30">
+                                    <Maximize2 size={16} />
+                                </div>
+                                <div className="min-w-0">
+                                    <h4 className="text-sm font-black text-white truncate">{enlargedImage.title || "Evidence Photo Preview"}</h4>
+                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">Click outside or press Esc to close</p>
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                                <a 
+                                    href={enlargedImage.url} 
+                                    target="_blank" 
+                                    rel="noreferrer" 
+                                    className="p-2 text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-xl transition-all border border-slate-700"
+                                    title="Open original file in new tab"
+                                >
+                                    <ExternalLink size={16} />
+                                </a>
+                                <button 
+                                    onClick={() => setEnlargedImage(null)} 
+                                    className="p-2 text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-xl transition-all border border-slate-700"
+                                    title="Close Lightbox"
+                                >
+                                    <X size={16} />
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Modal Body: Large Image View */}
+                        <div className="p-4 sm:p-6 flex-1 flex items-center justify-center overflow-auto bg-slate-950/40 min-h-[300px]">
+                            <img 
+                                src={enlargedImage.url} 
+                                alt="Enlarged Evidence" 
+                                referrerPolicy={enlargedImage.url?.startsWith('blob:') || enlargedImage.url?.startsWith('data:') ? undefined : 'no-referrer'} 
+                                className="max-h-[75vh] w-auto max-w-full object-contain rounded-2xl shadow-2xl border border-slate-800" 
+                            />
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* SUPABASE SQL MIGRATION MODAL */}
+            {showSqlModal && (
+                <div 
+                    className="fixed inset-0 z-[999] bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 animate-fadeIn"
+                    onClick={() => setShowSqlModal(false)}
+                >
+                    <div 
+                        className="bg-slate-900 border border-slate-800 w-full max-w-2xl rounded-3xl overflow-hidden shadow-2xl animate-scaleUp text-white flex flex-col max-h-[90vh]"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-950/60">
+                            <div className="flex items-center gap-3">
+                                <div className="w-9 h-9 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center border border-emerald-500/30">
+                                    <Database size={18} />
+                                </div>
+                                <div>
+                                    <h3 className="font-bold text-sm text-white">Supabase Schema Migration</h3>
+                                    <p className="text-[10px] text-slate-400 font-medium">SQL scripts to align database schemas with feature configurations</p>
+                                </div>
+                            </div>
+                            <button 
+                                onClick={() => setShowSqlModal(false)}
+                                className="p-2 text-slate-400 hover:text-white bg-slate-800/80 rounded-xl transition-all"
+                            >
+                                <X size={16} />
+                            </button>
+                        </div>
+
+                        {/* TAB CONTROLLERS */}
+                        <div className="flex bg-slate-950/40 border-b border-slate-800/80 p-2">
+                            <button
+                                onClick={() => setSqlModalTab('checklist')}
+                                className={`flex-1 py-2 text-center text-xs font-black rounded-xl transition-all ${
+                                    sqlModalTab === 'checklist'
+                                        ? 'bg-slate-800 text-white shadow-2xs'
+                                        : 'text-slate-400 hover:text-white'
+                                }`}
+                            >
+                                Checklist Groups SQL
+                            </button>
+                            <button
+                                onClick={() => setSqlModalTab('auditor')}
+                                className={`flex-1 py-2 text-center text-xs font-black rounded-xl transition-all ${
+                                    sqlModalTab === 'auditor'
+                                        ? 'bg-slate-800 text-white shadow-2xs'
+                                        : 'text-slate-400 hover:text-white'
+                                }`}
+                            >
+                                Auditor Category Assignments SQL
+                            </button>
+                            <button
+                                onClick={() => setSqlModalTab('finalize')}
+                                className={`flex-1 py-2 text-center text-xs font-black rounded-xl transition-all ${
+                                    sqlModalTab === 'finalize'
+                                        ? 'bg-slate-800 text-white shadow-2xs'
+                                        : 'text-slate-400 hover:text-white'
+                                }`}
+                            >
+                                Finalise & Submit Lock SQL
+                            </button>
+                            <button
+                                onClick={() => setSqlModalTab('photolock')}
+                                className={`flex-1 py-2 text-center text-xs font-black rounded-xl transition-all ${
+                                    sqlModalTab === 'photolock'
+                                        ? 'bg-slate-800 text-white shadow-2xs'
+                                        : 'text-slate-400 hover:text-white'
+                                }`}
+                            >
+                                Photo Temporary Lock SQL
+                            </button>
+                            <button
+                                onClick={() => setSqlModalTab('indexes')}
+                                className={`flex-1 py-2 text-center text-xs font-black rounded-xl transition-all ${
+                                    sqlModalTab === 'indexes'
+                                        ? 'bg-emerald-800 text-white shadow-2xs'
+                                        : 'text-slate-400 hover:text-white'
+                                }`}
+                            >
+                                Database Indexes & Performance SQL
+                            </button>
+                        </div>
+
+                        <div className="p-6 overflow-y-auto space-y-4 text-xs">
+                            {sqlModalTab === 'checklist' ? (
+                                <>
+                                    <p className="text-slate-300 font-medium leading-relaxed">
+                                        Execute the following SQL script in your <strong className="text-emerald-400">Supabase Dashboard ‚Üí SQL Editor</strong> to create tables and RLS security policies for <strong className="text-emerald-400">Audit Checklist Groups & Assigned Hotels</strong>:
+                                    </p>
+
+                                    <div className="relative bg-slate-950 border border-slate-800 rounded-2xl p-4 font-mono text-[11px] text-emerald-300 overflow-x-auto leading-relaxed">
+                                        <button
+                                            onClick={() => {
+                                                const sqlText = `-- Drop old tables if they exist\nDROP TABLE IF EXISTS audit_group_categories CASCADE;\nDROP TABLE IF EXISTS audit_group_items CASCADE;\nDROP TABLE IF EXISTS audit_group_hotels CASCADE;\n\n-- Create Table for Audit Checklist Groups\nCREATE TABLE IF NOT EXISTS audit_checklist_groups (\n    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,\n    name VARCHAR(255) NOT NULL,\n    description TEXT,\n    category_ids TEXT[] DEFAULT '{}',\n    item_ids TEXT[] DEFAULT '{}',\n    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL\n);\n\n-- Migration script in case columns are missing on existing tables\nALTER TABLE audit_checklist_groups ADD COLUMN IF NOT EXISTS category_ids TEXT[] DEFAULT '{}';\nALTER TABLE audit_checklist_groups ADD COLUMN IF NOT EXISTS item_ids TEXT[] DEFAULT '{}';\n\n-- Create Table for Audit Checklist Group Hotels association\nCREATE TABLE IF NOT EXISTS audit_group_hotels (\n    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,\n    group_id UUID NOT NULL REFERENCES audit_checklist_groups(id) ON DELETE CASCADE,\n    hotel_id VARCHAR(100) NOT NULL,\n    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,\n    UNIQUE(group_id, hotel_id)\n);\n\n-- Enable Row Level Security (RLS)\nALTER TABLE audit_checklist_groups ENABLE ROW LEVEL SECURITY;\nALTER TABLE audit_group_hotels ENABLE ROW LEVEL SECURITY;\n\n-- Set Access Policies to Allow All Reads/Inserts/Deletes (Idempotent)\nDROP POLICY IF EXISTS "Allow public select audit_checklist_groups" ON audit_checklist_groups;\nCREATE POLICY "Allow public select audit_checklist_groups" ON audit_checklist_groups FOR SELECT USING (true);\n\nDROP POLICY IF EXISTS "Allow public insert audit_checklist_groups" ON audit_checklist_groups;\nCREATE POLICY "Allow public insert audit_checklist_groups" ON audit_checklist_groups FOR INSERT WITH CHECK (true);\n\nDROP POLICY IF EXISTS "Allow public update audit_checklist_groups" ON audit_checklist_groups;\nCREATE POLICY "Allow public update audit_checklist_groups" ON audit_checklist_groups FOR UPDATE USING (true);\n\nDROP POLICY IF EXISTS "Allow public delete audit_checklist_groups" ON audit_checklist_groups;\nCREATE POLICY "Allow public delete audit_checklist_groups" ON audit_checklist_groups FOR DELETE USING (true);\n\nDROP POLICY IF EXISTS "Allow public select audit_group_hotels" ON audit_group_hotels;\nCREATE POLICY "Allow public select audit_group_hotels" ON audit_group_hotels FOR SELECT USING (true);\n\nDROP POLICY IF EXISTS "Allow public insert audit_group_hotels" ON audit_group_hotels;\nCREATE POLICY "Allow public insert audit_group_hotels" ON audit_group_hotels FOR INSERT WITH CHECK (true);\n\nDROP POLICY IF EXISTS "Allow public delete audit_group_hotels" ON audit_group_hotels;\nCREATE POLICY "Allow public delete audit_group_hotels" ON audit_group_hotels FOR DELETE USING (true);`;
+                                                navigator.clipboard.writeText(sqlText);
+                                                setCopiedSql(true);
+                                                setTimeout(() => setCopiedSql(false), 2500);
+                                            }}
+                                            className="absolute top-3 right-3 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-lg font-sans text-[10px] font-bold flex items-center gap-1.5 transition-all border border-slate-700 active:scale-95"
+                                        >
+                                            {copiedSql ? (
+                                                <>
+                                                    <Check size={12} className="text-emerald-400" />
+                                                    <span>Copied!</span>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <Copy size={12} />
+                                                    <span>Copy SQL</span>
+                                                </>
+                                            )}
+                                        </button>
+                                        <pre className="pt-2">
+{`-- Drop old tables if they exist
+DROP TABLE IF EXISTS audit_group_categories CASCADE;
+DROP TABLE IF EXISTS audit_group_items CASCADE;
+DROP TABLE IF EXISTS audit_group_hotels CASCADE;
+
+-- Create Table for Audit Checklist Groups
+CREATE TABLE IF NOT EXISTS audit_checklist_groups (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    description TEXT,
+    category_ids TEXT[] DEFAULT '{}',
+    item_ids TEXT[] DEFAULT '{}',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- Migration script in case columns are missing on existing tables
+ALTER TABLE audit_checklist_groups ADD COLUMN IF NOT EXISTS category_ids TEXT[] DEFAULT '{}';
+ALTER TABLE audit_checklist_groups ADD COLUMN IF NOT EXISTS item_ids TEXT[] DEFAULT '{}';
+
+-- Create Table for Audit Checklist Group Hotels association
+CREATE TABLE IF NOT EXISTS audit_group_hotels (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    group_id UUID NOT NULL REFERENCES audit_checklist_groups(id) ON DELETE CASCADE,
+    hotel_id VARCHAR(100) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    UNIQUE(group_id, hotel_id)
+);
+
+-- Enable Row Level Security (RLS)
+ALTER TABLE audit_checklist_groups ENABLE ROW LEVEL SECURITY;
+ALTER TABLE audit_group_hotels ENABLE ROW LEVEL SECURITY;
+
+-- Set Access Policies to Allow All Reads/Inserts/Deletes (Idempotent)
+DROP POLICY IF EXISTS "Allow public select audit_checklist_groups" ON audit_checklist_groups;
+CREATE POLICY "Allow public select audit_checklist_groups" ON audit_checklist_groups FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "Allow public insert audit_checklist_groups" ON audit_checklist_groups;
+CREATE POLICY "Allow public insert audit_checklist_groups" ON audit_checklist_groups FOR INSERT WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow public update audit_checklist_groups" ON audit_checklist_groups;
+CREATE POLICY "Allow public update audit_checklist_groups" ON audit_checklist_groups FOR UPDATE USING (true);
+
+DROP POLICY IF EXISTS "Allow public delete audit_checklist_groups" ON audit_checklist_groups;
+CREATE POLICY "Allow public delete audit_checklist_groups" ON audit_checklist_groups FOR DELETE USING (true);
+
+DROP POLICY IF EXISTS "Allow public select audit_group_hotels" ON audit_group_hotels;
+CREATE POLICY "Allow public select audit_group_hotels" ON audit_group_hotels FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "Allow public insert audit_group_hotels" ON audit_group_hotels;
+CREATE POLICY "Allow public insert audit_group_hotels" ON audit_group_hotels FOR INSERT WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow public delete audit_group_hotels" ON audit_group_hotels;
+CREATE POLICY "Allow public delete audit_group_hotels" ON audit_group_hotels FOR DELETE USING (true);`}
+                                        </pre>
+                                    </div>
+                                </>
+                            ) : sqlModalTab === 'auditor' ? (
+                                <>
+                                    <p className="text-slate-300 font-medium leading-relaxed">
+                                        Execute the following SQL script in your <strong className="text-emerald-400">Supabase Dashboard ‚Üí SQL Editor</strong> to enable permanent <strong className="text-emerald-400">Auditor Assignments</strong>:
+                                    </p>
+
+                                    <div className="relative bg-slate-950 border border-slate-800 rounded-2xl p-4 font-mono text-[11px] text-emerald-300 overflow-x-auto leading-relaxed">
+                                        <button
+                                            onClick={() => {
+                                                const sqlText = `CREATE TABLE IF NOT EXISTS auditor_category_assignments (\n    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,\n    user_id UUID NOT NULL,\n    category_id UUID NOT NULL,\n    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,\n    UNIQUE(user_id, category_id)\n);\n\nALTER TABLE auditor_category_assignments ENABLE ROW LEVEL SECURITY;\n\nCREATE POLICY "Allow public read auditor_category_assignments" ON auditor_category_assignments FOR SELECT USING (true);\nCREATE POLICY "Allow public insert auditor_category_assignments" ON auditor_category_assignments FOR INSERT WITH CHECK (true);\nCREATE POLICY "Allow public delete auditor_category_assignments" ON auditor_category_assignments FOR DELETE USING (true);`;
+                                                navigator.clipboard.writeText(sqlText);
+                                                setCopiedSql(true);
+                                                setTimeout(() => setCopiedSql(false), 2500);
+                                            }}
+                                            className="absolute top-3 right-3 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-lg font-sans text-[10px] font-bold flex items-center gap-1.5 transition-all border border-slate-700 active:scale-95"
+                                        >
+                                            {copiedSql ? (
+                                                <>
+                                                    <Check size={12} className="text-emerald-400" />
+                                                    <span>Copied!</span>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <Copy size={12} />
+                                                    <span>Copy SQL</span>
+                                                </>
+                                            )}
+                                        </button>
+                                        <pre className="pt-2">
+{`-- Create table for auditor category assignments
+CREATE TABLE IF NOT EXISTS auditor_category_assignments (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    user_id UUID NOT NULL,
+    category_id UUID NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    UNIQUE(user_id, category_id)
+);
+
+-- Enable Row Level Security & set access policies
+ALTER TABLE auditor_category_assignments ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Allow public read auditor_category_assignments" ON auditor_category_assignments FOR SELECT USING (true);
+CREATE POLICY "Allow public insert auditor_category_assignments" ON auditor_category_assignments FOR INSERT WITH CHECK (true);
+CREATE POLICY "Allow public delete auditor_category_assignments" ON auditor_category_assignments FOR DELETE USING (true);`}
+                                        </pre>
+                                    </div>
+                                </>
+                            ) : sqlModalTab === 'finalize' ? (
+                                <>
+                                    <p className="text-slate-300 font-medium leading-relaxed">
+                                        Execute the following SQL script in your <strong className="text-emerald-400">Supabase Dashboard ‚Üí SQL Editor</strong> to enable permanent <strong className="text-emerald-400">Self-Audit Locking & Submission Finalisation</strong>:
+                                    </p>
+
+                                    <div className="relative bg-slate-950 border border-slate-800 rounded-2xl p-4 font-mono text-[11px] text-emerald-300 overflow-x-auto leading-relaxed">
+                                        <button
+                                            onClick={() => {
+                                                const sqlText = `CREATE TABLE IF NOT EXISTS hotel_audit_status (\n    hotel_id VARCHAR(100) PRIMARY KEY,\n    is_finalized BOOLEAN DEFAULT false,\n    finalized_by VARCHAR(255),\n    finalized_at TIMESTAMP WITH TIME ZONE,\n    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL\n);\n\nALTER TABLE hotel_audit_status ENABLE ROW LEVEL SECURITY;\n\nCREATE POLICY "Allow public read hotel_audit_status" ON hotel_audit_status FOR SELECT USING (true);\nCREATE POLICY "Allow public insert/update hotel_audit_status" ON hotel_audit_status FOR ALL USING (true);`;
+                                                navigator.clipboard.writeText(sqlText);
+                                                setCopiedSql(true);
+                                                setTimeout(() => setCopiedSql(false), 2500);
+                                            }}
+                                            className="absolute top-3 right-3 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-lg font-sans text-[10px] font-bold flex items-center gap-1.5 transition-all border border-slate-700 active:scale-95"
+                                        >
+                                            {copiedSql ? (
+                                                <>
+                                                    <Check size={12} className="text-emerald-400" />
+                                                    <span>Copied!</span>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <Copy size={12} />
+                                                    <span>Copy SQL</span>
+                                                </>
+                                            )}
+                                        </button>
+                                        <pre className="pt-2">
+{`-- Create table for hotel audit status (locking & finalisation)
+CREATE TABLE IF NOT EXISTS hotel_audit_status (
+    hotel_id VARCHAR(100) PRIMARY KEY,
+    is_finalized BOOLEAN DEFAULT false,
+    finalized_by VARCHAR(255),
+    finalized_at TIMESTAMP WITH TIME ZONE,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- Enable Row Level Security & set access policies
+ALTER TABLE hotel_audit_status ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Allow public read hotel_audit_status" ON hotel_audit_status FOR SELECT USING (true);
+CREATE POLICY "Allow public insert/update hotel_audit_status" ON hotel_audit_status FOR ALL USING (true);`}
+                                        </pre>
+                                    </div>
+                                </>
+                            ) : sqlModalTab === 'photolock' ? (
+                                <>
+                                    <p className="text-slate-300 font-medium leading-relaxed">
+                                        Execute the following SQL script in your <strong className="text-emerald-400">Supabase Dashboard ‚Üí SQL Editor</strong> to enable real-time <strong className="text-emerald-400">Temporary Photo-Taking Locking</strong>:
+                                    </p>
+
+                                    <div className="relative bg-slate-950 border border-slate-800 rounded-2xl p-4 font-mono text-[11px] text-emerald-300 overflow-x-auto leading-relaxed">
+                                        <button
+                                            onClick={() => {
+                                                const sqlText = `CREATE TABLE IF NOT EXISTS audit_item_locks (\n    hotel_id VARCHAR(100) NOT NULL,\n    item_id VARCHAR(100) NOT NULL,\n    locked_by_name VARCHAR(255) NOT NULL,\n    locked_by_email VARCHAR(255) NOT NULL,\n    locked_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,\n    PRIMARY KEY (hotel_id, item_id)\n);\n\nALTER TABLE audit_item_locks ENABLE ROW LEVEL SECURITY;\n\nDROP POLICY IF EXISTS "Allow public read audit_item_locks" ON audit_item_locks;\nCREATE POLICY "Allow public read audit_item_locks" ON audit_item_locks FOR SELECT USING (true);\n\nDROP POLICY IF EXISTS "Allow public write audit_item_locks" ON audit_item_locks;\nCREATE POLICY "Allow public write audit_item_locks" ON audit_item_locks FOR ALL USING (true);`;
+                                                navigator.clipboard.writeText(sqlText);
+                                                setCopiedSql(true);
+                                                setTimeout(() => setCopiedSql(false), 2500);
+                                            }}
+                                            className="absolute top-3 right-3 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-lg font-sans text-[10px] font-bold flex items-center gap-1.5 transition-all border border-slate-700 active:scale-95"
+                                        >
+                                            {copiedSql ? (
+                                                <>
+                                                    <Check size={12} className="text-emerald-400" />
+                                                    <span>Copied!</span>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <Copy size={12} />
+                                                    <span>Copy SQL</span>
+                                                </>
+                                            )}
+                                        </button>
+                                        <pre className="pt-2">
+{`-- Create table for temporary photo-taking locks
+CREATE TABLE IF NOT EXISTS audit_item_locks (
+    hotel_id VARCHAR(100) NOT NULL,
+    item_id VARCHAR(100) NOT NULL,
+    locked_by_name VARCHAR(255) NOT NULL,
+    locked_by_email VARCHAR(255) NOT NULL,
+    locked_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    PRIMARY KEY (hotel_id, item_id)
+);
+
+-- Enable Row Level Security & set access policies
+ALTER TABLE audit_item_locks ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Allow public read audit_item_locks" ON audit_item_locks;
+CREATE POLICY "Allow public read audit_item_locks" ON audit_item_locks FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "Allow public write audit_item_locks" ON audit_item_locks;
+CREATE POLICY "Allow public write audit_item_locks" ON audit_item_locks FOR ALL USING (true);`}
+                                        </pre>
+                                    </div>
+                                </>
+                            ) : (
+                                <>
+                                    <p className="text-slate-300 font-medium leading-relaxed">
+                                        Execute the following SQL script in your <strong className="text-emerald-400">Supabase Dashboard ‚Üí SQL Editor</strong> to create high-performance database indexes on all primary query columns (WHERE filters, foreign keys, and unique lookups):
+                                    </p>
+
+                                    <div className="relative bg-slate-950 border border-slate-800 rounded-2xl p-4 font-mono text-[11px] text-emerald-300 overflow-x-auto leading-relaxed">
+                                        <button
+                                            onClick={() => {
+                                                const sqlText = `-- Complete Performance & Database Indexing Script for Swiss-Belhotel Brand Audit
+-- Step 1: Ensure all required system tables and missing columns exist safely
+
+CREATE TABLE IF NOT EXISTS public.audit_submissions (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    hotel_id VARCHAR(100) NOT NULL,
+    item_id VARCHAR(100) NOT NULL,
+    value TEXT,
+    is_na BOOLEAN DEFAULT false,
+    score NUMERIC,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    UNIQUE(hotel_id, item_id)
+);
+
+CREATE TABLE IF NOT EXISTS public.audit_users (
+    id UUID PRIMARY KEY,
+    email VARCHAR(255),
+    full_name VARCHAR(255),
+    role VARCHAR(50) DEFAULT 'auditor',
+    access_level VARCHAR(50) DEFAULT 'single_property',
+    hotel_id VARCHAR(100),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS public.auditor_assignments (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    user_id VARCHAR(255) NOT NULL,
+    hotel_id VARCHAR(100) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS public.auditor_category_assignments (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    user_id VARCHAR(255) NOT NULL,
+    category_id UUID NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    UNIQUE(user_id, category_id)
+);
+
+-- Migration / Safeguards for existing tables
+ALTER TABLE IF EXISTS public.auditor_assignments ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL;
+ALTER TABLE IF EXISTS public.audit_batch_hotels ADD COLUMN IF NOT EXISTS id UUID DEFAULT gen_random_uuid();
+ALTER TABLE IF EXISTS public.audit_items ADD COLUMN IF NOT EXISTS options TEXT;
+
+ALTER TABLE public.auditor_assignments ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow public select auditor_assignments" ON public.auditor_assignments;
+CREATE POLICY "Allow public select auditor_assignments" ON public.auditor_assignments FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Allow public insert auditor_assignments" ON public.auditor_assignments;
+CREATE POLICY "Allow public insert auditor_assignments" ON public.auditor_assignments FOR INSERT WITH CHECK (true);
+DROP POLICY IF EXISTS "Allow public delete auditor_assignments" ON public.auditor_assignments;
+CREATE POLICY "Allow public delete auditor_assignments" ON public.auditor_assignments FOR DELETE USING (true);`;
+                                                navigator.clipboard.writeText(sqlText);
+                                                setCopiedSql(true);
+                                                setTimeout(() => setCopiedSql(false), 2500);
+                                            }}
+                                            className="absolute top-3 right-3 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-lg font-sans text-[10px] font-bold flex items-center gap-1.5 transition-all border border-slate-700 active:scale-95"
+                                        >
+                                            {copiedSql ? (
+                                                <>
+                                                    <Check size={12} className="text-emerald-400" />
+                                                    <span>Copied!</span>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <Copy size={12} />
+                                                    <span>Copy SQL</span>
+                                                </>
+                                            )}
+                                        </button>
+                                        <pre className="pt-2">
+{`-- Step 1: Ensure all required system tables exist safely
+
+CREATE TABLE IF NOT EXISTS public.audit_submissions (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    hotel_id VARCHAR(100) NOT NULL,
+    item_id VARCHAR(100) NOT NULL,
+    value TEXT,
+    is_na BOOLEAN DEFAULT false,
+    score NUMERIC,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    UNIQUE(hotel_id, item_id)
+);
+
+CREATE TABLE IF NOT EXISTS public.audit_users (
+    id UUID PRIMARY KEY,
+    email VARCHAR(255),
+    full_name VARCHAR(255),
+    role VARCHAR(50) DEFAULT 'auditor',
+    access_level VARCHAR(50) DEFAULT 'single_property',
+    hotel_id VARCHAR(100),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS public.auditor_assignments (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    user_id VARCHAR(255) NOT NULL,
+    hotel_id VARCHAR(100) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS public.auditor_category_assignments (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    user_id VARCHAR(255) NOT NULL,
+    category_id UUID NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    UNIQUE(user_id, category_id)
+);
+
+-- Enable RLS and add public access policies
+ALTER TABLE public.auditor_assignments ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow public select auditor_assignments" ON public.auditor_assignments;
+CREATE POLICY "Allow public select auditor_assignments" ON public.auditor_assignments FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Allow public insert auditor_assignments" ON public.auditor_assignments;
+CREATE POLICY "Allow public insert auditor_assignments" ON public.auditor_assignments FOR INSERT WITH CHECK (true);
+DROP POLICY IF EXISTS "Allow public delete auditor_assignments" ON public.auditor_assignments;
+CREATE POLICY "Allow public delete auditor_assignments" ON public.auditor_assignments FOR DELETE USING (true);
+
+CREATE TABLE IF NOT EXISTS public.audit_checklist_groups (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    description TEXT,
+    category_ids TEXT[] DEFAULT '{}',
+    item_ids TEXT[] DEFAULT '{}',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS public.audit_group_hotels (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    group_id UUID NOT NULL REFERENCES audit_checklist_groups(id) ON DELETE CASCADE,
+    hotel_id VARCHAR(100) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    UNIQUE(group_id, hotel_id)
+);
+
+CREATE TABLE IF NOT EXISTS public.audit_item_locks (
+    hotel_id VARCHAR(100) NOT NULL,
+    item_id VARCHAR(100) NOT NULL,
+    locked_by_name VARCHAR(255) NOT NULL,
+    locked_by_email VARCHAR(255) NOT NULL,
+    locked_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    PRIMARY KEY (hotel_id, item_id)
+);
+
+-- Step 2: Create performance indexes on filtered query columns
+
+-- 1. Submissions indexes for fast hotel & item lookups
+CREATE INDEX IF NOT EXISTS idx_audit_submissions_hotel_id ON public.audit_submissions(hotel_id);
+CREATE INDEX IF NOT EXISTS idx_audit_submissions_item_id ON public.audit_submissions(item_id);
+CREATE INDEX IF NOT EXISTS idx_audit_submissions_hotel_item ON public.audit_submissions(hotel_id, item_id);
+
+-- 2. User management & role access indexes
+CREATE INDEX IF NOT EXISTS idx_audit_users_email ON public.audit_users(email);
+CREATE INDEX IF NOT EXISTS idx_audit_users_access_level ON public.audit_users(access_level);
+CREATE INDEX IF NOT EXISTS idx_audit_users_role ON public.audit_users(role);
+
+-- 3. Auditor assignment indexes
+CREATE INDEX IF NOT EXISTS idx_auditor_assignments_user_id ON public.auditor_assignments(user_id);
+CREATE INDEX IF NOT EXISTS idx_auditor_assignments_hotel_id ON public.auditor_assignments(hotel_id);
+CREATE INDEX IF NOT EXISTS idx_auditor_category_assignments_user_id ON public.auditor_category_assignments(user_id);
+CREATE INDEX IF NOT EXISTS idx_auditor_category_assignments_cat_id ON public.auditor_category_assignments(category_id);
+
+-- 4. Checklist groups & hotel junction indexes
+CREATE INDEX IF NOT EXISTS idx_audit_group_hotels_group_id ON public.audit_group_hotels(group_id);
+CREATE INDEX IF NOT EXISTS idx_audit_group_hotels_hotel_id ON public.audit_group_hotels(hotel_id);
+
+-- 5. Audit item lock indexes
+CREATE INDEX IF NOT EXISTS idx_audit_item_locks_hotel_item ON public.audit_item_locks(hotel_id, item_id);`}
+                                        </pre>
+                                    </div>
+                                </>
+                            )}
+
+                            <div className="bg-indigo-950/40 border border-indigo-800/40 rounded-2xl p-4 space-y-1 text-slate-300">
+                                <h4 className="font-bold text-indigo-300 text-xs flex items-center gap-1.5">
+                                    <CheckCircle2 size={14} className="text-indigo-400" />
+                                    Note on Offline & Local Fallback
+                                </h4>
+                                <p className="text-[11px] text-slate-400 leading-relaxed">
+                                    Even before running this SQL script in Supabase, groups and assignments work immediately in local browser storage fallback! Once you execute the SQL script in your Supabase dashboard, all groups and associations will seamlessly synchronize dynamically across your live environment.
+                                </p>
+                            </div>
+
+                            <div className="space-y-3 mt-6 border-t border-slate-800 pt-6">
+                                <h4 className="font-bold text-slate-200 text-sm flex items-center gap-2">
+                                    <span className="bg-emerald-900/50 text-emerald-400 w-5 h-5 rounded-full flex items-center justify-center text-[10px]">3</span>
+                                    Document Storage Bucket
+                                </h4>
+                                <p className="text-xs text-slate-400 leading-relaxed">
+                                    Execute this script to create the <strong className="text-emerald-400">documents</strong> storage bucket, enabling file uploads during the audit.
+                                </p>
+                                <pre className="bg-slate-900/80 p-4 rounded-xl text-[11px] font-mono text-emerald-300/90 whitespace-pre-wrap border border-slate-800/80 overflow-x-auto shadow-inner leading-relaxed">
+{`-- Create 'documents' bucket if it doesn't exist
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('documents', 'documents', true)
+ON CONFLICT (id) DO NOTHING;
+
+-- Allow public access
+CREATE POLICY "Public Access" ON storage.objects FOR SELECT USING ( bucket_id = 'documents' );
+CREATE POLICY "Public Uploads" ON storage.objects FOR INSERT WITH CHECK ( bucket_id = 'documents' );
+CREATE POLICY "Public Update" ON storage.objects FOR UPDATE USING ( bucket_id = 'documents' );
+CREATE POLICY "Public Delete" ON storage.objects FOR DELETE USING ( bucket_id = 'documents' );`}
+                                </pre>
+                            </div>
+                        </div>
+
+                        <div className="p-4 bg-slate-950/60 border-t border-slate-800 flex justify-end">
+                            <button
+                                onClick={() => setShowSqlModal(false)}
+                                className="px-6 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl transition-all active:scale-95"
+                            >
+                                Done
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Active Properties stats details modal */}
+            {statsModalType && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-fadeIn">
+                    <div className="bg-white w-full max-w-lg p-6 rounded-3xl border border-slate-200 shadow-xl relative animate-scaleUp">
+                        <button 
+                            onClick={() => setStatsModalType(null)}
+                            className="absolute top-4 right-4 p-2 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100 transition-all"
+                        >
+                            <X size={18} />
+                        </button>
+
+                        <h3 className="text-lg font-bold text-slate-900 mb-1 flex items-center gap-2">
+                            <span className={`w-2.5 h-2.5 rounded-full ${statsModalType === 'auditees' ? 'bg-rose-500 animate-pulse' : 'bg-amber-500 animate-pulse'}`}></span>
+                            {statsModalType === 'auditees' ? 'Hotels without Auditees' : 'Hotels without Brand Leads'}
+                        </h3>
+                        <p className="text-xs text-slate-500 mb-6 font-medium">
+                            {statsModalType === 'auditees' 
+                                ? 'The following properties currently do not have any registered or onboarded auditee user accounts.' 
+                                : 'The following properties currently do not have a designated Brand Lead assigned.'}
+                        </p>
+
+                        <div className="space-y-4">
+                            {/* Copy button */}
+                            <div className="flex justify-end">
+                                <button
+                                    onClick={() => {
+                                        const matchingHotels = hotels.filter(hotel => {
+                                            if (hotel.id === 'sbi-test' || hotel.id === 'sbi-dummy') return false;
+                                            const matches = statsModalType === 'auditees' ? !profilesList.some(p => {
+                                                const isAuditee = p.access_level !== 'admin' && p.access_level !== 'auditor';
+                                                if (!isAuditee) return false;
+
+                                                const hotelIdLower = String(hotel.id).toLowerCase();
+                                                const hotelCodeLower = hotel.code ? String(hotel.code).toLowerCase() : '';
+                                                const hotelNameLower = hotel.name ? String(hotel.name).toLowerCase() : '';
+
+                                                const pIdLower = p.hotel_id ? String(p.hotel_id).toLowerCase() : '';
+                                                const pCodeLower = p.hotel_code ? String(p.hotel_code).toLowerCase() : '';
+                                                const pNameLower = p.hotel_name ? String(p.hotel_name).toLowerCase() : '';
+
+                                                const pIds = p.hotel_id ? String(p.hotel_id).split(',').map((s: string) => s.trim().toLowerCase()) : [];
+
+                                                const matchesId = pIds.includes(hotelIdLower) || pIdLower === hotelIdLower;
+                                                const matchesCode = hotelCodeLower && pCodeLower === hotelCodeLower;
+                                                const matchesName = hotelNameLower && pNameLower === hotelNameLower;
+
+                                                return matchesId || matchesCode || matchesName;
+                                            }) : !profilesList.some(p => {
+                                                const isBrandLead = !!p.is_brand_audit_lead;
+                                                if (!isBrandLead) return false;
+
+                                                const hotelIdLower = String(hotel.id).toLowerCase();
+                                                const hotelCodeLower = hotel.code ? String(hotel.code).toLowerCase() : '';
+                                                const hotelNameLower = hotel.name ? String(hotel.name).toLowerCase() : '';
+
+                                                const pIdLower = p.hotel_id ? String(p.hotel_id).toLowerCase() : '';
+                                                const pCodeLower = p.hotel_code ? String(p.hotel_code).toLowerCase() : '';
+                                                const pNameLower = p.hotel_name ? String(p.hotel_name).toLowerCase() : '';
+
+                                                const pIds = p.hotel_id ? String(p.hotel_id).split(',').map((s: string) => s.trim().toLowerCase()) : [];
+
+                                                const matchesId = pIds.includes(hotelIdLower) || pIdLower === hotelIdLower;
+                                                const matchesCode = hotelCodeLower && pCodeLower === hotelCodeLower;
+                                                const matchesName = hotelNameLower && pNameLower === hotelNameLower;
+
+                                                return matchesId || matchesCode || matchesName;
+                                            });
+                                            return matches;
+                                        });
+
+                                        const textToCopy = matchingHotels.map(h => `- ${h.name}${h.code ? ` (#${h.code})` : ''}`).join('\n');
+                                        navigator.clipboard.writeText(textToCopy);
+                                        setStatsModalCopied(true);
+                                        setTimeout(() => setStatsModalCopied(false), 2000);
+                                    }}
+                                    className={`px-4 py-2 text-xs font-bold rounded-xl shadow-sm border transition-all flex items-center gap-1.5 active:scale-95 ${
+                                        statsModalCopied 
+                                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200' 
+                                            : 'bg-indigo-50 hover:bg-indigo-100/60 text-indigo-700 border-indigo-100'
+                                    }`}
+                                >
+                                    {statsModalCopied ? (
+                                        <>
+                                            <Check size={13} />
+                                            <span>Copied List!</span>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Copy size={13} />
+                                            <span>Copy Hotel List</span>
+                                        </>
+                                    )}
+                                </button>
+                            </div>
+
+                            {/* Hotel list container */}
+                            <div className="border border-slate-100 rounded-2xl bg-slate-50/50 max-h-[300px] overflow-y-auto divide-y divide-slate-100">
+                                {(() => {
+                                    const filteredList = hotels.filter(hotel => {
+                                        if (hotel.id === 'sbi-test' || hotel.id === 'sbi-dummy') return false;
+                                        const matches = statsModalType === 'auditees' ? !profilesList.some(p => {
+                                            const isAuditee = p.access_level !== 'admin' && p.access_level !== 'auditor';
+                                            if (!isAuditee) return false;
+
+                                            const hotelIdLower = String(hotel.id).toLowerCase();
+                                            const hotelCodeLower = hotel.code ? String(hotel.code).toLowerCase() : '';
+                                            const hotelNameLower = hotel.name ? String(hotel.name).toLowerCase() : '';
+
+                                            const pIdLower = p.hotel_id ? String(p.hotel_id).toLowerCase() : '';
+                                            const pCodeLower = p.hotel_code ? String(p.hotel_code).toLowerCase() : '';
+                                            const pNameLower = p.hotel_name ? String(p.hotel_name).toLowerCase() : '';
+
+                                            const pIds = p.hotel_id ? String(p.hotel_id).split(',').map((s: string) => s.trim().toLowerCase()) : [];
+
+                                            const matchesId = pIds.includes(hotelIdLower) || pIdLower === hotelIdLower;
+                                            const matchesCode = hotelCodeLower && pCodeLower === hotelCodeLower;
+                                            const matchesName = hotelNameLower && pNameLower === hotelNameLower;
+
+                                            return matchesId || matchesCode || matchesName;
+                                        }) : !profilesList.some(p => {
+                                            const isBrandLead = !!p.is_brand_audit_lead;
+                                            if (!isBrandLead) return false;
+
+                                            const hotelIdLower = String(hotel.id).toLowerCase();
+                                            const hotelCodeLower = hotel.code ? String(hotel.code).toLowerCase() : '';
+                                            const hotelNameLower = hotel.name ? String(hotel.name).toLowerCase() : '';
+
+                                            const pIdLower = p.hotel_id ? String(p.hotel_id).toLowerCase() : '';
+                                            const pCodeLower = p.hotel_code ? String(p.hotel_code).toLowerCase() : '';
+                                            const pNameLower = p.hotel_name ? String(p.hotel_name).toLowerCase() : '';
+
+                                            const pIds = p.hotel_id ? String(p.hotel_id).split(',').map((s: string) => s.trim().toLowerCase()) : [];
+
+                                            const matchesId = pIds.includes(hotelIdLower) || pIdLower === hotelIdLower;
+                                            const matchesCode = hotelCodeLower && pCodeLower === hotelCodeLower;
+                                            const matchesName = hotelNameLower && pNameLower === hotelNameLower;
+
+                                            return matchesId || matchesCode || matchesName;
+                                        });
+                                        return matches;
+                                    });
+
+                                    if (filteredList.length === 0) {
+                                        return (
+                                            <div className="p-8 text-center text-slate-400 text-xs font-semibold">
+                                                All active properties have been successfully assigned!
+                                            </div>
+                                        );
+                                    }
+
+                                    return filteredList.map((hotel) => (
+                                        <div key={hotel.id} className="p-3.5 flex items-center justify-between hover:bg-slate-50 transition-colors">
+                                            <div className="flex-1 min-w-0">
+                                                <p className="text-xs font-bold text-slate-800 truncate">{hotel.name}</p>
+                                                <p className="text-[10px] text-slate-400 font-medium mt-0.5">{hotel.location || 'Unknown Location'}</p>
+                                            </div>
+                                            {hotel.code && (
+                                                <span className="font-mono text-[10px] font-bold text-indigo-600 bg-indigo-50/75 border border-indigo-100 px-2 py-0.5 rounded-lg shrink-0">
+                                                    #{hotel.code}
+                                                </span>
+                                            )}
+                                        </div>
+                                    ));
+                                })()}
+                            </div>
+                        </div>
+
+                        <div className="mt-6 flex justify-end">
+                            <button
+                                onClick={() => setStatsModalType(null)}
+                                className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-all active:scale-95"
+                            >
+                                Close
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}

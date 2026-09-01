@@ -1,6 +1,6 @@
 import { Lock, Mail, ShieldCheck, ArrowRight, Sparkles, Building2, X } from 'lucide-react';
 import { useState, useEffect } from 'react';
-import { supabase, clearStaleAuthSession } from '../lib/supabase';
+import { supabase } from '../lib/supabase';
 
 export default function LoginScreen({ onLogin, onAdminAccess }: { onLogin: () => void, onAdminAccess: () => void }) {
   const [isLoading, setIsLoading] = useState(false);
@@ -63,11 +63,9 @@ export default function LoginScreen({ onLogin, onAdminAccess }: { onLogin: () =>
                               onLogin();
                           } else {
                               console.error("Error setting session:", error);
-                              await clearStaleAuthSession();
                           }
                       } catch (e) {
                           console.error("Session configuration error:", e);
-                          await clearStaleAuthSession();
                       } finally {
                           setIsLoading(false);
                       }
@@ -254,7 +252,7 @@ export default function LoginScreen({ onLogin, onAdminAccess }: { onLogin: () =>
               <div className="flex justify-center gap-2">
                  {[...Array(6)].map((_, i) => (
                      <div key={i} className={`w-10 h-10 rounded-xl border-2 flex items-center justify-center text-xl font-bold ${pin[i] ? 'border-indigo-600 bg-indigo-50 text-indigo-900' : 'border-slate-200'}`}>
-                       {pin[i] ? '*' : ''}
+                       {pin[i] ? '•' : ''}
                      </div>
                  ))}
               </div>
