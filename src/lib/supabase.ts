@@ -10,3 +10,34 @@ export const HOTELS_KEY = (import.meta as any).env.HOTELS_SUPABASE_ANON_KEY || '
 const supabaseUrl = rawUrl.replace(/\/rest\/v1\/?$/, '').trim();
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+export const clearStaleAuthSession = async () => {
+  try {
+    await supabase.auth.signOut({ scope: 'local' });
+  } catch (e) {
+    // Ignore signout errors
+  }
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      Object.keys(localStorage).forEach((key) => {
+        if (key.startsWith('sb-') || key.includes('supabase') || key.includes('auth-token')) {
+          localStorage.removeItem(key);
+        }
+      });
+    }
+  } catch (e) {
+    // Ignore storage errors
+  }
+};
+
+// Global listener to gracefully intercept Supabase invalid refresh token errors
+if (typeof window !== 'undefined') {
+  window.addEventListener('unhandledrejection', (event) => {
+    const reasonStr = String(event.reason?.message || event.reason || '');
+    if (reasonStr.includes('Refresh Token Not Found') || reasonStr.includes('Invalid Refresh Token')) {
+      console.warn('Intercepted invalid refresh token error, purging stale auth state.');
+      event.preventDefault();
+      clearStaleAuthSession();
+    }
+  });
+}

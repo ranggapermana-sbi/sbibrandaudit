@@ -1,6 +1,6 @@
 import { Lock, Mail, ShieldCheck, ArrowRight, Sparkles, Building2, X } from 'lucide-react';
 import { useState, useEffect } from 'react';
-import { supabase } from '../lib/supabase';
+import { supabase, clearStaleAuthSession } from '../lib/supabase';
 
 export default function LoginScreen({ onLogin, onAdminAccess }: { onLogin: () => void, onAdminAccess: () => void }) {
   const [isLoading, setIsLoading] = useState(false);
@@ -63,9 +63,11 @@ export default function LoginScreen({ onLogin, onAdminAccess }: { onLogin: () =>
                               onLogin();
                           } else {
                               console.error("Error setting session:", error);
+                              await clearStaleAuthSession();
                           }
                       } catch (e) {
                           console.error("Session configuration error:", e);
+                          await clearStaleAuthSession();
                       } finally {
                           setIsLoading(false);
                       }

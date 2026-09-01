@@ -15,7 +15,7 @@ import BrandingPropertyIdentificationScreen from './components/BrandingPropertyI
 import AdminPanelScreen from './components/AdminPanelScreen';
 import PendingApprovalScreen from './components/PendingApprovalScreen';
 import SelectHotelScreen from './components/SelectHotelScreen';
-import { supabase } from './lib/supabase';
+import { supabase, clearStaleAuthSession } from './lib/supabase';
 import { Loader2 } from 'lucide-react';
 
 export default function App() {
@@ -201,12 +201,45 @@ export default function App() {
   useEffect(() => {
     let isMounted = true;
 
+    // Safely check initial session and handle invalid refresh tokens
+    const initSession = async () => {
+      try {
+        const { data: { session }, error } = await supabase.auth.getSession();
+        if (!isMounted) return;
+
+        if (error) {
+          console.warn("Supabase auth session error (clearing invalid refresh token):", error.message);
+          await clearStaleAuthSession();
+          setUserProfile(null);
+          setCurrentScreen(prev => prev === 'adminPanel' ? 'adminPanel' : 'login');
+          setIsLoadingSession(false);
+          return;
+        }
+
+        if (session) {
+          checkProfileOnboarding(session);
+        } else {
+          setUserProfile(null);
+          setCurrentScreen(prev => prev === 'adminPanel' ? 'adminPanel' : 'login');
+          setIsLoadingSession(false);
+        }
+      } catch (err: any) {
+        console.warn("Caught session error:", err);
+        if (isMounted) {
+          await clearStaleAuthSession();
+          setUserProfile(null);
+          setCurrentScreen(prev => prev === 'adminPanel' ? 'adminPanel' : 'login');
+          setIsLoadingSession(false);
+        }
+      }
+    };
+
+    initSession();
+
     // Listen for auth state transitions dynamically
-    // Note: onAuthStateChange fires immediately with INITIAL_SESSION or SIGNED_IN upon subscription
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (!isMounted) return;
 
-      // Skip duplicate profile checks on routine background token refresh if profile is already active
       if (event === 'TOKEN_REFRESHED' && userProfile && session?.user?.id === userProfile.id) {
         return;
       }
@@ -214,8 +247,10 @@ export default function App() {
       if (session) {
         checkProfileOnboarding(session);
       } else {
+        if (event === 'SIGNED_OUT') {
+          await clearStaleAuthSession();
+        }
         setUserProfile(null);
-        // Only kick to login screen if they aren't on adminPanel
         setCurrentScreen(prev => prev === 'adminPanel' ? 'adminPanel' : 'login');
         setIsLoadingSession(false);
       }
@@ -260,7 +295,7 @@ export default function App() {
 
   const handleLogout = async () => {
     setIsLoadingSession(true);
-    await supabase.auth.signOut();
+    await clearStaleAuthSession();
     sessionStorage.removeItem('sbi_audit_current_screen');
     sessionStorage.removeItem('sbi_audit_selected_category');
     sessionStorage.removeItem('sbi_audit_active_hotel');
