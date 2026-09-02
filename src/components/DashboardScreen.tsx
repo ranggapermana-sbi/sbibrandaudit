@@ -21,6 +21,11 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
   const [auditItems, setAuditItems] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [lastSyncTime, setLastSyncTime] = useState<Date | null>(() => {
+    const cachedTime = localStorage.getItem('sbi_dashboard_last_sync');
+    return cachedTime ? new Date(cachedTime) : null;
+  });
+  const [syncSuccessMessage, setSyncSuccessMessage] = useState<string | null>(null);
   const [assignedBatches, setAssignedBatches] = useState<any[]>([]);
   const [isFetchingBatches, setIsFetchingBatches] = useState(false);
   const [expandedDepts, setExpandedDepts] = useState<Record<string, boolean>>({});
@@ -344,12 +349,21 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
     }
   };
 
-  const fetchAuditItems = async (showSyncIndicator = false) => {
+  const fetchAuditItems = async (showSyncIndicator = false, forceRefresh = false) => {
     if (showSyncIndicator) {
       setIsSyncing(true);
     } else {
       setIsLoading(true);
     }
+
+    if (forceRefresh) {
+      // Invalidate relevant cache keys for fresh database synchronization
+      apiCache.invalidate('dashboard_');
+      apiCache.invalidate('audit_items');
+      apiCache.invalidate('audit_categories');
+      apiCache.invalidate('audit_departments');
+    }
+
     try {
       // 1. Fetch hotels
       let hotels: any[] = [];
@@ -373,7 +387,7 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
             }
           }
           return [];
-        });
+        }, { forceRefresh });
       } catch (err) {
         console.warn("Could not fetch hotels in dashboard:", err);
       }
@@ -386,16 +400,16 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
           .order('sort_order', { ascending: true });
         if (error) throw error;
         return data || [];
-      });
+      }, { forceRefresh });
 
       // 3. Fetch items
       const itemsData = await apiCache.getOrFetch<any[]>('dashboard_items', async () => {
         const { data, error } = await supabase
           .from('audit_items')
-          .select('id, name, points, category_id, department_id, sort_order, filled_by_hotel, audit_departments(name), audit_categories(name, sort_order)');
+          .select('id, name, points, category_id, department_id, sort_order, filled_by_hotel, input_type, min_value, audit_departments(name), audit_categories(name, sort_order)');
         if (error) throw error;
         return data || [];
-      });
+      }, { forceRefresh });
 
       // 4. Determine target hotel identifiers
       const isAuditee = !!userProfile && userProfile.access_level !== 'admin' && userProfile.access_level !== 'auditor';
@@ -426,7 +440,7 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
           const { data: gData } = await supabase.from('audit_checklist_groups').select('*');
           const { data: ghData } = await supabase.from('audit_group_hotels').select('*');
           return { groupsData: gData || [], groupHotelsData: ghData || [] };
-        });
+        }, { forceRefresh });
 
         const groupsData = groupsResult.groupsData;
         const groupHotelsData = groupsResult.groupHotelsData;
@@ -644,6 +658,17 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
       setRemainingTasks(totalT - completedT);
       setTotalPoints(totalP);
       setCompletedPoints(completedP);
+
+      const now = new Date();
+      setLastSyncTime(now);
+      try {
+        localStorage.setItem('sbi_dashboard_last_sync', now.toISOString());
+      } catch (e) {}
+
+      if (forceRefresh) {
+        setSyncSuccessMessage(`Successfully synced ${sortedData.length} items from database`);
+        setTimeout(() => setSyncSuccessMessage(null), 3500);
+      }
     } catch (err) {
       console.error('Error fetching audit items:', err);
     } finally {
@@ -1055,33 +1080,70 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
         </section>
 
         <section>
+            {/* Sync Success / Info Toast */}
+            {syncSuccessMessage && (
+                <div className="mb-3 p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800 text-xs font-bold flex items-center justify-between shadow-xs animate-in fade-in slide-in-from-top-2 duration-200">
+                    <div className="flex items-center gap-2">
+                        <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
+                        <span>{syncSuccessMessage}</span>
+                    </div>
+                    <button 
+                        onClick={() => setSyncSuccessMessage(null)}
+                        className="text-emerald-600 hover:text-emerald-800 p-0.5 rounded"
+                    >
+                        <X size={14} />
+                    </button>
+                </div>
+            )}
+
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3 sm:mb-5">
                 <div className="flex flex-col gap-0.5 sm:gap-1">
-                    <h3 className="text-lg sm:text-2xl font-extrabold text-slate-950 tracking-tight flex items-center gap-2">
-                        <span className="w-1.5 sm:w-2 h-5 sm:h-6 bg-indigo-600 rounded-full" />
-                        Audit Checklist Directory
-                    </h3>
+                    <div className="flex items-center gap-2.5 flex-wrap">
+                        <h3 className="text-lg sm:text-2xl font-extrabold text-slate-950 tracking-tight flex items-center gap-2">
+                            <span className="w-1.5 sm:w-2 h-5 sm:h-6 bg-indigo-600 rounded-full" />
+                            Audit Checklist Directory
+                        </h3>
+                        {lastSyncTime && (
+                            <span className="text-[10px] font-bold text-slate-400 bg-slate-100 border border-slate-200/70 px-2 py-0.5 rounded-md hidden md:inline-flex items-center gap-1">
+                                <Clock size={10} className="text-slate-400" />
+                                Cached {lastSyncTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                        )}
+                    </div>
                     <p className="text-slate-500 text-xs sm:text-sm font-medium">Organized by Department and Category</p>
                 </div>
                 
-                {!isLoading && groupedData.length > 0 && (
-                    <div className="flex items-center gap-2 flex-wrap">
-                        <button 
-                            onClick={() => expandAll(filteredGroupedData)}
-                            className="p-1 sm:p-1.5 px-2.5 sm:px-3 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-full text-[10px] sm:text-[11px] font-bold transition-all flex items-center gap-1 sm:gap-1.5 outline-none active:scale-95 border border-indigo-100/30"
-                        >
-                            <Maximize2 size={11} />
-                            Expand All
-                        </button>
-                        <button 
-                            onClick={collapseAll}
-                            className="p-1 sm:p-1.5 px-2.5 sm:px-3 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-full text-[10px] sm:text-[11px] font-bold transition-all flex items-center gap-1 sm:gap-1.5 outline-none active:scale-95 border border-slate-200/50"
-                        >
-                            <Minimize2 size={11} />
-                            Collapse All
-                        </button>
-                    </div>
-                )}
+                <div className="flex items-center gap-2 flex-wrap">
+                    {/* Sync with DB Button */}
+                    <button 
+                        onClick={() => fetchAuditItems(true, true)}
+                        disabled={isSyncing || isLoading}
+                        title="Fetch fresh data from database and update local cache"
+                        className="p-1.5 sm:p-2 px-3 sm:px-3.5 bg-white hover:bg-slate-50 text-indigo-700 hover:text-indigo-800 border border-indigo-200/90 hover:border-indigo-300 rounded-xl text-[11px] sm:text-xs font-bold transition-all flex items-center gap-1.5 shadow-2xs active:scale-95 disabled:opacity-50 disabled:pointer-events-none cursor-pointer"
+                    >
+                        <RefreshCw size={13} className={`${isSyncing ? 'animate-spin text-indigo-600' : 'text-indigo-600'}`} />
+                        <span>{isSyncing ? 'Syncing DB...' : 'Sync DB'}</span>
+                    </button>
+
+                    {!isLoading && groupedData.length > 0 && (
+                        <>
+                            <button 
+                                onClick={() => expandAll(filteredGroupedData)}
+                                className="p-1.5 sm:p-2 px-3 sm:px-3.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-xl text-[11px] sm:text-xs font-bold transition-all flex items-center gap-1.5 outline-none active:scale-95 border border-indigo-100/60 cursor-pointer"
+                            >
+                                <Maximize2 size={12} />
+                                <span className="hidden xs:inline">Expand All</span>
+                            </button>
+                            <button 
+                                onClick={collapseAll}
+                                className="p-1.5 sm:p-2 px-3 sm:px-3.5 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-xl text-[11px] sm:text-xs font-bold transition-all flex items-center gap-1.5 outline-none active:scale-95 border border-slate-200/60 cursor-pointer"
+                            >
+                                <Minimize2 size={12} />
+                                <span className="hidden xs:inline">Collapse All</span>
+                            </button>
+                        </>
+                    )}
+                </div>
             </div>
 
             {/* Search Filter Bar */}
