@@ -2447,11 +2447,49 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             }
 
             const submissionsMap: Record<string, any> = {};
+            const dbScores: Record<string, any> = {};
+            const dbComments: Record<string, string> = {};
+
             (subsData || []).forEach(sub => {
                 if (sub && sub.item_id !== undefined && sub.item_id !== null) {
-                    submissionsMap[sub.item_id] = sub;
+                    const itemIdStr = String(sub.item_id);
+                    const hIdStr = String(sub.hotel_id || '');
+                    submissionsMap[itemIdStr] = sub;
+
+                    if (sub.score !== undefined && sub.score !== null) {
+                        dbScores[`${hIdStr}_${itemIdStr}`] = sub.score;
+                        if (currentHotel) {
+                            dbScores[`${currentHotel.id}_${itemIdStr}`] = sub.score;
+                            if (currentHotel.code) dbScores[`${currentHotel.code}_${itemIdStr}`] = sub.score;
+                        }
+                        dbScores[itemIdStr] = sub.score;
+                    } else if (sub.is_na === true || String(sub.is_na) === 'true') {
+                        dbScores[`${hIdStr}_${itemIdStr}`] = 'N/A';
+                        if (currentHotel) {
+                            dbScores[`${currentHotel.id}_${itemIdStr}`] = 'N/A';
+                            if (currentHotel.code) dbScores[`${currentHotel.code}_${itemIdStr}`] = 'N/A';
+                        }
+                        dbScores[itemIdStr] = 'N/A';
+                    }
+
+                    const noteText = (sub.auditor_notes || sub.auditor_remarks || '').trim();
+                    if (noteText) {
+                        dbComments[`${hIdStr}_${itemIdStr}`] = noteText;
+                        if (currentHotel) {
+                            dbComments[`${currentHotel.id}_${itemIdStr}`] = noteText;
+                            if (currentHotel.code) dbComments[`${currentHotel.code}_${itemIdStr}`] = noteText;
+                        }
+                        dbComments[itemIdStr] = noteText;
+                    }
                 }
             });
+
+            if (Object.keys(dbScores).length > 0) {
+                setInspectionScores(prev => ({ ...prev, ...dbScores }));
+            }
+            if (Object.keys(dbComments).length > 0) {
+                setInspectionComments(prev => ({ ...prev, ...dbComments }));
+            }
 
             // ALSO check localStorage for any client-side saved property submissions
             try {
@@ -2561,24 +2599,138 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         }
     };
 
-    const saveInspectionScore = (hotelId: string, itemId: string, score: number | string | undefined) => {
+    const saveInspectionScore = async (hotelOrId: any, itemId: string, score: number | string | undefined) => {
+        const hotelObj = typeof hotelOrId === 'object' ? hotelOrId : hotels.find(h => String(h.id) === String(hotelOrId) || String(h.code).toLowerCase() === String(hotelOrId).toLowerCase());
+        const primaryId = typeof hotelOrId === 'string' ? hotelOrId : (hotelOrId?.id || selectedInspectionHotelId);
+        const sub = hotelSubmissions[itemId];
+        const subHotelId = sub?.hotel_id;
+
+        const possibleHotelIds = Array.from(new Set([
+            String(primaryId),
+            hotelObj?.id ? String(hotelObj.id) : '',
+            hotelObj?.code ? String(hotelObj.code) : '',
+            subHotelId ? String(subHotelId) : ''
+        ].filter(Boolean)));
+
         const updated = { ...inspectionScores };
-        if (score === undefined) {
-            delete updated[`${hotelId}_${itemId}`];
-        } else {
-            updated[`${hotelId}_${itemId}`] = score;
-        }
+        possibleHotelIds.forEach(hId => {
+            const k = `${hId}_${itemId}`;
+            if (score === undefined) {
+                delete updated[k];
+            } else {
+                updated[k] = score;
+            }
+        });
+        if (score === undefined) delete updated[itemId]; else updated[itemId] = score;
+
         setInspectionScores(updated);
         localStorage.setItem('sbi_inspection_scores', JSON.stringify(updated));
+        window.dispatchEvent(new Event('sbi_inspection_updated'));
+
+        // Save directly to Supabase audit_submissions table across all target hotel IDs
+        try {
+            const isNA = score === 'N/A' || score === 'na' || score === 'NA';
+            const numScore = typeof score === 'number' ? score : (score !== undefined && score !== null && !isNaN(Number(score)) && String(score) !== '' ? Number(score) : (score === 'PASS' || score === 'pass' ? 5 : null));
+
+            const existingComment = (inspectionComments[`${primaryId}_${itemId}`] || inspectionComments[itemId] || sub?.auditor_notes || sub?.auditor_remarks || '').trim();
+
+            for (const hId of possibleHotelIds) {
+                const payload: any = {
+                    hotel_id: hId,
+                    item_id: String(itemId),
+                    score: isNA ? null : numScore,
+                    is_na: isNA,
+                    updated_at: new Date().toISOString()
+                };
+                if (existingComment) {
+                    payload.auditor_notes = existingComment;
+                    payload.auditor_remarks = existingComment;
+                }
+
+                const { error } = await supabase.from('audit_submissions').upsert(payload, { onConflict: 'hotel_id,item_id' });
+                if (error) {
+                    await supabase.from('audit_submissions').upsert({
+                        hotel_id: hId,
+                        item_id: String(itemId),
+                        score: isNA ? null : numScore,
+                        is_na: isNA,
+                        updated_at: new Date().toISOString()
+                    }, { onConflict: 'hotel_id,item_id' });
+                }
+            }
+        } catch (dbErr) {
+            console.warn("Could not persist inspection score to Supabase DB:", dbErr);
+        }
     };
 
-    const saveInspectionComment = (hotelId: string, itemId: string, comment: string) => {
-        const updated = {
-            ...inspectionComments,
-            [`${hotelId}_${itemId}`]: comment
-        };
+    const saveInspectionComment = async (hotelOrId: any, itemId: string, comment: string) => {
+        const hotelObj = typeof hotelOrId === 'object' ? hotelOrId : hotels.find(h => String(h.id) === String(hotelOrId) || String(h.code).toLowerCase() === String(hotelOrId).toLowerCase());
+        const primaryId = typeof hotelOrId === 'string' ? hotelOrId : (hotelOrId?.id || selectedInspectionHotelId);
+        const sub = hotelSubmissions[itemId];
+        const subHotelId = sub?.hotel_id;
+
+        const possibleHotelIds = Array.from(new Set([
+            String(primaryId),
+            hotelObj?.id ? String(hotelObj.id) : '',
+            hotelObj?.code ? String(hotelObj.code) : '',
+            subHotelId ? String(subHotelId) : ''
+        ].filter(Boolean)));
+
+        const trimmed = comment.trim();
+        const updated = { ...inspectionComments };
+        possibleHotelIds.forEach(hId => {
+            const k = `${hId}_${itemId}`;
+            if (!trimmed) {
+                delete updated[k];
+            } else {
+                updated[k] = comment;
+            }
+        });
+        if (!trimmed) delete updated[itemId]; else updated[itemId] = comment;
+
         setInspectionComments(updated);
         localStorage.setItem('sbi_inspection_comments', JSON.stringify(updated));
+        window.dispatchEvent(new Event('sbi_inspection_updated'));
+
+        // Save directly to Supabase audit_submissions table with schema error fallback
+        try {
+            const currentScore = inspectionScores[`${primaryId}_${itemId}`] ?? inspectionScores[itemId] ?? sub?.score;
+            const isNA = currentScore === 'N/A' || currentScore === 'na' || currentScore === 'NA' || sub?.is_na;
+            const numScore = typeof currentScore === 'number' ? currentScore : (currentScore !== undefined && currentScore !== null && !isNaN(Number(currentScore)) && String(currentScore) !== '' ? Number(currentScore) : (currentScore === 'PASS' || currentScore === 'pass' ? 5 : null));
+
+            for (const hId of possibleHotelIds) {
+                const payload: any = {
+                    hotel_id: hId,
+                    item_id: String(itemId),
+                    auditor_notes: trimmed,
+                    auditor_remarks: trimmed,
+                    updated_at: new Date().toISOString()
+                };
+                if (numScore !== null && numScore !== undefined) {
+                    payload.score = numScore;
+                }
+                if (isNA) {
+                    payload.is_na = true;
+                }
+
+                const { error } = await supabase.from('audit_submissions').upsert(payload, { onConflict: 'hotel_id,item_id' });
+
+                if (error) {
+                    try {
+                        await supabase.from('audit_submissions').upsert({
+                            hotel_id: hId,
+                            item_id: String(itemId),
+                            auditor_remarks: trimmed,
+                            updated_at: new Date().toISOString()
+                        }, { onConflict: 'hotel_id,item_id' });
+                    } catch (e) {
+                        console.warn("Fallback upsert failed:", e);
+                    }
+                }
+            }
+        } catch (dbErr) {
+            console.warn("Could not persist inspection comment to Supabase DB:", dbErr);
+        }
     };
 
     // Category Drag-and-drop state parameters
@@ -7498,10 +7650,31 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                         {/* INSPECTION CARDS */}
                                                         <div className="grid grid-cols-1 gap-3 sm:gap-4">
                                                             {catItems.map((item) => {
-                                                                const scoreKey = `${hotel.id}_${item.id}`;
-                                                                const currentScore = inspectionScores[scoreKey];
-                                                                const currentComment = inspectionComments[scoreKey] || '';
                                                                 const submission = hotelSubmissions[item.id];
+                                                                const scoreKey1 = `${hotel.id}_${item.id}`;
+                                                                const scoreKey2 = hotel?.code ? `${hotel.code}_${item.id}` : '';
+                                                                const scoreKey3 = submission?.hotel_id ? `${submission.hotel_id}_${item.id}` : '';
+
+                                                                let currentScore = inspectionScores[scoreKey1] ?? (scoreKey2 ? inspectionScores[scoreKey2] : undefined) ?? (scoreKey3 ? inspectionScores[scoreKey3] : undefined) ?? inspectionScores[item.id];
+
+                                                                if (currentScore === undefined && submission) {
+                                                                    if (submission.score !== undefined && submission.score !== null) {
+                                                                        currentScore = submission.score;
+                                                                    } else if (submission.is_na === true || String(submission.is_na) === 'true') {
+                                                                        currentScore = 'N/A';
+                                                                    }
+                                                                }
+
+                                                                let currentComment = inspectionComments[scoreKey1] || (scoreKey2 ? inspectionComments[scoreKey2] : '') || (scoreKey3 ? inspectionComments[scoreKey3] : '') || inspectionComments[item.id] || '';
+
+                                                                if (!currentComment && submission) {
+                                                                    if (submission.auditor_notes && typeof submission.auditor_notes === 'string') {
+                                                                        currentComment = submission.auditor_notes;
+                                                                    } else if (submission.auditor_remarks && typeof submission.auditor_remarks === 'string') {
+                                                                        currentComment = submission.auditor_remarks;
+                                                                    }
+                                                                }
+
                                                                 const hasSubmission = !!submission;
                                                                 const itemMaxPoints = item.points ?? 5;
                                                                 const isPass = currentScore !== undefined && (
@@ -11187,6 +11360,9 @@ CREATE TABLE IF NOT EXISTS public.auditor_category_assignments (
 );
 
 -- Migration / Safeguards for existing tables
+ALTER TABLE IF EXISTS public.audit_submissions ADD COLUMN IF NOT EXISTS auditor_notes TEXT;
+ALTER TABLE IF EXISTS public.audit_submissions ADD COLUMN IF NOT EXISTS auditor_remarks TEXT;
+ALTER TABLE IF EXISTS public.audit_submissions ADD COLUMN IF NOT EXISTS notes TEXT;
 ALTER TABLE IF EXISTS public.auditor_assignments ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL;
 ALTER TABLE IF EXISTS public.audit_batch_hotels ADD COLUMN IF NOT EXISTS id UUID DEFAULT gen_random_uuid();
 ALTER TABLE IF EXISTS public.audit_items ADD COLUMN IF NOT EXISTS options TEXT;

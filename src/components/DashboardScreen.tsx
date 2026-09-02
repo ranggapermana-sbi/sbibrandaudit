@@ -36,8 +36,6 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
   const [submissionsMap, setSubmissionsMap] = useState<Record<string, any>>({});
   const [inspectionScores, setInspectionScores] = useState<Record<string, number | string>>({});
   const [inspectionComments, setInspectionComments] = useState<Record<string, string>>({});
-  const [enlargedImage, setEnlargedImage] = useState<{ url: string; title?: string } | null>(null);
-  const [copiedDocId, setCopiedDocId] = useState<string | null>(null);
 
   // Toggle single audit item expansion
   const toggleAuditItem = (itemId: string | number) => {
@@ -46,93 +44,6 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
       ...prev,
       [key]: !prev[key]
     }));
-  };
-
-  // Helper functions for evidence and submitter details
-  const isImageInput = (type: string) => {
-    const t = (type || '').toLowerCase().trim();
-    return ['camera', 'image', 'photo', 'picture', 'img', 'gallery'].includes(t);
-  };
-
-  const splitEvidenceUrls = (value: string): string[] => {
-    if (!value) return [];
-    const urls: string[] = [];
-    const parts = value.split(',');
-    for (let i = 0; i < parts.length; i++) {
-      const part = parts[i].trim();
-      if (part.startsWith('data:image/') && part.includes(';base64')) {
-        let fullBase64 = parts[i];
-        if (i + 1 < parts.length) {
-          fullBase64 += ',' + parts[i + 1];
-          i++;
-        }
-        urls.push(fullBase64.trim());
-      } else if (part) {
-        urls.push(part);
-      }
-    }
-    return urls;
-  };
-
-  const safeFormatDateTime = (dateStr: any) => {
-    if (!dateStr) return 'Recently synced';
-    try {
-      const d = new Date(dateStr);
-      if (isNaN(d.getTime())) return 'Recent';
-      return d.toLocaleString(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-    } catch (e) {
-      return 'Recent';
-    }
-  };
-
-  const getSubmitterName = (submission: any) => {
-    if (!submission) return 'Property User';
-    return (
-      submission.submitted_by_name ||
-      submission.submitted_by ||
-      submission.user_name ||
-      submission.full_name ||
-      'Property User'
-    );
-  };
-
-  const handleDocumentDownload = (val: string, itemName?: string) => {
-    if (!val) return;
-    try {
-      if (val.startsWith('data:')) {
-        const mimeMatch = val.match(/^data:([^;]+);/);
-        let ext = '.bin';
-        if (mimeMatch) {
-          const mime = mimeMatch[1];
-          if (mime.includes('pdf')) ext = '.pdf';
-          else if (mime.includes('wordprocessingml.document') || mime.includes('docx')) ext = '.docx';
-          else if (mime.includes('msword') || mime.includes('doc')) ext = '.doc';
-        }
-        const link = document.createElement('a');
-        link.href = val;
-        link.download = `${(itemName || 'audit-document').replace(/\s+/g, '_')}${ext}`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-      } else if (val.startsWith('http')) {
-        window.open(val, '_blank', 'noopener,noreferrer');
-      }
-    } catch (err) {
-      console.warn("Document download failed:", err);
-      if (val.startsWith('http')) {
-        window.open(val, '_blank');
-      }
-    }
-  };
-
-  const handleCopyDocLink = (text: string, id: string) => {
-    if (!text) return;
-    navigator.clipboard.writeText(text).then(() => {
-      setCopiedDocId(id);
-      setTimeout(() => setCopiedDocId(null), 2000);
-    }).catch(err => {
-      console.error("Failed to copy:", err);
-    });
   };
 
   // Compute inspection status, score, auditor feedback and submission data for an item
@@ -147,12 +58,24 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
       ''
     ].filter((id): id is string => Boolean(id && String(id).trim().length > 0));
 
+    const submission = submissionsMap[String(item.id)];
+
+    // Priority 1: Check direct submission row loaded from DB
     let score: any = undefined;
-    for (const hId of checkHotelIds) {
-      const key = `${hId}_${item.id}`;
-      if (inspectionScores[key] !== undefined && inspectionScores[key] !== null) {
-        score = inspectionScores[key];
-        break;
+    if (submission?.score !== undefined && submission?.score !== null) {
+      score = submission.score;
+    } else if (submission?.is_na === true || String(submission?.is_na) === 'true') {
+      score = 'N/A';
+    }
+
+    // Priority 2: Check inspectionScores state map
+    if (score === undefined) {
+      for (const hId of checkHotelIds) {
+        const key = `${hId}_${item.id}`;
+        if (inspectionScores[key] !== undefined && inspectionScores[key] !== null) {
+          score = inspectionScores[key];
+          break;
+        }
       }
     }
 
@@ -163,12 +86,26 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
       }
     }
 
+    if (score === undefined && inspectionScores[String(item.id)] !== undefined) {
+      score = inspectionScores[String(item.id)];
+    }
+
+    // Auditor remarks/notes: Priority 1: Direct DB Submission record fields (STRICTLY auditor_notes or auditor_remarks ONLY)
     let comment = '';
-    for (const hId of checkHotelIds) {
-      const key = `${hId}_${item.id}`;
-      if (inspectionComments[key]) {
-        comment = inspectionComments[key];
-        break;
+    if (submission?.auditor_notes && typeof submission.auditor_notes === 'string' && submission.auditor_notes.trim()) {
+      comment = submission.auditor_notes.trim();
+    } else if (submission?.auditor_remarks && typeof submission.auditor_remarks === 'string' && submission.auditor_remarks.trim()) {
+      comment = submission.auditor_remarks.trim();
+    }
+
+    // Priority 2: Check inspectionComments map
+    if (!comment) {
+      for (const hId of checkHotelIds) {
+        const key = `${hId}_${item.id}`;
+        if (inspectionComments[key]) {
+          comment = inspectionComments[key];
+          break;
+        }
       }
     }
     if (!comment) {
@@ -177,13 +114,8 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
         comment = inspectionComments[matchingKey];
       }
     }
-
-    const submission = submissionsMap[String(item.id)];
-    if (!comment && submission?.auditor_notes) {
-      comment = submission.auditor_notes;
-    }
-    if (!comment && submission?.auditor_remarks) {
-      comment = submission.auditor_remarks;
+    if (!comment && inspectionComments[String(item.id)]) {
+      comment = inspectionComments[String(item.id)];
     }
 
     const itemMaxPoints = Number(item.points !== undefined && item.points !== null ? item.points : 5);
@@ -236,11 +168,11 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
       try {
         const storedScores = localStorage.getItem('sbi_inspection_scores');
         if (storedScores) {
-          setInspectionScores(JSON.parse(storedScores));
+          setInspectionScores(prev => ({ ...JSON.parse(storedScores), ...prev }));
         }
         const storedComments = localStorage.getItem('sbi_inspection_comments');
         if (storedComments) {
-          setInspectionComments(JSON.parse(storedComments));
+          setInspectionComments(prev => ({ ...JSON.parse(storedComments), ...prev }));
         }
       } catch (e) {
         console.warn("Failed to read inspection storage:", e);
@@ -251,11 +183,24 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
     window.addEventListener('storage', syncLocalInspections);
     window.addEventListener('sbi_inspection_updated', syncLocalInspections);
 
+    // Real-time synchronization of audit submissions, scores, and auditor remarks directly from Supabase DB
+    const channel = supabase
+      .channel('dashboard-audit-submissions-realtime')
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'audit_submissions'
+      }, () => {
+        fetchAuditItems(false, false);
+      })
+      .subscribe();
+
     return () => {
       window.removeEventListener('storage', syncLocalInspections);
       window.removeEventListener('sbi_inspection_updated', syncLocalInspections);
+      supabase.removeChannel(channel);
     };
-  }, []);
+  }, [userProfile?.hotel_id, userProfile?.hotel_code]);
 
   // Directory search & pagination state
   const [directorySearchQuery, setDirectorySearchQuery] = useState('');
@@ -505,6 +450,35 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
       let submittedItemIds = new Set<string>();
       let naItemIds = new Set<string>();
       const subsMap: Record<string, any> = {};
+      const dbScores: Record<string, any> = {};
+      const dbComments: Record<string, string> = {};
+
+      const processSubmissionRow = (sub: any) => {
+        if (!sub || sub.item_id === undefined || sub.item_id === null) return;
+        const itemIdStr = String(sub.item_id);
+        const hotelIdStr = String(sub.hotel_id || '');
+        subsMap[itemIdStr] = sub;
+        submittedItemIds.add(itemIdStr);
+        if (sub.is_na === true || String(sub.is_na) === 'true') {
+          naItemIds.add(itemIdStr);
+        }
+
+        // Direct DB inspection score / status
+        if (sub.score !== undefined && sub.score !== null) {
+          if (hotelIdStr) dbScores[`${hotelIdStr}_${itemIdStr}`] = sub.score;
+          dbScores[itemIdStr] = sub.score;
+        } else if (sub.is_na === true || String(sub.is_na) === 'true') {
+          if (hotelIdStr) dbScores[`${hotelIdStr}_${itemIdStr}`] = 'N/A';
+          dbScores[itemIdStr] = 'N/A';
+        }
+
+        // Direct DB auditor notes & remarks ONLY (strictly from auditor_notes or auditor_remarks)
+        const remarkText = (sub.auditor_notes || sub.auditor_remarks || '').trim();
+        if (remarkText) {
+          if (hotelIdStr) dbComments[`${hotelIdStr}_${itemIdStr}`] = remarkText;
+          dbComments[itemIdStr] = remarkText;
+        }
+      };
 
       try {
         let query = supabase.from('audit_submissions').select('*');
@@ -517,13 +491,8 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
           subsData.forEach((sub: any) => {
             const subHotelIdLower = String(sub.hotel_id || '').toLowerCase();
             const matchesHotel = targetHotelIdsLower.size === 0 || targetHotelIdsLower.has(subHotelIdLower);
-            if (matchesHotel && sub.item_id !== undefined && sub.item_id !== null) {
-              const itemIdStr = String(sub.item_id);
-              subsMap[itemIdStr] = sub;
-              submittedItemIds.add(itemIdStr);
-              if (sub.is_na === true || String(sub.is_na) === 'true') {
-                naItemIds.add(itemIdStr);
-              }
+            if (matchesHotel) {
+              processSubmissionRow(sub);
             }
           });
         } else {
@@ -533,20 +502,20 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
             fallbackSubs.forEach((sub: any) => {
               const subHotelIdLower = String(sub.hotel_id || '').toLowerCase();
               if (targetHotelIdsLower.size === 0 || targetHotelIdsLower.has(subHotelIdLower)) {
-                if (sub.item_id !== undefined && sub.item_id !== null) {
-                  const itemIdStr = String(sub.item_id);
-                  subsMap[itemIdStr] = sub;
-                  submittedItemIds.add(itemIdStr);
-                  if (sub.is_na === true || String(sub.is_na) === 'true') {
-                    naItemIds.add(itemIdStr);
-                  }
-                }
+                processSubmissionRow(sub);
               }
             });
           }
         }
       } catch (subErr) {
         console.warn("Could not fetch audit_submissions in dashboard:", subErr);
+      }
+
+      if (Object.keys(dbScores).length > 0) {
+        setInspectionScores(prev => ({ ...prev, ...dbScores }));
+      }
+      if (Object.keys(dbComments).length > 0) {
+        setInspectionComments(prev => ({ ...prev, ...dbComments }));
       }
 
       // Merge any locally stored submission objects from localStorage for the active hotels
@@ -1385,179 +1354,50 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
                                                                                 </div>
                                                                             </div>
 
-                                                                            {/* Expanded Item Details (Actual Submission & Auditor Remarks) */}
+                                                                            {/* Expanded Item Details — Showing ONLY Auditor Notes/Remarks loaded directly from DB */}
                                                                             {isItemExpanded && (
-                                                                                <div className="px-4 sm:px-6 py-4 bg-slate-50/70 border-t border-slate-150 space-y-3.5 animate-in fade-in duration-150">
-                                                                                    {/* 1. Actual Audit Submission Evidence Box */}
-                                                                                    <div className="bg-white rounded-xl border border-slate-200/90 p-4 shadow-2xs space-y-3">
-                                                                                        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
+                                                                                <div className="px-4 sm:px-6 py-4 bg-slate-50/70 border-t border-slate-150 animate-in fade-in duration-150">
+                                                                                    <div className="bg-white rounded-xl border border-slate-200/90 p-4 sm:p-5 shadow-2xs space-y-3.5">
+                                                                                        {/* Header: Evaluation Title & DB Inspection Result */}
+                                                                                        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
                                                                                             <div className="flex items-center gap-2">
-                                                                                                <div className={`w-2 h-2 rounded-full ${itemData.submission ? 'bg-indigo-600' : 'bg-amber-400'}`} />
-                                                                                                <span className="text-[10px] font-black text-slate-700 uppercase tracking-wider">
-                                                                                                    Actual Audit Submission
-                                                                                                </span>
+                                                                                                <div className="w-7 h-7 rounded-lg bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center shrink-0">
+                                                                                                    <ShieldCheck size={16} />
+                                                                                                </div>
+                                                                                                <div>
+                                                                                                    <span className="text-[11px] font-black text-slate-800 uppercase tracking-wider block">
+                                                                                                        Auditor Evaluation & Remarks
+                                                                                                    </span>
+                                                                                                    <span className="text-[10px] text-slate-400 font-medium">
+                                                                                                        Inspection findings loaded directly from database
+                                                                                                    </span>
+                                                                                                </div>
                                                                                             </div>
-                                                                                            {itemData.submission ? (
-                                                                                                <span className="text-[10px] text-slate-500 font-medium">
-                                                                                                    Submitted by <strong className="text-slate-700">{getSubmitterName(itemData.submission)}</strong>
-                                                                                                    {itemData.submission.created_at ? ` • ${safeFormatDateTime(itemData.submission.created_at)}` : ''}
-                                                                                                </span>
-                                                                                            ) : (
-                                                                                                <span className="text-[10px] font-bold text-amber-600">
-                                                                                                    {(item.filled_by_hotel === false || item.filled_by_hotel === 'false') ? 'Direct Auditor Assessment' : 'Awaiting Submission'}
-                                                                                                </span>
-                                                                                            )}
-                                                                                        </div>
 
-                                                                                        {itemData.submission ? (
-                                                                                            <div className="space-y-3">
-                                                                                                {itemData.submission.is_na || String(itemData.submission.is_na) === 'true' ? (
-                                                                                                    <div className="bg-amber-50 p-3 rounded-xl border border-amber-200/80 flex items-start gap-2.5">
-                                                                                                        <AlertCircle size={16} className="text-amber-600 shrink-0 mt-0.5" />
-                                                                                                        <div>
-                                                                                                            <p className="text-[10px] font-black text-amber-800 uppercase tracking-tight">Marked as N/A by Property</p>
-                                                                                                            <p className="text-xs text-amber-700 mt-0.5 font-medium">
-                                                                                                                {itemData.submission.na_reason || itemData.submission.notes || "No specific reason provided."}
-                                                                                                            </p>
-                                                                                                        </div>
-                                                                                                    </div>
-                                                                                                ) : (
-                                                                                                    <div className="space-y-3">
-                                                                                                        {/* Photo Evidence Gallery */}
-                                                                                                        {(isImageInput(item.input_type || item.inputType) || (itemData.submission.value && (String(itemData.submission.value).startsWith('http') || String(itemData.submission.value).startsWith('data:image/') || String(itemData.submission.value).includes('imgbb.com')))) && itemData.submission.value && (
-                                                                                                            <div className="space-y-1.5">
-                                                                                                                <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider block">Submitted Photo Evidence</span>
-                                                                                                                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5">
-                                                                                                                    {splitEvidenceUrls(String(itemData.submission.value)).map((url, urlIdx) => (
-                                                                                                                        <div 
-                                                                                                                            key={urlIdx}
-                                                                                                                            className="group/img relative rounded-xl border border-slate-200 overflow-hidden bg-slate-900/5 aspect-square cursor-zoom-in transition-all hover:border-indigo-400 hover:shadow-sm"
-                                                                                                                            onClick={(e) => {
-                                                                                                                                e.stopPropagation();
-                                                                                                                                setEnlargedImage({ url, title: `${item.name} — Photo ${urlIdx + 1}` });
-                                                                                                                            }}
-                                                                                                                        >
-                                                                                                                            <img 
-                                                                                                                                loading="lazy" 
-                                                                                                                                decoding="async" 
-                                                                                                                                src={url} 
-                                                                                                                                alt={`Photo ${urlIdx + 1}`} 
-                                                                                                                                referrerPolicy={url?.startsWith('blob:') || url?.startsWith('data:') ? undefined : 'no-referrer'} 
-                                                                                                                                className="w-full h-full object-cover transition-transform duration-200 group-hover/img:scale-105" 
-                                                                                                                            />
-                                                                                                                            <div className="absolute inset-0 bg-slate-950/40 opacity-0 group-hover/img:opacity-100 transition-opacity flex flex-col items-center justify-center text-white font-black text-[9px] uppercase tracking-wider p-2 gap-1">
-                                                                                                                                <Maximize2 size={14} />
-                                                                                                                                <span>Enlarge</span>
-                                                                                                                            </div>
-                                                                                                                            <div className="absolute bottom-1 right-1 bg-slate-900/80 backdrop-blur-md text-white text-[8px] font-bold px-1.5 py-0.5 rounded">
-                                                                                                                                Photo {urlIdx + 1}
-                                                                                                                            </div>
-                                                                                                                        </div>
-                                                                                                                    ))}
-                                                                                                                </div>
-                                                                                                            </div>
-                                                                                                        )}
-
-                                                                                                        {/* Document Attachment Evidence */}
-                                                                                                        {(item.input_type === 'document' || item.inputType === 'document') && itemData.submission.value && (
-                                                                                                            <div 
-                                                                                                                onClick={(e) => {
-                                                                                                                    e.stopPropagation();
-                                                                                                                    handleDocumentDownload(itemData.submission.value, item.name);
-                                                                                                                }} 
-                                                                                                                className="flex items-center gap-3 p-3 bg-indigo-50/40 border border-indigo-100 rounded-xl hover:border-indigo-300 hover:shadow-xs transition-all group/doc cursor-pointer"
-                                                                                                            >
-                                                                                                                <div className="w-10 h-10 bg-indigo-100 text-indigo-700 rounded-lg flex items-center justify-center shrink-0 group-hover/doc:bg-indigo-600 group-hover/doc:text-white transition-colors">
-                                                                                                                    <FileText size={20} />
-                                                                                                                </div>
-                                                                                                                <div className="flex-1 min-w-0">
-                                                                                                                    <p className="text-xs font-bold text-slate-800 truncate">Submitted Inspection Document</p>
-                                                                                                                    <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">Click to Download or Open Document</p>
-                                                                                                                </div>
-                                                                                                                <button 
-                                                                                                                    type="button" 
-                                                                                                                    onClick={(e) => { 
-                                                                                                                        e.stopPropagation(); 
-                                                                                                                        handleCopyDocLink(itemData.submission.value, itemData.submission.id || item.id); 
-                                                                                                                    }} 
-                                                                                                                    className="text-[10px] bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 px-2.5 py-1.5 rounded-lg font-bold transition-all shrink-0 cursor-pointer"
-                                                                                                                >
-                                                                                                                    {copiedDocId === (itemData.submission.id || item.id) ? 'Copied!' : 'Copy Link'}
-                                                                                                                </button>
-                                                                                                            </div>
-                                                                                                        )}
-
-                                                                                                        {/* Text / Numeric / Checkbox Responses */}
-                                                                                                        {['text', 'numeric', 'checkbox'].includes(item.input_type || item.inputType) && (
-                                                                                                            <div className="bg-slate-50/80 p-3 rounded-xl border border-slate-200 flex items-center justify-between">
-                                                                                                                <div>
-                                                                                                                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider block mb-0.5">Submitted Value</span>
-                                                                                                                    <p className="text-sm font-black text-slate-800">
-                                                                                                                        {(item.input_type === 'checkbox' || item.inputType === 'checkbox')
-                                                                                                                            ? (String(itemData.submission.value).toLowerCase() === 'true' ? 'YES / COMPLIANT' : 'NO / NON-COMPLIANT')
-                                                                                                                            : (itemData.submission.value || 'N/A')}
-                                                                                                                    </p>
-                                                                                                                </div>
-                                                                                                                {(item.input_type === 'numeric' || item.inputType === 'numeric') && item.min_value !== undefined && (
-                                                                                                                    <div className="text-right">
-                                                                                                                        <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider block mb-0.5">Min Required</span>
-                                                                                                                        <p className="text-sm font-black text-indigo-600">{item.min_value}</p>
-                                                                                                                    </div>
-                                                                                                                )}
-                                                                                                            </div>
-                                                                                                        )}
-
-                                                                                                        {/* Property Notes / Remarks */}
-                                                                                                        {(itemData.submission.notes || itemData.submission.na_reason || itemData.submission.remark || itemData.submission.comments) && (
-                                                                                                            <div className="bg-indigo-50/50 p-2.5 rounded-xl border border-indigo-100 text-xs text-slate-700 italic">
-                                                                                                                <span className="text-[9px] font-black text-indigo-600 uppercase tracking-wider block not-italic mb-0.5">Property Remarks / Notes:</span>
-                                                                                                                "{itemData.submission.notes || itemData.submission.na_reason || itemData.submission.remark || itemData.submission.comments}"
-                                                                                                            </div>
-                                                                                                        )}
-                                                                                                    </div>
-                                                                                                )}
-                                                                                            </div>
-                                                                                        ) : (
-                                                                                            <div className="flex items-center gap-2 p-3 bg-slate-50 rounded-xl border border-dashed border-slate-200 text-xs text-slate-500">
-                                                                                                <Clock size={15} className="text-amber-500 shrink-0" />
-                                                                                                <span>
-                                                                                                    {(item.filled_by_hotel === false || item.filled_by_hotel === 'false')
-                                                                                                        ? 'Auditor-Assessed Item — Assessed directly during auditor inspection.'
-                                                                                                        : 'Awaiting for Property Submission — No evidence uploaded by the property yet.'}
-                                                                                                </span>
-                                                                                            </div>
-                                                                                        )}
-                                                                                    </div>
-
-                                                                                    {/* 2. Auditor Inspection Evaluation & Remarks Box */}
-                                                                                    <div className="bg-white rounded-xl border border-slate-200/90 p-4 shadow-2xs space-y-3">
-                                                                                        <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
                                                                                             <div className="flex items-center gap-2">
-                                                                                                <ShieldCheck size={15} className="text-indigo-600" />
-                                                                                                <span className="text-[10px] font-black text-slate-700 uppercase tracking-wider">
-                                                                                                    Auditor Evaluation & Remarks
-                                                                                                </span>
-                                                                                            </div>
-                                                                                            <div className="flex items-center gap-2">
-                                                                                                <span className="text-[10px] font-bold text-slate-400">Result:</span>
+                                                                                                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Status:</span>
                                                                                                 {itemData.status === 'Passed' && (
-                                                                                                    <span className="text-xs font-black text-emerald-600">
-                                                                                                        PASSED (+{itemData.itemMaxPoints} PTS)
+                                                                                                    <span className="inline-flex items-center gap-1.5 text-xs font-black text-emerald-700 bg-emerald-50 border border-emerald-200/80 px-2.5 py-1 rounded-lg shadow-2xs">
+                                                                                                        <CheckCircle2 size={13} className="text-emerald-600 shrink-0" />
+                                                                                                        PASSED ({itemData.score !== undefined && itemData.score !== null ? `${itemData.score} / ` : ''}{itemData.itemMaxPoints} PTS)
                                                                                                     </span>
                                                                                                 )}
                                                                                                 {itemData.status === 'Failed' && (
-                                                                                                    <span className="text-xs font-black text-rose-600">
-                                                                                                        FAILED (0 PTS)
+                                                                                                    <span className="inline-flex items-center gap-1.5 text-xs font-black text-rose-700 bg-rose-50 border border-rose-200/80 px-2.5 py-1 rounded-lg shadow-2xs">
+                                                                                                        <AlertCircle size={13} className="text-rose-600 shrink-0" />
+                                                                                                        FAILED (0 / {itemData.itemMaxPoints} PTS)
                                                                                                     </span>
                                                                                                 )}
                                                                                                 {itemData.status === 'N/A' && (
-                                                                                                    <span className="text-xs font-black text-amber-600">
+                                                                                                    <span className="inline-flex items-center gap-1.5 text-xs font-black text-amber-700 bg-amber-50 border border-amber-200/80 px-2.5 py-1 rounded-lg shadow-2xs">
+                                                                                                        <MinusCircle size={13} className="text-amber-600 shrink-0" />
                                                                                                         EXEMPTED (N/A)
                                                                                                     </span>
                                                                                                 )}
                                                                                                 {itemData.status === 'Pending Inspection' && (
-                                                                                                    <span className="text-xs font-bold text-slate-400 italic">
-                                                                                                        Pending Inspection
+                                                                                                    <span className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-500 bg-slate-100 border border-slate-200/80 px-2.5 py-1 rounded-lg">
+                                                                                                        <Clock size={13} className="text-slate-400 shrink-0" />
+                                                                                                        Pending Auditor Review
                                                                                                     </span>
                                                                                                 )}
                                                                                             </div>
@@ -1565,21 +1405,21 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
 
                                                                                         {/* Auditor Notes / Remarks Display */}
                                                                                         {itemData.comment ? (
-                                                                                            <div className="bg-indigo-50/70 border border-indigo-200/80 rounded-xl p-3 space-y-1.5">
+                                                                                            <div className="bg-indigo-50/60 border border-indigo-200/80 rounded-xl p-3.5 sm:p-4 space-y-2">
                                                                                                 <div className="flex items-center gap-1.5 text-indigo-700 text-[10px] font-black uppercase tracking-wider">
-                                                                                                    <MessageSquareText size={13} />
+                                                                                                    <MessageSquareText size={14} className="text-indigo-600 shrink-0" />
                                                                                                     <span>Auditor Notes / Remarks:</span>
                                                                                                 </div>
-                                                                                                <p className="text-xs text-slate-800 font-medium leading-relaxed italic pl-3 border-l-2 border-indigo-400">
+                                                                                                <p className="text-xs sm:text-sm text-slate-800 font-medium leading-relaxed italic pl-3 border-l-2 border-indigo-400 bg-white/70 py-2 px-3 rounded-r-lg">
                                                                                                     "{itemData.comment}"
                                                                                                 </p>
                                                                                             </div>
                                                                                         ) : (
-                                                                                            <div className="flex items-center gap-2 text-xs text-slate-400 italic py-1">
-                                                                                                <MessageSquare size={13} className="shrink-0 text-slate-300" />
+                                                                                            <div className="flex items-center gap-2.5 p-3.5 bg-slate-50 rounded-xl border border-dashed border-slate-200 text-xs text-slate-500">
+                                                                                                <MessageSquare size={15} className="text-slate-400 shrink-0" />
                                                                                                 <span>
                                                                                                     {itemData.status === 'Pending Inspection' 
-                                                                                                        ? 'Inspection pending review — No remarks recorded yet.' 
+                                                                                                        ? 'Inspection pending review — No auditor remarks recorded yet.' 
                                                                                                         : 'No specific auditor notes or remarks recorded for this item.'}
                                                                                                 </span>
                                                                                             </div>
@@ -1746,39 +1586,6 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
                 </button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
-      {/* Image Zoom / Lightbox Modal */}
-      {enlargedImage && (
-        <div 
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-200"
-          onClick={() => setEnlargedImage(null)}
-        >
-          <div 
-            className="relative max-w-4xl max-h-[90vh] bg-slate-900 border border-slate-700/80 rounded-2xl overflow-hidden shadow-2xl flex flex-col"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between p-3.5 px-5 bg-slate-900/90 border-b border-slate-800 text-white">
-              <span className="text-xs font-bold truncate max-w-[80%] text-slate-200">
-                {enlargedImage.title || 'Photo Evidence'}
-              </span>
-              <button 
-                type="button"
-                onClick={() => setEnlargedImage(null)} 
-                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors"
-              >
-                <X size={20} />
-              </button>
-            </div>
-            <div className="p-2 flex items-center justify-center overflow-auto max-h-[calc(90vh-60px)]">
-              <img 
-                src={enlargedImage.url} 
-                alt="Enlarged evidence" 
-                referrerPolicy={enlargedImage.url?.startsWith('blob:') || enlargedImage.url?.startsWith('data:') ? undefined : 'no-referrer'}
-                className="max-w-full max-h-[80vh] object-contain rounded-lg" 
-              />
-            </div>
           </div>
         </div>
       )}
