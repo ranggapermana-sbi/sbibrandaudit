@@ -7425,8 +7425,11 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                     return sum + (isNaN(numVal) ? 0 : numVal);
                                 }, 0);
                                 const isItemNA = (item: any) => {
-                                    const scoreVal = inspectionScores[`${hotel.id}_${item.id}`];
-                                    if (scoreVal === 'N/A') return true;
+                                    const sk1 = `${hotel.id}_${item.id}`;
+                                    const sk2 = hotel?.code ? `${hotel.code}_${item.id}` : '';
+                                    const scoreVal = inspectionScores[sk1] ?? (sk2 ? inspectionScores[sk2] : undefined) ?? inspectionScores[item.id];
+                                    const sub = hotelSubmissions[item.id];
+                                    if (scoreVal === 'N/A' || scoreVal === 'na' || scoreVal === 'NA' || scoreVal === 'Na' || sub?.is_na || sub?.score === 'N/A' || sub?.score === 'na' || sub?.score === 'NA') return true;
                                     return false;
                                 };
 
@@ -7669,7 +7672,9 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                     <span>Auditor: {assignedAuditorName}</span>
                                                                                 </span>
                                                                             </div>
-                                                                            <p className="text-[9px] font-bold text-slate-400 mt-1 uppercase tracking-widest">{catItems.length} Inspection Points</p>
+                                                                            <p className="text-[9px] font-bold text-slate-400 mt-1 uppercase tracking-widest">
+                                                                                {catItems.filter(i => !isItemNA(i)).length} Inspection Points ({catItems.filter(i => !isItemNA(i)).reduce((s, i) => s + (i.points ?? 5), 0)} PTS)
+                                                                            </p>
                                                                         </div>
                                                                     </div>
                                                                     <div className="flex items-center gap-2 sm:gap-3">

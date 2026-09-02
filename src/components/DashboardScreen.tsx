@@ -599,20 +599,14 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
           }
         }
 
-        // Determine if auditor approved N/A or made it N/A themselves
-        let isAuditorNa = false;
-        for (const hId of possibleHotelIds) {
-          if (inspectionScores[`${hId}_${item.id}`] === 'N/A') {
-            isAuditorNa = true;
-            break;
-          }
-        }
+        // Determine if item is N/A (exempted)
+        const inspectionData = getItemInspectionData(item);
+        const isItemExemptNa = inspectionData.isNA;
 
         const pts = item.points !== undefined && item.points !== null ? Number(item.points) : 5;
         
-        // If item is N/A (exempted by auditor), do NOT include it in total points or total task count
-        // Otherwise, if auditee marked N/A but auditor has not approved, it does not reduce total possible score
-        if (!isAuditorNa) {
+        // If item is N/A (exempted), do NOT include it in total points or total task count
+        if (!isItemExemptNa) {
           totalT++;
           totalP += pts;
           if (submittedItemIds.has(itemIdStr)) {
@@ -1172,8 +1166,9 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
                 ) : (
                     paginatedDepts.map(dept => {
                         const isDeptExpanded = !!expandedDepts[dept.id];
-                        const deptItemCount = dept.categories.reduce((acc: number, c: any) => acc + c.items.length, 0);
-                        const deptPoints = dept.categories.reduce((acc: number, c: any) => acc + c.items.reduce((sum: number, i: any) => sum + (i.points || 0), 0), 0);
+                        const deptApplicableItems = dept.categories.flatMap((c: any) => c.items).filter((i: any) => !getItemInspectionData(i).isNA);
+                        const deptItemCount = deptApplicableItems.length;
+                        const deptPoints = deptApplicableItems.reduce((sum: number, i: any) => sum + (i.points || 0), 0);
 
                         return (
                             <div key={dept.id} className="bg-white rounded-[20px] border border-slate-200/80 shadow-sm overflow-hidden transition-all duration-300">
@@ -1219,7 +1214,8 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
                                     <div className="p-4 bg-slate-50/30 border-t-0 space-y-3">
                                         {dept.categories.map((cat: any) => {
                                             const isCatExpanded = !!expandedCats[cat.id];
-                                            const catPoints = cat.items.reduce((sum: number, i: any) => sum + (i.points || 0), 0);
+                                            const catApplicableItems = cat.items.filter((i: any) => !getItemInspectionData(i).isNA);
+                                            const catPoints = catApplicableItems.reduce((sum: number, i: any) => sum + (i.points || 0), 0);
 
                                             return (
                                                 <div key={cat.id} className="bg-white rounded-xl border border-slate-150 overflow-hidden transition-all duration-200">
@@ -1245,7 +1241,7 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
 
                                                         <div className="flex items-center gap-2.5 shrink-0">
                                                             <span className="text-[9px] font-bold text-indigo-605 bg-indigo-50 px-1.5 py-0.5 rounded">
-                                                                {cat.items.length} {cat.items.length === 1 ? 'item' : 'items'} ({catPoints} PTS)
+                                                                {catApplicableItems.length} {catApplicableItems.length === 1 ? 'item' : 'items'} ({catPoints} PTS)
                                                             </span>
                                                             <div className={`text-slate-400 transition-transform duration-200 ${
                                                                 isCatExpanded ? 'rotate-180 text-indigo-500' : ''
