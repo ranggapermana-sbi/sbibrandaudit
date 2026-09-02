@@ -359,8 +359,10 @@ export default function AuditorEvidenceForm({ item, hotel, submission, onSaved, 
             ? `Auditor: ${userProfile.first_name || ''} ${userProfile.last_name || ''}`.trim() || `Auditor: ${userProfile.email}`
             : 'Auditor';
 
+        const targetHotelId = String(submission?.hotel_id || hotel.code || hotel.id).trim();
+
         const fullSubmissionData = {
-            hotel_id: hotel.id,
+            hotel_id: targetHotelId,
             item_id: item.id,
             input_type: item.inputType,
             value: finalValue,
@@ -378,7 +380,7 @@ export default function AuditorEvidenceForm({ item, hotel, submission, onSaved, 
             if (error) {
                 console.warn("Full upsert failed, attempting fallback to core schema fields:", error);
                 const coreSubmissionData = {
-                    hotel_id: hotel.id,
+                    hotel_id: targetHotelId,
                     item_id: item.id,
                     input_type: item.inputType,
                     value: finalValue,
@@ -391,6 +393,16 @@ export default function AuditorEvidenceForm({ item, hotel, submission, onSaved, 
                 if (fallbackError) {
                     throw fallbackError;
                 }
+            }
+
+            // Cleanup any duplicate rows stored under alternate hotel ID aliases
+            const altHotelIds = [hotel.id, hotel.code].filter(id => id && String(id).trim() !== targetHotelId);
+            if (altHotelIds.length > 0) {
+                await supabase
+                    .from('audit_submissions')
+                    .delete()
+                    .eq('item_id', item.id)
+                    .in('hotel_id', altHotelIds);
             }
 
             // Sync with local storage
@@ -619,26 +631,43 @@ export default function AuditorEvidenceForm({ item, hotel, submission, onSaved, 
                 </div>
             )}
 
-            <div className="flex items-center justify-end gap-3 pt-1">
-                {saveSuccess && (
-                    <span className="text-[10px] font-bold text-emerald-600 flex items-center gap-1 animate-pulse">
-                        <Check size={12} /> Evidence Saved successfully
-                    </span>
-                )}
-                
-                <button
-                    type="submit"
-                    disabled={isSubmitting}
-                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[11px] uppercase tracking-wide rounded-lg shadow-sm transition-all active:scale-95 disabled:opacity-50 disabled:pointer-events-none flex items-center gap-1.5"
-                >
-                    {isSubmitting ? (
-                        <>
-                            <Loader2 size={12} className="animate-spin" /> Saving...
-                        </>
+            <div className="flex items-center justify-between gap-3 pt-2 border-t border-slate-100">
+                <div className="flex items-center gap-2">
+                    {submission ? (
+                        <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 text-[9px] font-black rounded-md uppercase tracking-wider inline-flex items-center gap-1">
+                            <Check size={10} className="text-emerald-600" /> Synced to DB
+                        </span>
                     ) : (
-                        'Save Evidence'
+                        <span className="px-2 py-0.5 bg-amber-100 text-amber-800 border border-amber-300 text-[9px] font-black rounded-md uppercase tracking-wider inline-flex items-center gap-1">
+                            <AlertCircle size={10} className="text-amber-700" /> Cached Evidence
+                        </span>
                     )}
-                </button>
+                </div>
+
+                <div className="flex items-center gap-3">
+                    {saveSuccess && (
+                        <span className="text-[10px] font-bold text-emerald-600 flex items-center gap-1 animate-pulse">
+                            <Check size={12} /> Committed to DB!
+                        </span>
+                    )}
+                    
+                    <button
+                        type="submit"
+                        disabled={isSubmitting}
+                        className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[11px] uppercase tracking-wide rounded-lg shadow-sm transition-all active:scale-95 disabled:opacity-50 disabled:pointer-events-none flex items-center gap-1.5 cursor-pointer"
+                    >
+                        {isSubmitting ? (
+                            <>
+                                <Loader2 size={12} className="animate-spin" /> Committing...
+                            </>
+                        ) : (
+                            <>
+                                <UploadCloud size={12} />
+                                <span>Commit Evidence to DB</span>
+                            </>
+                        )}
+                    </button>
+                </div>
             </div>
         </form>
     );

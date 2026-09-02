@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, CheckCircle, Clock, Building, BarChart3, ChevronRight, ChevronLeft, ChevronsLeft, ChevronsRight, ArrowUpDown, Plus, Trash2, Edit, Search, X, AlertCircle, MapPin, Settings2, Calendar, Star, Briefcase, ClipboardList, FileCheck, Layers, Package, Camera, ImageIcon, FileText, Hash, Type, CheckSquare, Users, ShieldCheck, Percent, GripVertical, ChevronUp, ChevronDown, Eye, User, RefreshCw, CheckCircle2, Maximize2, ExternalLink, ZoomIn, Database, Copy, Check, Lock, Unlock } from 'lucide-react';
+import { ArrowLeft, CheckCircle, Clock, Building, BarChart3, ChevronRight, ChevronLeft, ChevronsLeft, ChevronsRight, ArrowUpDown, Plus, Trash2, Edit, Search, X, AlertCircle, MapPin, Settings2, Calendar, Star, Briefcase, ClipboardList, FileCheck, Layers, Package, Camera, ImageIcon, FileText, Hash, Type, CheckSquare, Users, ShieldCheck, Percent, GripVertical, ChevronUp, ChevronDown, Eye, User, RefreshCw, CheckCircle2, Maximize2, ExternalLink, ZoomIn, Database, Copy, Check, Lock, Unlock, Upload, UploadCloud, Loader2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { apiCache } from '../lib/cache';
 
@@ -140,6 +140,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     const [enlargedImage, setEnlargedImage] = useState<{ url: string; title?: string } | null>(null);
 
     const [copiedDocId, setCopiedDocId] = useState<string | null>(null);
+    const [savingInspectionItemId, setSavingInspectionItemId] = useState<string | null>(null);
 
     const handleCopyDocLink = (text: string, id: string) => {
         if (!text) return;
@@ -2599,11 +2600,14 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         }
     };
 
-    const saveInspectionScore = async (hotelOrId: any, itemId: string, score: number | string | undefined) => {
+    const saveInspectionScore = (hotelOrId: any, itemId: string, score: number | string | undefined) => {
         const hotelObj = typeof hotelOrId === 'object' ? hotelOrId : hotels.find(h => String(h.id) === String(hotelOrId) || String(h.code).toLowerCase() === String(hotelOrId).toLowerCase());
         const primaryId = typeof hotelOrId === 'string' ? hotelOrId : (hotelOrId?.id || selectedInspectionHotelId);
         const sub = hotelSubmissions[itemId];
         const subHotelId = sub?.hotel_id;
+
+        const canonicalHotelId = String(hotelObj?.code || subHotelId || hotelObj?.id || primaryId || '').trim().toUpperCase();
+        if (!canonicalHotelId) return;
 
         const possibleHotelIds = Array.from(new Set([
             String(primaryId),
@@ -2612,6 +2616,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             subHotelId ? String(subHotelId) : ''
         ].filter(Boolean)));
 
+        // Update local React state for UI responsiveness (NO REALTIME SUPABASE SUBMISSION)
         const updated = { ...inspectionScores };
         possibleHotelIds.forEach(hId => {
             const k = `${hId}_${itemId}`;
@@ -2626,48 +2631,16 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         setInspectionScores(updated);
         localStorage.setItem('sbi_inspection_scores', JSON.stringify(updated));
         window.dispatchEvent(new Event('sbi_inspection_updated'));
-
-        // Save directly to Supabase audit_submissions table across all target hotel IDs
-        try {
-            const isNA = score === 'N/A' || score === 'na' || score === 'NA';
-            const numScore = typeof score === 'number' ? score : (score !== undefined && score !== null && !isNaN(Number(score)) && String(score) !== '' ? Number(score) : (score === 'PASS' || score === 'pass' ? 5 : null));
-
-            const existingComment = (inspectionComments[`${primaryId}_${itemId}`] || inspectionComments[itemId] || sub?.auditor_notes || sub?.auditor_remarks || '').trim();
-
-            for (const hId of possibleHotelIds) {
-                const payload: any = {
-                    hotel_id: hId,
-                    item_id: String(itemId),
-                    score: isNA ? null : numScore,
-                    is_na: isNA,
-                    updated_at: new Date().toISOString()
-                };
-                if (existingComment) {
-                    payload.auditor_notes = existingComment;
-                    payload.auditor_remarks = existingComment;
-                }
-
-                const { error } = await supabase.from('audit_submissions').upsert(payload, { onConflict: 'hotel_id,item_id' });
-                if (error) {
-                    await supabase.from('audit_submissions').upsert({
-                        hotel_id: hId,
-                        item_id: String(itemId),
-                        score: isNA ? null : numScore,
-                        is_na: isNA,
-                        updated_at: new Date().toISOString()
-                    }, { onConflict: 'hotel_id,item_id' });
-                }
-            }
-        } catch (dbErr) {
-            console.warn("Could not persist inspection score to Supabase DB:", dbErr);
-        }
     };
 
-    const saveInspectionComment = async (hotelOrId: any, itemId: string, comment: string) => {
+    const saveInspectionComment = (hotelOrId: any, itemId: string, comment: string) => {
         const hotelObj = typeof hotelOrId === 'object' ? hotelOrId : hotels.find(h => String(h.id) === String(hotelOrId) || String(h.code).toLowerCase() === String(hotelOrId).toLowerCase());
         const primaryId = typeof hotelOrId === 'string' ? hotelOrId : (hotelOrId?.id || selectedInspectionHotelId);
         const sub = hotelSubmissions[itemId];
         const subHotelId = sub?.hotel_id;
+
+        const canonicalHotelId = String(hotelObj?.code || subHotelId || hotelObj?.id || primaryId || '').trim().toUpperCase();
+        if (!canonicalHotelId) return;
 
         const possibleHotelIds = Array.from(new Set([
             String(primaryId),
@@ -2676,60 +2649,113 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             subHotelId ? String(subHotelId) : ''
         ].filter(Boolean)));
 
-        const trimmed = comment.trim();
+        // Update local React state for UI responsiveness (NO REALTIME SUPABASE SUBMISSION)
         const updated = { ...inspectionComments };
         possibleHotelIds.forEach(hId => {
             const k = `${hId}_${itemId}`;
-            if (!trimmed) {
+            if (!comment) {
                 delete updated[k];
             } else {
                 updated[k] = comment;
             }
         });
-        if (!trimmed) delete updated[itemId]; else updated[itemId] = comment;
+        if (!comment) delete updated[itemId]; else updated[itemId] = comment;
 
         setInspectionComments(updated);
         localStorage.setItem('sbi_inspection_comments', JSON.stringify(updated));
         window.dispatchEvent(new Event('sbi_inspection_updated'));
+    };
 
-        // Save directly to Supabase audit_submissions table with schema error fallback
+    const commitInspectionToDatabase = async (hotelOrId: any, itemId: string) => {
+        const hotelObj = typeof hotelOrId === 'object' ? hotelOrId : hotels.find(h => String(h.id) === String(hotelOrId) || String(h.code).toLowerCase() === String(hotelOrId).toLowerCase());
+        const primaryId = typeof hotelOrId === 'string' ? hotelOrId : (hotelOrId?.id || selectedInspectionHotelId);
+        const sub = hotelSubmissions[itemId];
+        const subHotelId = sub?.hotel_id;
+
+        const canonicalHotelId = String(hotelObj?.code || subHotelId || hotelObj?.id || primaryId || '').trim().toUpperCase();
+        if (!canonicalHotelId) return;
+
+        const possibleHotelIds = Array.from(new Set([
+            String(primaryId),
+            hotelObj?.id ? String(hotelObj.id) : '',
+            hotelObj?.code ? String(hotelObj.code) : '',
+            subHotelId ? String(subHotelId) : ''
+        ].filter(Boolean)));
+
+        const sk1 = `${canonicalHotelId}_${itemId}`;
+        const sk2 = primaryId ? `${primaryId}_${itemId}` : '';
+
+        const currentScore = inspectionScores[sk1] ?? (sk2 ? inspectionScores[sk2] : undefined) ?? inspectionScores[itemId] ?? sub?.score;
+        const currentComment = (inspectionComments[sk1] || (sk2 ? inspectionComments[sk2] : '') || inspectionComments[itemId] || '').trim();
+
+        const isNA = currentScore === 'N/A' || currentScore === 'na' || currentScore === 'NA' || currentScore === 'Na';
+        const numScore = typeof currentScore === 'number' 
+            ? currentScore 
+            : (currentScore !== undefined && currentScore !== null && !isNaN(Number(currentScore)) && String(currentScore) !== '' 
+                ? Number(currentScore) 
+                : (currentScore === 'PASS' || currentScore === 'pass' ? 5 : null));
+
+        setSavingInspectionItemId(itemId);
+
         try {
-            const currentScore = inspectionScores[`${primaryId}_${itemId}`] ?? inspectionScores[itemId] ?? sub?.score;
-            const isNA = currentScore === 'N/A' || currentScore === 'na' || currentScore === 'NA' || sub?.is_na;
-            const numScore = typeof currentScore === 'number' ? currentScore : (currentScore !== undefined && currentScore !== null && !isNaN(Number(currentScore)) && String(currentScore) !== '' ? Number(currentScore) : (currentScore === 'PASS' || currentScore === 'pass' ? 5 : null));
-
-            for (const hId of possibleHotelIds) {
-                const payload: any = {
-                    hotel_id: hId,
-                    item_id: String(itemId),
-                    auditor_notes: trimmed,
-                    auditor_remarks: trimmed,
-                    updated_at: new Date().toISOString()
-                };
-                if (numScore !== null && numScore !== undefined) {
-                    payload.score = numScore;
-                }
-                if (isNA) {
-                    payload.is_na = true;
-                }
-
-                const { error } = await supabase.from('audit_submissions').upsert(payload, { onConflict: 'hotel_id,item_id' });
-
-                if (error) {
-                    try {
-                        await supabase.from('audit_submissions').upsert({
-                            hotel_id: hId,
-                            item_id: String(itemId),
-                            auditor_remarks: trimmed,
-                            updated_at: new Date().toISOString()
-                        }, { onConflict: 'hotel_id,item_id' });
-                    } catch (e) {
-                        console.warn("Fallback upsert failed:", e);
-                    }
-                }
+            const payload: any = {
+                hotel_id: canonicalHotelId,
+                item_id: String(itemId),
+                auditor_notes: currentComment,
+                auditor_remarks: currentComment,
+                updated_at: new Date().toISOString()
+            };
+            if (isNA) {
+                payload.is_na = true;
+                payload.score = null;
+            } else if (numScore !== null && numScore !== undefined) {
+                payload.score = numScore;
+                payload.is_na = false;
             }
-        } catch (dbErr) {
-            console.warn("Could not persist inspection comment to Supabase DB:", dbErr);
+
+            const { error } = await supabase.from('audit_submissions').upsert(payload, { onConflict: 'hotel_id,item_id' });
+            if (error) {
+                console.warn("Full upsert failed, attempting core payload:", error);
+                await supabase.from('audit_submissions').upsert({
+                    hotel_id: canonicalHotelId,
+                    item_id: String(itemId),
+                    score: isNA ? null : numScore,
+                    is_na: isNA,
+                    auditor_remarks: currentComment,
+                    updated_at: new Date().toISOString()
+                }, { onConflict: 'hotel_id,item_id' });
+            }
+
+            // Clean up duplicate rows stored under alternate hotel ID aliases
+            const duplicateIdsToDelete = possibleHotelIds.filter(id => id && String(id).trim().toUpperCase() !== canonicalHotelId);
+            if (duplicateIdsToDelete.length > 0) {
+                await supabase
+                    .from('audit_submissions')
+                    .delete()
+                    .eq('item_id', String(itemId))
+                    .in('hotel_id', duplicateIdsToDelete);
+            }
+
+            // Update hotelSubmissions state so DB state matches local state immediately
+            setHotelSubmissions(prev => ({
+                ...prev,
+                [itemId]: {
+                    ...(prev[itemId] || {}),
+                    hotel_id: canonicalHotelId,
+                    item_id: String(itemId),
+                    score: isNA ? null : numScore,
+                    is_na: isNA,
+                    auditor_notes: currentComment,
+                    auditor_remarks: currentComment,
+                    updated_at: new Date().toISOString()
+                }
+            }));
+
+        } catch (err) {
+            console.error("Failed to commit inspection item to DB:", err);
+            alert("Failed to commit inspection to database: " + (err instanceof Error ? err.message : String(err)));
+        } finally {
+            setSavingInspectionItemId(null);
         }
     };
 
@@ -7606,46 +7632,87 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                 return (
                                                     <div key={cat.id} className="space-y-3">
                                                         {/* CATEGORY BAR */}
-                                                        <div className="sticky top-16 z-30 flex items-center justify-between p-3 sm:px-4 sm:py-2.5 bg-white/95 backdrop-blur-xl border border-slate-200/80 rounded-xl shadow-xs">
-                                                            <div className="flex items-center gap-3">
-                                                                <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-black shadow-xs ${isCatComplete ? 'bg-emerald-500 text-white' : 'bg-slate-900 text-white'}`}>
-                                                                    {catIdx + 1}
-                                                                </div>
-                                                                <div>
-                                                                    <div className="flex items-center gap-2 flex-wrap">
-                                                                        <h3 className="text-sm font-black text-slate-800 tracking-tight leading-none">{cat.name}</h3>
-                                                                        <span className="px-2 py-0.5 bg-indigo-50/80 text-indigo-700 border border-indigo-200/90 text-[9px] font-black rounded-md flex items-center gap-1 uppercase tracking-wider">
-                                                                            <User size={10} className="text-indigo-600 shrink-0" />
-                                                                            <span>Auditor: {assignedAuditorName}</span>
-                                                                        </span>
-                                                                    </div>
-                                                                    <p className="text-[9px] font-bold text-slate-400 mt-1 uppercase tracking-widest">{catItems.length} Inspection Points</p>
-                                                                </div>
-                                                            </div>
-                                                            <div className="flex items-center gap-3">
-                                                                <div className="hidden sm:flex flex-col items-end mr-1">
-                                                                    <div className="flex items-center gap-1.5">
-                                                                        <div className="w-20 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                                                                            <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${(scoredInCat/catItems.length)*100}%` }} />
+                                                        {(() => {
+                                                            const cachedCatItems = catItems.filter((it) => {
+                                                                const sub = hotelSubmissions[it.id];
+                                                                const sk1 = `${hotel.id}_${it.id}`;
+                                                                const sk2 = hotel?.code ? `${hotel.code}_${it.id}` : '';
+                                                                const sk3 = sub?.hotel_id ? `${sub.hotel_id}_${it.id}` : '';
+
+                                                                let cScore = inspectionScores[sk1] ?? (sk2 ? inspectionScores[sk2] : undefined) ?? (sk3 ? inspectionScores[sk3] : undefined) ?? inspectionScores[it.id];
+                                                                let cComment = inspectionComments[sk1] || (sk2 ? inspectionComments[sk2] : '') || (sk3 ? inspectionComments[sk3] : '') || inspectionComments[it.id] || '';
+
+                                                                const dbS = sub?.score !== undefined && sub?.score !== null ? sub.score : (sub?.is_na ? 'N/A' : undefined);
+                                                                const dbN = (sub?.auditor_notes || sub?.auditor_remarks || '').trim();
+
+                                                                const isLoc = cScore !== undefined || cComment.trim() !== '';
+                                                                const normLocal = cScore === 'PASS' || cScore === 'pass' ? (it.points ?? 5) : (cScore === 'FAIL' || cScore === 'fail' ? 0 : cScore);
+                                                                const normDb = dbS === 'PASS' || dbS === 'pass' ? (it.points ?? 5) : (dbS === 'FAIL' || dbS === 'fail' ? 0 : dbS);
+
+                                                                const sMatch = String(normLocal ?? '') === String(normDb ?? '');
+                                                                const cMatch = cComment.trim() === dbN;
+
+                                                                return isLoc && (!sub || !sMatch || !cMatch);
+                                                            });
+
+                                                            return (
+                                                                <div className="sticky top-16 z-30 flex items-center justify-between p-3 sm:px-4 sm:py-2.5 bg-white/95 backdrop-blur-xl border border-slate-200/80 rounded-xl shadow-xs">
+                                                                    <div className="flex items-center gap-3">
+                                                                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-black shadow-xs ${isCatComplete ? 'bg-emerald-500 text-white' : 'bg-slate-900 text-white'}`}>
+                                                                            {catIdx + 1}
                                                                         </div>
-                                                                        <span className="text-[9px] font-black text-slate-500">{Math.round((scoredInCat/catItems.length)*100)}%</span>
+                                                                        <div>
+                                                                            <div className="flex items-center gap-2 flex-wrap">
+                                                                                <h3 className="text-sm font-black text-slate-800 tracking-tight leading-none">{cat.name}</h3>
+                                                                                <span className="px-2 py-0.5 bg-indigo-50/80 text-indigo-700 border border-indigo-200/90 text-[9px] font-black rounded-md flex items-center gap-1 uppercase tracking-wider">
+                                                                                    <User size={10} className="text-indigo-600 shrink-0" />
+                                                                                    <span>Auditor: {assignedAuditorName}</span>
+                                                                                </span>
+                                                                            </div>
+                                                                            <p className="text-[9px] font-bold text-slate-400 mt-1 uppercase tracking-widest">{catItems.length} Inspection Points</p>
+                                                                        </div>
+                                                                    </div>
+                                                                    <div className="flex items-center gap-2 sm:gap-3">
+                                                                        {cachedCatItems.length > 0 && (
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={async () => {
+                                                                                    for (const itemToCommit of cachedCatItems) {
+                                                                                        await commitInspectionToDatabase(hotel, itemToCommit.id);
+                                                                                    }
+                                                                                }}
+                                                                                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-[10px] font-black uppercase tracking-wider transition-all shadow-sm active:scale-95 cursor-pointer animate-pulse"
+                                                                                title="Commit all cached items in this category to database"
+                                                                            >
+                                                                                <Upload size={12} />
+                                                                                <span>Commit {cachedCatItems.length} Cached to DB</span>
+                                                                            </button>
+                                                                        )}
+                                                                        <div className="hidden sm:flex flex-col items-end mr-1">
+                                                                            <div className="flex items-center gap-1.5">
+                                                                                <div className="w-20 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                                                                                    <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${(scoredInCat/catItems.length)*100}%` }} />
+                                                                                </div>
+                                                                                <span className="text-[9px] font-black text-slate-500">{Math.round((scoredInCat/catItems.length)*100)}%</span>
+                                                                            </div>
+                                                                        </div>
+                                                                        <span className={`px-2.5 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider border ${isCatComplete ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-indigo-50 text-indigo-700 border-indigo-200'}`}>
+                                                                            {scoredInCat} / {catItems.length} REVIEWED
+                                                                        </span>
+                                                                        {getHotelFinalizedInfo(hotel).is_finalized && (
+                                                                            <button 
+                                                                                onClick={() => handleUnlockHotel(hotel.id)}
+                                                                                className="ml-2 inline-flex items-center gap-1 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all active:scale-95"
+                                                                                title="Unlock Audit for Re-submission"
+                                                                            >
+                                                                                <Unlock size={12} className="text-emerald-600" />
+                                                                                Unlock Audit
+                                                                            </button>
+                                                                        )}
                                                                     </div>
                                                                 </div>
-                                                                <span className={`px-2.5 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider border ${isCatComplete ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-indigo-50 text-indigo-700 border-indigo-200'}`}>
-                                                                    {scoredInCat} / {catItems.length} REVIEWED
-                                                                </span>
-                                                                {getHotelFinalizedInfo(hotel).is_finalized && (
-                                                                    <button 
-                                                                        onClick={() => handleUnlockHotel(hotel.id)}
-                                                                        className="ml-2 inline-flex items-center gap-1 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all active:scale-95"
-                                                                        title="Unlock Audit for Re-submission"
-                                                                    >
-                                                                        <Unlock size={12} className="text-emerald-600" />
-                                                                        Unlock Audit
-                                                                    </button>
-                                                                )}
-                                                            </div>
-                                                        </div>
+                                                            );
+                                                        })()}
 
                                                         {/* INSPECTION CARDS */}
                                                         <div className="grid grid-cols-1 gap-3 sm:gap-4">
@@ -7675,6 +7742,28 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                     }
                                                                 }
 
+                                                                // Determine DB vs Local state for Sync/Cache indicator
+                                                                const dbScore = submission?.score !== undefined && submission?.score !== null 
+                                                                    ? submission.score 
+                                                                    : (submission?.is_na ? 'N/A' : undefined);
+                                                                const dbNotes = (submission?.auditor_notes || submission?.auditor_remarks || '').trim();
+
+                                                                const localScore = currentScore;
+                                                                const localComment = (currentComment || '').trim();
+
+                                                                const isLocallyScored = localScore !== undefined || localComment !== '';
+                                                                const isDbScored = submission && (dbScore !== undefined || dbNotes !== '');
+
+                                                                const normLocalScore = localScore === 'PASS' || localScore === 'pass' ? (item.points ?? 5) : (localScore === 'FAIL' || localScore === 'fail' ? 0 : localScore);
+                                                                const normDbScore = dbScore === 'PASS' || dbScore === 'pass' ? (item.points ?? 5) : (dbScore === 'FAIL' || dbScore === 'fail' ? 0 : dbScore);
+
+                                                                const scoreMatchesDb = String(normLocalScore ?? '') === String(normDbScore ?? '');
+                                                                const commentMatchesDb = localComment === dbNotes;
+
+                                                                const isSyncedToDb = isDbScored && scoreMatchesDb && commentMatchesDb;
+                                                                const isCachedUncommitted = isLocallyScored && (!submission || !scoreMatchesDb || !commentMatchesDb);
+                                                                const isUnscored = !isLocallyScored && !isDbScored;
+
                                                                 const hasSubmission = !!submission;
                                                                 const itemMaxPoints = item.points ?? 5;
                                                                 const isPass = currentScore !== undefined && (
@@ -7700,7 +7789,9 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                     <div 
                                                                         key={item.id} 
                                                                         className={`group bg-white rounded-xl border transition-all duration-200 overflow-hidden ${
-                                                                            currentScore !== undefined 
+                                                                            isCachedUncommitted
+                                                                                ? 'border-amber-300 shadow-xs ring-2 ring-amber-100'
+                                                                                : currentScore !== undefined 
                                                                                 ? 'border-slate-200 shadow-2xs opacity-95 bg-slate-50/20' 
                                                                                 : 'border-indigo-200 shadow-xs hover:shadow-md ring-2 ring-indigo-50/60'
                                                                         }`}
@@ -7713,6 +7804,24 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                         <span className="px-2 py-0.5 bg-slate-900 text-white text-[9px] font-black rounded-md uppercase tracking-wider">
                                                                                             {item.points ?? 5} Points Max
                                                                                         </span>
+
+                                                                                        {/* SYNC / CACHE INDICATOR BADGE */}
+                                                                                        {isSyncedToDb ? (
+                                                                                            <span className="px-2.5 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 text-[9px] font-black rounded-md uppercase tracking-wider flex items-center gap-1 shadow-2xs">
+                                                                                                <CheckCircle size={10} className="text-emerald-600 shrink-0" />
+                                                                                                <span>Synced to DB</span>
+                                                                                            </span>
+                                                                                        ) : isCachedUncommitted ? (
+                                                                                            <span className="px-2.5 py-0.5 bg-amber-100 text-amber-900 border border-amber-300 text-[9px] font-black rounded-md uppercase tracking-wider flex items-center gap-1 shadow-2xs animate-pulse">
+                                                                                                <Database size={10} className="text-amber-700 shrink-0" />
+                                                                                                <span>Cached (Uncommitted)</span>
+                                                                                            </span>
+                                                                                        ) : (
+                                                                                            <span className="px-2.5 py-0.5 bg-slate-100 text-slate-500 border border-slate-200 text-[9px] font-black rounded-md uppercase tracking-wider flex items-center gap-1">
+                                                                                                <Clock size={10} className="text-slate-400 shrink-0" />
+                                                                                                <span>Unscored</span>
+                                                                                            </span>
+                                                                                        )}
                                                                                         {isSelfAudit ? (
                                                                                             <span className={`px-2 py-0.5 text-[9px] font-black rounded-md uppercase tracking-wider border ${hasSubmission ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
                                                                                                 {hasSubmission ? 'Submission Received' : 'Awaiting for Property Submission.'}
@@ -7743,7 +7852,10 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                         item={item}
                                                                                         hotel={hotel}
                                                                                         submission={submission}
-                                                                                        onSaved={fetchHotelSubmissionsForAuditor}
+                                                                                        onSaved={async () => {
+                                                                                            await commitInspectionToDatabase(hotel, item.id);
+                                                                                            fetchHotelSubmissionsForAuditor();
+                                                                                        }}
                                                                                         userProfile={userProfile}
                                                                                     />
                                                                                 ) : (
@@ -7950,6 +8062,52 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                             placeholder="Describe non-compliance or specific findings..."
                                                                                             className="w-full h-20 bg-white border border-slate-200 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 rounded-xl p-2.5 text-xs text-slate-700 outline-none transition-all resize-none placeholder:text-slate-300"
                                                                                         />
+                                                                                    </div>
+
+                                                                                    {/* SYNC STATUS & COMMIT CONTROL */}
+                                                                                    <div className="pt-2">
+                                                                                        {isSyncedToDb ? (
+                                                                                            <div className="w-full py-2 px-3 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 opacity-90 cursor-default">
+                                                                                                <CheckCircle size={14} className="text-emerald-600" />
+                                                                                                <span>Synced to DB</span>
+                                                                                            </div>
+                                                                                        ) : isCachedUncommitted ? (
+                                                                                            <div className="w-full py-2.5 px-3 bg-amber-50 text-amber-800 border border-amber-200/90 rounded-xl font-bold text-xs flex flex-col items-center justify-center gap-1">
+                                                                                                <div className="flex items-center gap-1.5">
+                                                                                                    <Database size={13} className="text-amber-600 shrink-0" />
+                                                                                                    <span className="font-black uppercase tracking-wider text-[10px]">Cached (Uncommitted)</span>
+                                                                                                </div>
+                                                                                                {!isSelfAudit ? (
+                                                                                                    <span className="text-[9px] font-bold text-amber-700 text-center leading-tight">
+                                                                                                        Click "Commit Evidence to DB" to save
+                                                                                                    </span>
+                                                                                                ) : (
+                                                                                                    <button
+                                                                                                        type="button"
+                                                                                                        onClick={() => commitInspectionToDatabase(hotel, item.id)}
+                                                                                                        disabled={savingInspectionItemId === item.id}
+                                                                                                        className="mt-1 w-full py-2 px-3 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white rounded-lg font-bold text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+                                                                                                    >
+                                                                                                        {savingInspectionItemId === item.id ? (
+                                                                                                            <>
+                                                                                                                <Loader2 size={12} className="animate-spin" />
+                                                                                                                <span>Committing...</span>
+                                                                                                            </>
+                                                                                                        ) : (
+                                                                                                            <>
+                                                                                                                <UploadCloud size={12} />
+                                                                                                                <span>Commit Audit to DB</span>
+                                                                                                            </>
+                                                                                                        )}
+                                                                                                    </button>
+                                                                                                )}
+                                                                                            </div>
+                                                                                        ) : (
+                                                                                            <div className="w-full py-2 px-3 bg-slate-100 text-slate-400 border border-slate-200 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 cursor-not-allowed">
+                                                                                                <Clock size={14} className="text-slate-400" />
+                                                                                                <span>Unscored</span>
+                                                                                            </div>
+                                                                                        )}
                                                                                     </div>
                                                                                 </div>
                                                                             </div>
