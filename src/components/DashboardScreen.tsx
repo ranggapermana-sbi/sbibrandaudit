@@ -1168,7 +1168,14 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
                         const isDeptExpanded = !!expandedDepts[dept.id];
                         const deptApplicableItems = dept.categories.flatMap((c: any) => c.items).filter((i: any) => !getItemInspectionData(i).isNA);
                         const deptItemCount = deptApplicableItems.length;
-                        const deptPoints = deptApplicableItems.reduce((sum: number, i: any) => sum + (i.points || 0), 0);
+                        const deptPossiblePoints = deptApplicableItems.reduce((sum: number, i: any) => sum + (i.points !== undefined && i.points !== null ? Number(i.points) : 5), 0);
+                        const deptActualPoints = deptApplicableItems.reduce((sum: number, i: any) => {
+                            const data = getItemInspectionData(i);
+                            const maxP = i.points !== undefined && i.points !== null ? Number(i.points) : 5;
+                            if (data.isPass) return sum + maxP;
+                            if (typeof data.score === 'number' && !data.isFail && data.score > 0) return sum + Math.min(data.score, maxP);
+                            return sum;
+                        }, 0);
 
                         return (
                             <div key={dept.id} className="bg-white rounded-[20px] border border-slate-200/80 shadow-sm overflow-hidden transition-all duration-300">
@@ -1198,8 +1205,8 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
                                     </div>
 
                                     <div className="flex items-center gap-3 shrink-0">
-                                        <span className="text-[10px] font-extrabold text-slate-600 bg-slate-100 px-2 py-0.5 rounded-md">
-                                            {deptPoints} PTS
+                                        <span className="text-[10px] font-extrabold text-slate-600 bg-slate-100 px-2.5 py-1 rounded-md">
+                                            {deptActualPoints}/{deptPossiblePoints} PTS
                                         </span>
                                         <div className={`p-1 rounded-lg text-slate-400 transition-transform duration-250 ${
                                             isDeptExpanded ? 'rotate-180 bg-indigo-50 text-indigo-600' : 'group-hover:bg-slate-100'
@@ -1215,7 +1222,14 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
                                         {dept.categories.map((cat: any) => {
                                             const isCatExpanded = !!expandedCats[cat.id];
                                             const catApplicableItems = cat.items.filter((i: any) => !getItemInspectionData(i).isNA);
-                                            const catPoints = catApplicableItems.reduce((sum: number, i: any) => sum + (i.points || 0), 0);
+                                            const catPossiblePoints = catApplicableItems.reduce((sum: number, i: any) => sum + (i.points !== undefined && i.points !== null ? Number(i.points) : 5), 0);
+                                            const catActualPoints = catApplicableItems.reduce((sum: number, i: any) => {
+                                                const data = getItemInspectionData(i);
+                                                const maxP = i.points !== undefined && i.points !== null ? Number(i.points) : 5;
+                                                if (data.isPass) return sum + maxP;
+                                                if (typeof data.score === 'number' && !data.isFail && data.score > 0) return sum + Math.min(data.score, maxP);
+                                                return sum;
+                                            }, 0);
 
                                             return (
                                                 <div key={cat.id} className="bg-white rounded-xl border border-slate-150 overflow-hidden transition-all duration-200">
@@ -1240,8 +1254,8 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
                                                         </div>
 
                                                         <div className="flex items-center gap-2.5 shrink-0">
-                                                            <span className="text-[9px] font-bold text-indigo-605 bg-indigo-50 px-1.5 py-0.5 rounded">
-                                                                {catApplicableItems.length} {catApplicableItems.length === 1 ? 'item' : 'items'} ({catPoints} PTS)
+                                                            <span className="text-[9px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-100 px-2 py-0.5 rounded">
+                                                                {catApplicableItems.length} {catApplicableItems.length === 1 ? 'item' : 'items'} ({catActualPoints}/{catPossiblePoints} PTS)
                                                             </span>
                                                             <div className={`text-slate-400 transition-transform duration-200 ${
                                                                 isCatExpanded ? 'rotate-180 text-indigo-500' : ''

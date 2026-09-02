@@ -7673,7 +7673,23 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                 </span>
                                                                             </div>
                                                                             <p className="text-[9px] font-bold text-slate-400 mt-1 uppercase tracking-widest">
-                                                                                {catItems.filter(i => !isItemNA(i)).length} Inspection Points ({catItems.filter(i => !isItemNA(i)).reduce((s, i) => s + (i.points ?? 5), 0)} PTS)
+                                                                                {(() => {
+                                                                                    const catApplicable = catItems.filter(i => !isItemNA(i));
+                                                                                    const catMax = catApplicable.reduce((s, i) => s + (i.points ?? 5), 0);
+                                                                                    const catActual = catApplicable.reduce((sum, item) => {
+                                                                                        const sk1 = `${hotel.id}_${item.id}`;
+                                                                                        const sk2 = hotel?.code ? `${hotel.code}_${item.id}` : '';
+                                                                                        const scoreVal = inspectionScores[sk1] ?? (sk2 ? inspectionScores[sk2] : undefined) ?? inspectionScores[item.id];
+                                                                                        const sub = hotelSubmissions[item.id];
+                                                                                        const score = scoreVal ?? sub?.score;
+                                                                                        const isPass = score === 'PASS' || score === 'pass' || score === 5 || score === '5';
+                                                                                        const numScore = typeof score === 'number' ? score : (score !== undefined && !isNaN(Number(score)) ? Number(score) : null);
+                                                                                        if (isPass) return sum + (item.points ?? 5);
+                                                                                        if (numScore !== null && numScore > 0 && score !== 'FAIL' && score !== 'fail') return sum + Math.min(numScore, item.points ?? 5);
+                                                                                        return sum;
+                                                                                    }, 0);
+                                                                                    return `${catApplicable.length} Inspection Points (${catActual}/${catMax} PTS)`;
+                                                                                })()}
                                                                             </p>
                                                                         </div>
                                                                     </div>
