@@ -8429,8 +8429,26 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                 return bClass !== 'corporate' && hType !== 'corporate';
                             });
 
-                            // Pre-index valid local storage entries ONCE to avoid heavy O(Hotels * Storage) CPU overhead
-                            const localAuditEntries: Array<{ keyHotelId: string; keyItemId: string; parsed: any }> = [];
+                            // Pre-index Supabase submissions by hotel_id once (O(Submissions) instead of O(Hotels * Submissions))
+                            const submissionsByHotelMap = new Map<string, { submitted: Set<string>; na: Set<string> }>();
+                            (allSubmissions || []).forEach((sub: any) => {
+                                if (sub.item_id !== undefined && sub.item_id !== null && sub.hotel_id) {
+                                    const hKey = String(sub.hotel_id).trim().toLowerCase();
+                                    let entry = submissionsByHotelMap.get(hKey);
+                                    if (!entry) {
+                                        entry = { submitted: new Set(), na: new Set() };
+                                        submissionsByHotelMap.set(hKey, entry);
+                                    }
+                                    const itemIdStr = String(sub.item_id);
+                                    entry.submitted.add(itemIdStr);
+                                    if (sub.is_na === true || String(sub.is_na) === 'true') {
+                                        entry.na.add(itemIdStr);
+                                    }
+                                }
+                            });
+
+                            // Pre-index valid local storage entries ONCE by hotel_id to avoid O(Hotels * Storage) overhead
+                            const localAuditByHotelMap = new Map<string, { submitted: Set<string>; na: Set<string> }>();
                             try {
                                 for (let i = 0; i < localStorage.length; i++) {
                                     const key = localStorage.key(i);
@@ -8442,12 +8460,20 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                         const rest = key.replace('sbi_audit_', '');
                                         const parts = rest.split('_');
                                         if (parts.length >= 2) {
-                                            const keyHotelId = parts[0];
+                                            const keyHotelId = parts[0].trim().toLowerCase();
                                             const keyItemId = parts.slice(1).join('_');
                                             try {
                                                 const parsed = JSON.parse(raw);
                                                 if (parsed.value !== undefined || parsed.is_na || (parsed.evidence_urls && parsed.evidence_urls.length > 0) || parsed.isSubmitted) {
-                                                    localAuditEntries.push({ keyHotelId, keyItemId, parsed });
+                                                    let entry = localAuditByHotelMap.get(keyHotelId);
+                                                    if (!entry) {
+                                                        entry = { submitted: new Set(), na: new Set() };
+                                                        localAuditByHotelMap.set(keyHotelId, entry);
+                                                    }
+                                                    entry.submitted.add(String(keyItemId));
+                                                    if (parsed.is_na) {
+                                                        entry.na.add(String(keyItemId));
+                                                    }
                                                 }
                                             } catch (e) {}
                                         }
@@ -8519,31 +8545,21 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                 const submittedItemIdsForHotel = new Set<string>();
                                 const naItemIdsForHotel = new Set<string>();
 
-                                // 1. Match from Supabase submissions
-                                (allSubmissions || []).forEach((sub: any) => {
-                                    if (sub.item_id !== undefined && sub.item_id !== null) {
-                                        const itemIdStr = String(sub.item_id);
-                                        if (currentHotel && isSubmissionForHotel(sub.hotel_id, currentHotel)) {
-                                            submittedItemIdsForHotel.add(itemIdStr);
-                                            if (sub.is_na === true || String(sub.is_na) === 'true') {
-                                                naItemIdsForHotel.add(itemIdStr);
-                                            }
-                                        } else if (possibleIds.includes(String(sub.hotel_id || '').toLowerCase())) {
-                                            submittedItemIdsForHotel.add(itemIdStr);
-                                            if (sub.is_na === true || String(sub.is_na) === 'true') {
-                                                naItemIdsForHotel.add(itemIdStr);
-                                            }
-                                        }
+                                // 1. Fast O(1) Map lookups from pre-indexed Supabase submissions
+                                possibleIds.forEach(pid => {
+                                    const entry = submissionsByHotelMap.get(pid);
+                                    if (entry) {
+                                        entry.submitted.forEach(id => submittedItemIdsForHotel.add(id));
+                                        entry.na.forEach(id => naItemIdsForHotel.add(id));
                                     }
                                 });
 
-                                // 2. Match from pre-indexed Local Storage
-                                localAuditEntries.forEach(({ keyHotelId, keyItemId, parsed }) => {
-                                    if ((currentHotel && isSubmissionForHotel(keyHotelId, currentHotel)) || possibleIds.includes(keyHotelId.toLowerCase())) {
-                                        submittedItemIdsForHotel.add(String(keyItemId));
-                                        if (parsed.is_na) {
-                                            naItemIdsForHotel.add(String(keyItemId));
-                                        }
+                                // 2. Fast O(1) Map lookups from pre-indexed Local Storage
+                                possibleIds.forEach(pid => {
+                                    const entry = localAuditByHotelMap.get(pid);
+                                    if (entry) {
+                                        entry.submitted.forEach(id => submittedItemIdsForHotel.add(id));
+                                        entry.na.forEach(id => naItemIdsForHotel.add(id));
                                     }
                                 });
 
