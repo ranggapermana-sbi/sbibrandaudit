@@ -755,7 +755,8 @@ const AuditItemCard: React.FC<{
                         )}
                     </div>
                 );
-            case 'image':
+            case 'upload':
+            case 'file_image':
                 return (
                     <div className="mt-3 space-y-3">
                         {photos.length > 0 && (
