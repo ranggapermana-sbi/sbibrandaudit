@@ -8270,28 +8270,52 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                         />
                                                                                     </div>
 
-                                                                                    {/* DB SAVE STATUS */}
+                                                                                    {/* DB SAVE STATUS & BUTTON */}
                                                                                     <div className="pt-2">
                                                                                         {isSaving ? (
-                                                                                            <div className="w-full py-2 px-3 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 cursor-default">
+                                                                                            <div className="w-full py-2.5 px-3 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 cursor-default">
                                                                                                 <Loader2 size={14} className="animate-spin text-indigo-600" />
                                                                                                 <span>Saving to DB...</span>
                                                                                             </div>
-                                                                                        ) : isSavedToDb ? (
-                                                                                            <div className="w-full py-2 px-3 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 opacity-90 cursor-default">
-                                                                                                <CheckCircle size={14} className="text-emerald-600" />
-                                                                                                <span>Saved in DB</span>
-                                                                                            </div>
-                                                                                        ) : (currentScore !== undefined || (currentComment || '').trim() !== '') ? (
-                                                                                            <div className="w-full py-2 px-3 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 cursor-default">
-                                                                                                <Clock size={14} className="text-indigo-600" />
-                                                                                                <span>Draft - Click Save to DB</span>
-                                                                                            </div>
+                                                                                        ) : isSelfAudit ? (
+                                                                                            /* Property Evidence Items (isSelfAudit === true) have no form on left, so Save button is here */
+                                                                                            (currentScore !== undefined || (currentComment || '').trim() !== '' || isSavedToDb) ? (
+                                                                                                <button
+                                                                                                    type="button"
+                                                                                                    id={`btn-save-db-${item.id}`}
+                                                                                                    onClick={async () => {
+                                                                                                        await commitInspectionToDatabase(hotel, item.id);
+                                                                                                        await fetchHotelSubmissionsForAuditor();
+                                                                                                    }}
+                                                                                                    className="w-full py-2.5 px-3 bg-indigo-600 hover:bg-indigo-700 active:scale-98 text-white rounded-xl font-black text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-md shadow-indigo-100 transition-all cursor-pointer"
+                                                                                                >
+                                                                                                    <UploadCloud size={15} />
+                                                                                                    <span>Save Audit to DB</span>
+                                                                                                </button>
+                                                                                            ) : (
+                                                                                                <div className="w-full py-2 px-3 bg-slate-100 text-slate-400 border border-slate-200 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 cursor-not-allowed">
+                                                                                                    <Clock size={14} className="text-slate-400" />
+                                                                                                    <span>Unscored - Select Pass/Fail/NA</span>
+                                                                                                </div>
+                                                                                            )
                                                                                         ) : (
-                                                                                            <div className="w-full py-2 px-3 bg-slate-100 text-slate-400 border border-slate-200 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 cursor-not-allowed">
-                                                                                                <Clock size={14} className="text-slate-400" />
-                                                                                                <span>Unscored</span>
-                                                                                            </div>
+                                                                                            /* Auditor-Filled Items (!isSelfAudit) have the Save button inside AuditorEvidenceForm on left */
+                                                                                            isSavedToDb ? (
+                                                                                                <div className="w-full py-2 px-3 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 opacity-90 cursor-default">
+                                                                                                    <CheckCircle size={14} className="text-emerald-600" />
+                                                                                                    <span>Saved in DB</span>
+                                                                                                </div>
+                                                                                            ) : (currentScore !== undefined || (currentComment || '').trim() !== '') ? (
+                                                                                                <div className="w-full py-2 px-3 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 cursor-default">
+                                                                                                    <Clock size={14} className="text-indigo-600" />
+                                                                                                    <span>Draft - Click Save to DB on Left</span>
+                                                                                                </div>
+                                                                                            ) : (
+                                                                                                <div className="w-full py-2 px-3 bg-slate-100 text-slate-400 border border-slate-200 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 cursor-not-allowed">
+                                                                                                    <Clock size={14} className="text-slate-400" />
+                                                                                                    <span>Unscored</span>
+                                                                                                </div>
+                                                                                            )
                                                                                         )}
                                                                                     </div>
                                                                                 </div>
