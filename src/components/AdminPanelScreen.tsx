@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { ArrowLeft, CheckCircle, Clock, Building, BarChart3, ChevronRight, ChevronLeft, ChevronsLeft, ChevronsRight, ArrowUpDown, Plus, Trash2, Edit, Search, X, AlertCircle, MapPin, Settings2, Calendar, Star, Briefcase, ClipboardList, FileCheck, Layers, Package, Camera, ImageIcon, FileText, Hash, Type, CheckSquare, Users, ShieldCheck, Percent, GripVertical, ChevronUp, ChevronDown, Eye, User, RefreshCw, CheckCircle2, Maximize2, ExternalLink, ZoomIn, Database, Copy, Check, Lock, Unlock, Upload, UploadCloud, Loader2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { apiCache } from '../lib/cache';
@@ -2201,40 +2201,89 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     const [inspectionScores, setInspectionScores] = useState<Record<string, number | string>>({});
     const [inspectionComments, setInspectionComments] = useState<Record<string, string>>({});
 
-    const isSubmissionForHotel = (submissionHotelId: string, hotel: Hotel) => {
+    // Pre-calculate lowercased associated IDs for each hotel for O(1) lookups
+    const hotelAssociatedIdsMap = useMemo(() => {
+        const map = new Map<string, Set<string>>();
+        (hotels || []).forEach(hotel => {
+            const ids = new Set<string>();
+            if (hotel.id) ids.add(String(hotel.id).trim().toLowerCase());
+            if (hotel.code) ids.add(String(hotel.code).trim().toLowerCase());
+            if (hotel.name) ids.add(String(hotel.name).trim().toLowerCase());
+
+            (profilesList || []).forEach(p => {
+                const matchesCode = p.hotel_code && hotel.code && String(p.hotel_code).trim().toLowerCase() === String(hotel.code).trim().toLowerCase();
+                const matchesName = p.hotel_name && hotel.name && String(p.hotel_name).trim().toLowerCase() === String(hotel.name).trim().toLowerCase();
+                const matchesId = p.hotel_id && hotel.id && String(p.hotel_id).trim().toLowerCase() === String(hotel.id).trim().toLowerCase();
+                if (matchesCode || matchesName || matchesId) {
+                    if (p.hotel_id) ids.add(String(p.hotel_id).trim().toLowerCase());
+                    if (p.hotel_code) ids.add(String(p.hotel_code).trim().toLowerCase());
+                    if (p.hotel_name) ids.add(String(p.hotel_name).trim().toLowerCase());
+                    if (p.id) ids.add(String(p.id).trim().toLowerCase());
+                }
+            });
+            map.set(String(hotel.id), ids);
+        });
+        return map;
+    }, [hotels, profilesList]);
+
+    // Pre-index allSubmissions by hotel_id for O(1) submission retrieval per hotel
+    const submissionsByHotelMap = useMemo(() => {
+        const map = new Map<string, any[]>();
+        (allSubmissions || []).forEach((sub: any) => {
+            if (!sub || sub.hotel_id === undefined || sub.hotel_id === null) return;
+            const subIdLower = String(sub.hotel_id).trim().toLowerCase();
+            let list = map.get(subIdLower);
+            if (!list) {
+                list = [];
+                map.set(subIdLower, list);
+            }
+            list.push(sub);
+        });
+        return map;
+    }, [allSubmissions]);
+
+    // Fast O(1) submission fetcher for a given hotel
+    const getSubmissionsForHotel = useCallback((hotel: Hotel): any[] => {
+        if (!hotel) return [];
+        const idsSet = hotelAssociatedIdsMap.get(String(hotel.id));
+        const results: any[] = [];
+        const seenSubmissionIds = new Set<string>();
+
+        if (idsSet) {
+            idsSet.forEach(id => {
+                const subs = submissionsByHotelMap.get(id);
+                if (subs) {
+                    subs.forEach(s => {
+                        const sId = s.id || `${s.hotel_id}_${s.item_id}`;
+                        if (!seenSubmissionIds.has(sId)) {
+                            seenSubmissionIds.add(sId);
+                            results.push(s);
+                        }
+                    });
+                }
+            });
+        } else {
+            const hId = String(hotel.id || '').trim().toLowerCase();
+            const subs = submissionsByHotelMap.get(hId);
+            if (subs) return subs;
+        }
+        return results;
+    }, [hotelAssociatedIdsMap, submissionsByHotelMap]);
+
+    const isSubmissionForHotel = useCallback((submissionHotelId: string, hotel: Hotel) => {
         if (!submissionHotelId || !hotel) return false;
-        
         const subIdLower = String(submissionHotelId).trim().toLowerCase();
-        const hotelIdLower = String(hotel.id || '').trim().toLowerCase();
-        
-        if (subIdLower === hotelIdLower) return true;
+        const idsSet = hotelAssociatedIdsMap.get(String(hotel.id));
+        if (idsSet && idsSet.has(subIdLower)) return true;
+        if (hotel.id && subIdLower === String(hotel.id).trim().toLowerCase()) return true;
         if (hotel.code && subIdLower === String(hotel.code).trim().toLowerCase()) return true;
         if (hotel.name && subIdLower === String(hotel.name).trim().toLowerCase()) return true;
-        
-        const associatedIds = new Set<string>();
-        if (hotel.id) associatedIds.add(String(hotel.id).trim().toLowerCase());
-        if (hotel.code) associatedIds.add(String(hotel.code).trim().toLowerCase());
-        if (hotel.name) associatedIds.add(String(hotel.name).trim().toLowerCase());
-
-        (profilesList || []).forEach(p => {
-            const matchesCode = p.hotel_code && hotel.code && String(p.hotel_code).trim().toLowerCase() === String(hotel.code).trim().toLowerCase();
-            const matchesName = p.hotel_name && hotel.name && String(p.hotel_name).trim().toLowerCase() === String(hotel.name).trim().toLowerCase();
-            const matchesId = p.hotel_id && hotel.id && String(p.hotel_id).trim().toLowerCase() === String(hotel.id).trim().toLowerCase();
-            if (matchesCode || matchesName || matchesId) {
-                if (p.hotel_id) associatedIds.add(String(p.hotel_id).trim().toLowerCase());
-                if (p.hotel_code) associatedIds.add(String(p.hotel_code).trim().toLowerCase());
-                if (p.hotel_name) associatedIds.add(String(p.hotel_name).trim().toLowerCase());
-                if (p.id) associatedIds.add(String(p.id).trim().toLowerCase());
-            }
-        });
-        
-        if (associatedIds.has(subIdLower)) return true;
         if (hotel.name && subIdLower.length > 3 && (subIdLower.includes(String(hotel.name).trim().toLowerCase()) || String(hotel.name).trim().toLowerCase().includes(subIdLower))) return true;
         if (hotel.code && hotel.code.length >= 2 && (subIdLower.includes(String(hotel.code).trim().toLowerCase()) || String(hotel.code).trim().toLowerCase().includes(subIdLower))) return true;
         return false;
-    };
+    }, [hotelAssociatedIdsMap]);
 
-    const getHotelFinalizedInfo = (hotelIdOrHotel: any): { is_finalized: boolean, finalized_by?: string, finalized_at?: string } => {
+    const getHotelFinalizedInfo = useCallback((hotelIdOrHotel: any): { is_finalized: boolean, finalized_by?: string, finalized_at?: string } => {
         if (!hotelIdOrHotel) return { is_finalized: false };
 
         let currentHotel: Hotel | undefined;
@@ -2249,39 +2298,12 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             );
         }
 
-        const possibleIds = new Set<string>();
-        if (typeof hotelIdOrHotel === 'string') possibleIds.add(hotelIdOrHotel.trim().toLowerCase());
-        if (currentHotel) {
-            if (currentHotel.id) possibleIds.add(String(currentHotel.id).trim().toLowerCase());
-            if (currentHotel.code) possibleIds.add(String(currentHotel.code).trim().toLowerCase());
-            if (currentHotel.name) possibleIds.add(String(currentHotel.name).trim().toLowerCase());
+        const idsSet = currentHotel ? hotelAssociatedIdsMap.get(String(currentHotel.id)) : null;
+        const possibleIds = idsSet ? Array.from(idsSet) : (typeof hotelIdOrHotel === 'string' ? [hotelIdOrHotel.trim().toLowerCase()] : []);
 
-            (profilesList || []).forEach(p => {
-                const matchesCode = p.hotel_code && currentHotel?.code && String(p.hotel_code).trim().toLowerCase() === String(currentHotel.code).trim().toLowerCase();
-                const matchesName = p.hotel_name && currentHotel?.name && String(p.hotel_name).trim().toLowerCase() === String(currentHotel.name).trim().toLowerCase();
-                const matchesId = p.hotel_id && currentHotel?.id && String(p.hotel_id).trim().toLowerCase() === String(currentHotel.id).trim().toLowerCase();
-                if (matchesCode || matchesName || matchesId) {
-                    if (p.hotel_id) possibleIds.add(String(p.hotel_id).trim().toLowerCase());
-                    if (p.hotel_code) possibleIds.add(String(p.hotel_code).trim().toLowerCase());
-                    if (p.hotel_name) possibleIds.add(String(p.hotel_name).trim().toLowerCase());
-                    if (p.id) possibleIds.add(String(p.id).trim().toLowerCase());
-                }
-            });
-        }
-
-        for (const pid of Array.from(possibleIds)) {
+        for (const pid of possibleIds) {
             if (finalizedStatuses[pid]?.is_finalized) {
                 return finalizedStatuses[pid];
-            }
-            for (const [key, val] of Object.entries(finalizedStatuses)) {
-                const statusVal = val as { is_finalized?: boolean; finalized_by?: string; finalized_at?: string } | undefined;
-                if (key.toLowerCase() === pid && statusVal?.is_finalized) {
-                    return {
-                        is_finalized: true,
-                        finalized_by: statusVal.finalized_by,
-                        finalized_at: statusVal.finalized_at
-                    };
-                }
             }
             if (localStorage.getItem(`sbi_audit_finalized_${pid}`) === 'true') {
                 return {
@@ -2292,7 +2314,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             }
         }
         return { is_finalized: false };
-    };
+    }, [hotels, hotelAssociatedIdsMap, finalizedStatuses]);
 
     const getSubmitterName = (sub: any, currentHotel?: any) => {
         if (!sub) return 'Property User';
@@ -2439,7 +2461,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             // Fallback 3: Filter from existing allSubmissions state
             if ((!subsData || subsData.length === 0) && allSubmissions && allSubmissions.length > 0) {
                 if (currentHotel) {
-                    subsData = allSubmissions.filter(s => isSubmissionForHotel(s.hotel_id, currentHotel));
+                    subsData = getSubmissionsForHotel(currentHotel);
                 }
             }
 
@@ -7125,14 +7147,14 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                 if (isFin) {
                                                     isMatchStatus = false;
                                                 } else {
-                                                    const hotelSubs = allSubmissions.filter(s => isSubmissionForHotel(s.hotel_id, h));
+                                                    const hotelSubs = getSubmissionsForHotel(h);
                                                     isMatchStatus = hotelSubs.length > 0;
                                                 }
                                             } else if (inspectionStatusFilter === 'not_started') {
                                                 if (isFin) {
                                                     isMatchStatus = false;
                                                 } else {
-                                                    const hotelSubs = allSubmissions.filter(s => isSubmissionForHotel(s.hotel_id, h));
+                                                    const hotelSubs = getSubmissionsForHotel(h);
                                                     isMatchStatus = hotelSubs.length === 0;
                                                 }
                                             }
@@ -7205,7 +7227,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                             const totalItems = allHotelItems.length;
 
                                                             // Hotel's actual filled items & progress
-                                                            const hotelSubs = allSubmissions.filter(s => isSubmissionForHotel(s.hotel_id, hotel));
+                                                            const hotelSubs = getSubmissionsForHotel(hotel);
                                                             const submittedItemIdsSet = new Set(hotelSubs.map(s => String(s.item_id)));
                                                             const hotelFilledCount = allHotelItems.filter(item => submittedItemIdsSet.has(String(item.id))).length;
                                                             const isFinalized = getHotelFinalizedInfo(hotel).is_finalized;
@@ -8430,14 +8452,14 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                             });
 
                             // Pre-index Supabase submissions by hotel_id once (O(Submissions) instead of O(Hotels * Submissions))
-                            const submissionsByHotelMap = new Map<string, { submitted: Set<string>; na: Set<string> }>();
+                            const progressSubmissionsByHotelMap = new Map<string, { submitted: Set<string>; na: Set<string> }>();
                             (allSubmissions || []).forEach((sub: any) => {
                                 if (sub.item_id !== undefined && sub.item_id !== null && sub.hotel_id) {
                                     const hKey = String(sub.hotel_id).trim().toLowerCase();
-                                    let entry = submissionsByHotelMap.get(hKey);
+                                    let entry = progressSubmissionsByHotelMap.get(hKey);
                                     if (!entry) {
                                         entry = { submitted: new Set(), na: new Set() };
-                                        submissionsByHotelMap.set(hKey, entry);
+                                        progressSubmissionsByHotelMap.set(hKey, entry);
                                     }
                                     const itemIdStr = String(sub.item_id);
                                     entry.submitted.add(itemIdStr);
@@ -8448,7 +8470,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                             });
 
                             // Pre-index valid local storage entries ONCE by hotel_id to avoid O(Hotels * Storage) overhead
-                            const localAuditByHotelMap = new Map<string, { submitted: Set<string>; na: Set<string> }>();
+                            const progressLocalAuditByHotelMap = new Map<string, { submitted: Set<string>; na: Set<string> }>();
                             try {
                                 for (let i = 0; i < localStorage.length; i++) {
                                     const key = localStorage.key(i);
@@ -8465,10 +8487,10 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                             try {
                                                 const parsed = JSON.parse(raw);
                                                 if (parsed.value !== undefined || parsed.is_na || (parsed.evidence_urls && parsed.evidence_urls.length > 0) || parsed.isSubmitted) {
-                                                    let entry = localAuditByHotelMap.get(keyHotelId);
+                                                    let entry = progressLocalAuditByHotelMap.get(keyHotelId);
                                                     if (!entry) {
                                                         entry = { submitted: new Set(), na: new Set() };
-                                                        localAuditByHotelMap.set(keyHotelId, entry);
+                                                        progressLocalAuditByHotelMap.set(keyHotelId, entry);
                                                     }
                                                     entry.submitted.add(String(keyItemId));
                                                     if (parsed.is_na) {
@@ -8492,24 +8514,8 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                     (h.name && String(h.name).toLowerCase() === hIdLower)
                                 ) || { id: hotelId } as Hotel;
                                 
-                                const possibleIds = [
-                                    hIdLower,
-                                    currentHotel?.id ? String(currentHotel.id).toLowerCase() : null,
-                                    currentHotel?.code ? String(currentHotel.code).toLowerCase() : null,
-                                    currentHotel?.name ? String(currentHotel.name).toLowerCase() : null
-                                ].filter(Boolean) as string[];
-
-                                (profilesList || []).forEach(p => {
-                                    const matchesCode = p.hotel_code && currentHotel?.code && String(p.hotel_code).trim().toLowerCase() === String(currentHotel.code).trim().toLowerCase();
-                                    const matchesName = p.hotel_name && currentHotel?.name && String(p.hotel_name).trim().toLowerCase() === String(currentHotel.name).trim().toLowerCase();
-                                    const matchesId = p.hotel_id && currentHotel?.id && String(p.hotel_id).trim().toLowerCase() === String(currentHotel.id).trim().toLowerCase();
-                                    if (matchesCode || matchesName || matchesId) {
-                                        if (p.hotel_id) possibleIds.push(String(p.hotel_id).toLowerCase());
-                                        if (p.hotel_code) possibleIds.push(String(p.hotel_code).toLowerCase());
-                                        if (p.hotel_name) possibleIds.push(String(p.hotel_name).toLowerCase());
-                                        if (p.id) possibleIds.push(String(p.id).toLowerCase());
-                                    }
-                                });
+                                const idsSet = currentHotel?.id ? hotelAssociatedIdsMap.get(String(currentHotel.id)) : null;
+                                const possibleIds = idsSet ? Array.from(idsSet) : [hIdLower];
 
                                 const assignedGroups = groups.filter(g => {
                                     const hotelIds = g.hotelIds || g.hotel_id || [];
@@ -8546,20 +8552,20 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                 const naItemIdsForHotel = new Set<string>();
 
                                 // 1. Fast O(1) Map lookups from pre-indexed Supabase submissions
-                                possibleIds.forEach(pid => {
-                                    const entry = submissionsByHotelMap.get(pid);
+                                possibleIds.forEach((pid: any) => {
+                                    const entry = progressSubmissionsByHotelMap.get(String(pid));
                                     if (entry) {
-                                        entry.submitted.forEach(id => submittedItemIdsForHotel.add(id));
-                                        entry.na.forEach(id => naItemIdsForHotel.add(id));
+                                        entry.submitted.forEach((id: string) => submittedItemIdsForHotel.add(id));
+                                        entry.na.forEach((id: string) => naItemIdsForHotel.add(id));
                                     }
                                 });
 
                                 // 2. Fast O(1) Map lookups from pre-indexed Local Storage
-                                possibleIds.forEach(pid => {
-                                    const entry = localAuditByHotelMap.get(pid);
+                                possibleIds.forEach((pid: any) => {
+                                    const entry = progressLocalAuditByHotelMap.get(String(pid));
                                     if (entry) {
-                                        entry.submitted.forEach(id => submittedItemIdsForHotel.add(id));
-                                        entry.na.forEach(id => naItemIdsForHotel.add(id));
+                                        entry.submitted.forEach((id: string) => submittedItemIdsForHotel.add(id));
+                                        entry.na.forEach((id: string) => naItemIdsForHotel.add(id));
                                     }
                                 });
 
