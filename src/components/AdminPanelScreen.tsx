@@ -1096,7 +1096,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             try {
                 const { data, error } = await supabase
                     .from('audit_submissions')
-                    .select('hotel_id, item_id, is_na, score, status, updated_at');
+                    .select('hotel_id, item_id, is_na, score, updated_at');
                 if (!error && data && active) {
                     setAllSubmissions(data);
                 }
@@ -2395,7 +2395,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             const idList = Array.from(associatedIds).filter(id => id && String(id).trim().length > 0);
             let subsData: any[] | null = null;
 
-            const LIGHTWEIGHT_COLUMNS = 'id, hotel_id, item_id, is_na, score, status, auditor_notes, auditor_remarks, updated_at, created_at';
+            const LIGHTWEIGHT_COLUMNS = 'id, hotel_id, item_id, is_na, score, auditor_notes, auditor_remarks, updated_at, created_at';
 
             if (idList.length > 0) {
                 const { data, error } = await supabase
