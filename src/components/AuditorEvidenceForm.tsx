@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Camera, FileUp, AlertCircle, Trash2, Loader2, FileText, Check, UploadCloud } from 'lucide-react';
+import { Camera, FileUp, AlertCircle, Trash2, Loader2, FileText, Check, UploadCloud, Clock } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
 interface AuditItem {
@@ -17,6 +17,8 @@ interface AuditorEvidenceFormProps {
     item: AuditItem;
     hotel: any;
     submission: any;
+    currentScore?: number | string;
+    currentComment?: string;
     onSaved: () => void;
     userProfile: any;
 }
@@ -123,7 +125,7 @@ const splitEvidenceUrls = (value: string): string[] => {
     return urls;
 };
 
-export default function AuditorEvidenceForm({ item, hotel, submission, onSaved, userProfile }: AuditorEvidenceFormProps) {
+export default function AuditorEvidenceForm({ item, hotel, submission, currentScore, currentComment, onSaved, userProfile }: AuditorEvidenceFormProps) {
     const [value, setValue] = useState('');
     const [isNa, setIsNa] = useState(false);
     const [naReason, setNaReason] = useState('');
@@ -140,6 +142,12 @@ export default function AuditorEvidenceForm({ item, hotel, submission, onSaved, 
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     const [copied, setCopied] = useState(false);
+
+    useEffect(() => {
+        if (currentScore === 'N/A' || currentScore === 'na' || currentScore === 'NA' || currentScore === 'Na') {
+            setIsNa(true);
+        }
+    }, [currentScore]);
 
     const handleCopyLink = (text: string) => {
         if (!text) return;
@@ -198,31 +206,29 @@ export default function AuditorEvidenceForm({ item, hotel, submission, onSaved, 
     // Load existing submission data
     useEffect(() => {
         if (submission) {
-            const val = submission.value || '';
-            setValue(val);
-            setIsNa(submission.is_na || false);
-            setNaReason(submission.na_reason || submission.notes || submission.remark || '');
-            
-            if (val && (item.inputType === 'camera' || item.inputType === 'image')) {
-                const urls = splitEvidenceUrls(val);
-                setPhotos(urls.map((u: string, idx: number) => ({
-                    id: `loaded_${idx}_${Date.now()}`,
-                    url: u,
-                    file: null
-                })));
-            } else {
-                setPhotos([]);
+            if (submission.value !== undefined) {
+                const val = submission.value || '';
+                setValue(val);
+                if (val && (item.inputType === 'camera' || item.inputType === 'image')) {
+                    const urls = splitEvidenceUrls(val);
+                    setPhotos(urls.map((u: string, idx: number) => ({
+                        id: `loaded_${idx}_${Date.now()}`,
+                        url: u,
+                        file: null
+                    })));
+                } else if (!val) {
+                    setPhotos([]);
+                }
             }
-            setSelectedFile(null);
-        } else {
-            setValue('');
-            setIsNa(false);
-            setNaReason('');
-            setPhotos([]);
-            setSelectedFile(null);
+            if (submission.is_na !== undefined) {
+                setIsNa(!!submission.is_na);
+            }
+            if (submission.na_reason || submission.notes || submission.remark) {
+                setNaReason(submission.na_reason || submission.notes || submission.remark || '');
+            }
         }
         setSaveSuccess(false);
-    }, [submission, item.id]);
+    }, [submission?.id, submission?.updated_at, submission?.value, item.id]);
 
     const handleDrag = (e: React.DragEvent) => {
         e.preventDefault();
@@ -361,14 +367,36 @@ export default function AuditorEvidenceForm({ item, hotel, submission, onSaved, 
 
         const targetHotelId = String(submission?.hotel_id || hotel.code || hotel.id).trim();
 
+        const isNAFinal = isNa || currentScore === 'N/A' || currentScore === 'na' || currentScore === 'NA' || currentScore === 'Na';
+
+        let numScore: number | null = null;
+        if (!isNAFinal) {
+            if (typeof currentScore === 'number') {
+                numScore = currentScore;
+            } else if (currentScore === 'PASS' || currentScore === 'pass') {
+                numScore = item.points ?? 5;
+            } else if (currentScore === 'FAIL' || currentScore === 'fail') {
+                numScore = 0;
+            } else if (currentScore !== undefined && currentScore !== null && !isNaN(Number(currentScore)) && String(currentScore).trim() !== '') {
+                numScore = Number(currentScore);
+            } else if (submission?.score !== undefined && submission?.score !== null) {
+                numScore = Number(submission.score);
+            }
+        }
+
+        const finalComment = (currentComment !== undefined ? currentComment : (submission?.auditor_notes || submission?.auditor_remarks || '')).trim();
+
         const fullSubmissionData = {
             hotel_id: targetHotelId,
             item_id: item.id,
             input_type: item.inputType,
             value: finalValue,
-            is_na: isNa,
-            na_reason: naReason,
-            notes: naReason,
+            score: isNAFinal ? null : numScore,
+            is_na: isNAFinal,
+            na_reason: naReason || (isNAFinal ? 'Marked N/A' : ''),
+            auditor_notes: finalComment,
+            auditor_remarks: finalComment,
+            notes: finalComment || naReason || '',
             submitted_by: submitterName,
             submitted_by_name: submitterName,
             created_at: submission?.created_at || new Date().toISOString(),
@@ -384,8 +412,11 @@ export default function AuditorEvidenceForm({ item, hotel, submission, onSaved, 
                     item_id: item.id,
                     input_type: item.inputType,
                     value: finalValue,
-                    is_na: isNa,
+                    score: isNAFinal ? null : numScore,
+                    is_na: isNAFinal,
                     na_reason: naReason,
+                    auditor_notes: finalComment,
+                    auditor_remarks: finalComment,
                     created_at: submission?.created_at || new Date().toISOString(),
                     updated_at: new Date().toISOString()
                 };
@@ -635,11 +666,11 @@ export default function AuditorEvidenceForm({ item, hotel, submission, onSaved, 
                 <div className="flex items-center gap-2">
                     {submission ? (
                         <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 text-[9px] font-black rounded-md uppercase tracking-wider inline-flex items-center gap-1">
-                            <Check size={10} className="text-emerald-600" /> Synced to DB
+                            <Check size={10} className="text-emerald-600" /> Saved in DB
                         </span>
                     ) : (
-                        <span className="px-2 py-0.5 bg-amber-100 text-amber-800 border border-amber-300 text-[9px] font-black rounded-md uppercase tracking-wider inline-flex items-center gap-1">
-                            <AlertCircle size={10} className="text-amber-700" /> Cached Evidence
+                        <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 border border-indigo-200 text-[9px] font-black rounded-md uppercase tracking-wider inline-flex items-center gap-1">
+                            <Clock size={10} className="text-indigo-600" /> Draft - Ready to Commit
                         </span>
                     )}
                 </div>
@@ -663,7 +694,7 @@ export default function AuditorEvidenceForm({ item, hotel, submission, onSaved, 
                         ) : (
                             <>
                                 <UploadCloud size={12} />
-                                <span>Commit Evidence to DB</span>
+                                <span>Save Audit to DB</span>
                             </>
                         )}
                     </button>

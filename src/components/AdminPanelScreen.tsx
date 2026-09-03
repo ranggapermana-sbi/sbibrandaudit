@@ -2198,14 +2198,8 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     const [expandedCountries, setExpandedCountries] = useState<Record<string, boolean>>({});
     const [selectedInspectionCategoryId, setSelectedInspectionCategoryId] = useState<string>('');
     const [hotelSubmissions, setHotelSubmissions] = useState<Record<string, any>>({});
-    const [inspectionScores, setInspectionScores] = useState<Record<string, number | string>>(() => {
-        const stored = localStorage.getItem('sbi_inspection_scores');
-        return stored ? JSON.parse(stored) : {};
-    });
-    const [inspectionComments, setInspectionComments] = useState<Record<string, string>>(() => {
-        const stored = localStorage.getItem('sbi_inspection_comments');
-        return stored ? JSON.parse(stored) : {};
-    });
+    const [inspectionScores, setInspectionScores] = useState<Record<string, number | string>>({});
+    const [inspectionComments, setInspectionComments] = useState<Record<string, string>>({});
 
     const isSubmissionForHotel = (submissionHotelId: string, hotel: Hotel) => {
         if (!submissionHotelId || !hotel) return false;
@@ -2458,8 +2452,15 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                     const itemIdStr = String(sub.item_id);
                     const hIdStr = String(sub.hotel_id || '');
                     const existing = hotelSubmissions[itemIdStr] || {};
-                    // Merge lightweight data while preserving full load state if available
-                    submissionsMap[itemIdStr] = { ...existing, ...sub };
+                    // Merge lightweight data while preserving full load state and evidence value if available
+                    const mergedValue = sub.value !== undefined ? sub.value : existing.value;
+                    const mergedFullyLoaded = existing._isFullyLoaded || sub._isFullyLoaded || false;
+                    submissionsMap[itemIdStr] = { 
+                        ...existing, 
+                        ...sub, 
+                        value: mergedValue, 
+                        _isFullyLoaded: mergedFullyLoaded 
+                    };
 
                     if (sub.score !== undefined && sub.score !== null) {
                         dbScores[`${hIdStr}_${itemIdStr}`] = sub.score;
@@ -2489,46 +2490,9 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 }
             });
 
-            if (Object.keys(dbScores).length > 0) {
-                setInspectionScores(prev => ({ ...prev, ...dbScores }));
-            }
-            if (Object.keys(dbComments).length > 0) {
-                setInspectionComments(prev => ({ ...prev, ...dbComments }));
-            }
-
-            // ALSO check localStorage for any client-side saved property submissions
-            try {
-                for (let i = 0; i < localStorage.length; i++) {
-                    const key = localStorage.key(i);
-                    if (key && key.startsWith('sbi_audit_') && !key.startsWith('sbi_audit_finalized_')) {
-                        const parts = key.replace('sbi_audit_', '').split('_');
-                        if (parts.length >= 2) {
-                            const item_id = parts.pop();
-                            const hId = parts.join('_');
-                            if (currentHotel && isSubmissionForHotel(hId, currentHotel) && item_id) {
-                                if (!submissionsMap[item_id]) {
-                                    try {
-                                        const parsed = JSON.parse(localStorage.getItem(key) || '{}');
-                                        if (parsed && (parsed.value !== undefined || parsed.is_na || parsed.evidence_urls)) {
-                                            submissionsMap[item_id] = {
-                                                item_id,
-                                                hotel_id: hId,
-                                                value: parsed.value || '',
-                                                is_na: !!parsed.is_na,
-                                                evidence_urls: parsed.evidence_urls || [],
-                                                score: parsed.score,
-                                                remarks: parsed.remarks || ''
-                                            };
-                                        }
-                                    } catch (e) {}
-                                }
-                            }
-                        }
-                    }
-                }
-            } catch (lsErr) {}
-
-            setHotelSubmissions(submissionsMap);
+            setInspectionScores(prev => ({ ...prev, ...dbScores }));
+            setInspectionComments(prev => ({ ...prev, ...dbComments }));
+            setHotelSubmissions(prev => ({ ...prev, ...submissionsMap }));
         } catch (err) {
             console.warn("Could not fetch audit submissions for auditor, using state fallback:", err);
             const hotel = hotels.find(h => h.id === selectedInspectionHotelId);
@@ -2585,10 +2549,25 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                     [itemId]: { ...(prev[itemId] || {}), ...sub, _isFullyLoaded: true }
                 }));
                 if (sub.score !== undefined && sub.score !== null) {
-                    setInspectionScores(prev => ({ ...prev, [itemId]: sub.score }));
+                    setInspectionScores(prev => {
+                        const next = { ...prev, [itemId]: sub.score };
+                        idList.forEach(hId => { next[`${hId}_${itemId}`] = sub.score; });
+                        return next;
+                    });
+                } else if (sub.is_na === true || String(sub.is_na) === 'true') {
+                    setInspectionScores(prev => {
+                        const next = { ...prev, [itemId]: 'N/A' };
+                        idList.forEach(hId => { next[`${hId}_${itemId}`] = 'N/A'; });
+                        return next;
+                    });
                 }
-                if (sub.auditor_notes || sub.auditor_remarks) {
-                    setInspectionComments(prev => ({ ...prev, [itemId]: (sub.auditor_notes || sub.auditor_remarks || '').trim() }));
+                const noteText = (sub.auditor_notes || sub.auditor_remarks || '').trim();
+                if (noteText) {
+                    setInspectionComments(prev => {
+                        const next = { ...prev, [itemId]: noteText };
+                        idList.forEach(hId => { next[`${hId}_${itemId}`] = noteText; });
+                        return next;
+                    });
                 }
             } else {
                 setHotelSubmissions(prev => ({
@@ -2736,21 +2715,34 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             subHotelId ? String(subHotelId) : ''
         ].filter(Boolean)));
 
-        // Update local React state for UI responsiveness (NO REALTIME SUPABASE SUBMISSION)
+        const isNA = score === 'N/A' || score === 'na' || score === 'NA' || score === 'Na';
+        const numScore = typeof score === 'number' 
+            ? score 
+            : (score !== undefined && score !== null && !isNaN(Number(score)) && String(score) !== '' 
+                ? Number(score) 
+                : (score === 'PASS' || score === 'pass' ? 5 : (score === 'FAIL' || score === 'fail' ? 0 : null)));
+
+        // Update in-memory scores for responsive calculation ONLY (NO direct DB save)
         const updated = { ...inspectionScores };
         possibleHotelIds.forEach(hId => {
             const k = `${hId}_${itemId}`;
-            if (score === undefined) {
-                delete updated[k];
-            } else {
-                updated[k] = score;
-            }
+            if (score === undefined) delete updated[k]; else updated[k] = score;
         });
         if (score === undefined) delete updated[itemId]; else updated[itemId] = score;
-
         setInspectionScores(updated);
-        localStorage.setItem('sbi_inspection_scores', JSON.stringify(updated));
-        window.dispatchEvent(new Event('sbi_inspection_updated'));
+
+        // Update hotelSubmissions state directly in memory
+        setHotelSubmissions(prev => ({
+            ...prev,
+            [itemId]: {
+                ...(prev[itemId] || {}),
+                hotel_id: canonicalHotelId,
+                item_id: String(itemId),
+                score: isNA ? null : numScore,
+                is_na: isNA,
+                updated_at: new Date().toISOString()
+            }
+        }));
     };
 
     const saveInspectionComment = (hotelOrId: any, itemId: string, comment: string) => {
@@ -2769,21 +2761,28 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             subHotelId ? String(subHotelId) : ''
         ].filter(Boolean)));
 
-        // Update local React state for UI responsiveness (NO REALTIME SUPABASE SUBMISSION)
+        const trimmed = (comment || '').trim();
+
         const updated = { ...inspectionComments };
         possibleHotelIds.forEach(hId => {
             const k = `${hId}_${itemId}`;
-            if (!comment) {
-                delete updated[k];
-            } else {
-                updated[k] = comment;
-            }
+            if (!comment) delete updated[k]; else updated[k] = comment;
         });
         if (!comment) delete updated[itemId]; else updated[itemId] = comment;
-
         setInspectionComments(updated);
-        localStorage.setItem('sbi_inspection_comments', JSON.stringify(updated));
-        window.dispatchEvent(new Event('sbi_inspection_updated'));
+
+        // Update hotelSubmissions state directly in memory (NO direct DB save)
+        setHotelSubmissions(prev => ({
+            ...prev,
+            [itemId]: {
+                ...(prev[itemId] || {}),
+                hotel_id: canonicalHotelId,
+                item_id: String(itemId),
+                auditor_notes: trimmed,
+                auditor_remarks: trimmed,
+                updated_at: new Date().toISOString()
+            }
+        }));
     };
 
     const commitInspectionToDatabase = async (hotelOrId: any, itemId: string) => {
@@ -2795,85 +2794,59 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         const canonicalHotelId = String(hotelObj?.code || subHotelId || hotelObj?.id || primaryId || '').trim().toUpperCase();
         if (!canonicalHotelId) return;
 
-        const possibleHotelIds = Array.from(new Set([
-            String(primaryId),
-            hotelObj?.id ? String(hotelObj.id) : '',
-            hotelObj?.code ? String(hotelObj.code) : '',
-            subHotelId ? String(subHotelId) : ''
-        ].filter(Boolean)));
+        const scoreVal = inspectionScores[`${canonicalHotelId}_${itemId}`] ?? inspectionScores[itemId] ?? sub?.score ?? (sub?.is_na ? 'N/A' : undefined);
+        const commentVal = inspectionComments[`${canonicalHotelId}_${itemId}`] || inspectionComments[itemId] || sub?.auditor_notes || sub?.auditor_remarks || '';
 
-        const sk1 = `${canonicalHotelId}_${itemId}`;
-        const sk2 = primaryId ? `${primaryId}_${itemId}` : '';
-
-        const currentScore = inspectionScores[sk1] ?? (sk2 ? inspectionScores[sk2] : undefined) ?? inspectionScores[itemId] ?? sub?.score;
-        const currentComment = (inspectionComments[sk1] || (sk2 ? inspectionComments[sk2] : '') || inspectionComments[itemId] || '').trim();
-
-        const isNA = currentScore === 'N/A' || currentScore === 'na' || currentScore === 'NA' || currentScore === 'Na';
-        const numScore = typeof currentScore === 'number' 
-            ? currentScore 
-            : (currentScore !== undefined && currentScore !== null && !isNaN(Number(currentScore)) && String(currentScore) !== '' 
-                ? Number(currentScore) 
-                : (currentScore === 'PASS' || currentScore === 'pass' ? 5 : null));
+        const isNA = scoreVal === 'N/A' || scoreVal === 'na' || scoreVal === 'NA' || scoreVal === 'Na' || sub?.is_na;
+        let numScore: number | null = null;
+        if (!isNA) {
+            if (typeof scoreVal === 'number') {
+                numScore = scoreVal;
+            } else if (scoreVal === 'PASS' || scoreVal === 'pass') {
+                numScore = 5;
+            } else if (scoreVal === 'FAIL' || scoreVal === 'fail') {
+                numScore = 0;
+            } else if (scoreVal !== undefined && scoreVal !== null && !isNaN(Number(scoreVal)) && String(scoreVal).trim() !== '') {
+                numScore = Number(scoreVal);
+            } else if (sub?.score !== undefined && sub?.score !== null) {
+                numScore = Number(sub.score);
+            }
+        }
 
         setSavingInspectionItemId(itemId);
-
         try {
             const payload: any = {
                 hotel_id: canonicalHotelId,
                 item_id: String(itemId),
-                auditor_notes: currentComment,
-                auditor_remarks: currentComment,
+                score: isNA ? null : numScore,
+                is_na: !!isNA,
+                auditor_notes: (commentVal || '').trim(),
+                auditor_remarks: (commentVal || '').trim(),
                 updated_at: new Date().toISOString()
             };
-            if (isNA) {
-                payload.is_na = true;
-                payload.score = null;
-            } else if (numScore !== null && numScore !== undefined) {
-                payload.score = numScore;
-                payload.is_na = false;
-            }
+            if (sub?.value) payload.value = sub.value;
+            if (sub?.input_type) payload.input_type = sub.input_type;
 
             const { error } = await supabase.from('audit_submissions').upsert(payload, { onConflict: 'hotel_id,item_id' });
             if (error) {
-                console.warn("Full upsert failed, attempting core payload:", error);
-                await supabase.from('audit_submissions').upsert({
+                console.warn("Commit to DB failed, attempting fallback payload:", error);
+                const fallbackPayload: any = {
                     hotel_id: canonicalHotelId,
                     item_id: String(itemId),
                     score: isNA ? null : numScore,
-                    is_na: isNA,
-                    auditor_remarks: currentComment,
+                    is_na: !!isNA,
                     updated_at: new Date().toISOString()
-                }, { onConflict: 'hotel_id,item_id' });
-            }
-
-            // Clean up duplicate rows stored under alternate hotel ID aliases
-            const duplicateIdsToDelete = possibleHotelIds.filter(id => id && String(id).trim().toUpperCase() !== canonicalHotelId);
-            if (duplicateIdsToDelete.length > 0) {
-                await supabase
-                    .from('audit_submissions')
-                    .delete()
-                    .eq('item_id', String(itemId))
-                    .in('hotel_id', duplicateIdsToDelete);
-            }
-
-            // Update hotelSubmissions state so DB state matches local state immediately
-            setHotelSubmissions(prev => ({
-                ...prev,
-                [itemId]: {
-                    ...(prev[itemId] || {}),
-                    hotel_id: canonicalHotelId,
-                    item_id: String(itemId),
-                    score: isNA ? null : numScore,
-                    is_na: isNA,
-                    auditor_notes: currentComment,
-                    auditor_remarks: currentComment,
-                    updated_at: new Date().toISOString()
+                };
+                if (sub?.value) fallbackPayload.value = sub.value;
+                if (sub?.input_type) fallbackPayload.input_type = sub.input_type;
+                if (commentVal) {
+                    fallbackPayload.auditor_notes = (commentVal || '').trim();
+                    fallbackPayload.auditor_remarks = (commentVal || '').trim();
                 }
-            }));
-
+                await supabase.from('audit_submissions').upsert(fallbackPayload, { onConflict: 'hotel_id,item_id' });
+            }
         } catch (err) {
-            console.error("Failed to commit inspection item to DB:", err);
-            alert("Failed to commit inspection to database: " + (err instanceof Error ? err.message : String(err)));
+            console.error("Error committing inspection to DB:", err);
         } finally {
             setSavingInspectionItemId(null);
         }
@@ -7756,28 +7729,6 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                     <div key={cat.id} className="space-y-3">
                                                         {/* CATEGORY BAR */}
                                                         {(() => {
-                                                            const cachedCatItems = catItems.filter((it) => {
-                                                                const sub = hotelSubmissions[it.id];
-                                                                const sk1 = `${hotel.id}_${it.id}`;
-                                                                const sk2 = hotel?.code ? `${hotel.code}_${it.id}` : '';
-                                                                const sk3 = sub?.hotel_id ? `${sub.hotel_id}_${it.id}` : '';
-
-                                                                let cScore = inspectionScores[sk1] ?? (sk2 ? inspectionScores[sk2] : undefined) ?? (sk3 ? inspectionScores[sk3] : undefined) ?? inspectionScores[it.id];
-                                                                let cComment = inspectionComments[sk1] || (sk2 ? inspectionComments[sk2] : '') || (sk3 ? inspectionComments[sk3] : '') || inspectionComments[it.id] || '';
-
-                                                                const dbS = sub?.score !== undefined && sub?.score !== null ? sub.score : (sub?.is_na ? 'N/A' : undefined);
-                                                                const dbN = (sub?.auditor_notes || sub?.auditor_remarks || '').trim();
-
-                                                                const isLoc = cScore !== undefined || cComment.trim() !== '';
-                                                                const normLocal = cScore === 'PASS' || cScore === 'pass' ? (it.points ?? 5) : (cScore === 'FAIL' || cScore === 'fail' ? 0 : cScore);
-                                                                const normDb = dbS === 'PASS' || dbS === 'pass' ? (it.points ?? 5) : (dbS === 'FAIL' || dbS === 'fail' ? 0 : dbS);
-
-                                                                const sMatch = String(normLocal ?? '') === String(normDb ?? '');
-                                                                const cMatch = cComment.trim() === dbN;
-
-                                                                return isLoc && (!sub || !sMatch || !cMatch);
-                                                            });
-
                                                             return (
                                                                 <div className="sticky top-16 z-30 flex items-center justify-between p-3 sm:px-4 sm:py-2.5 bg-white/95 backdrop-blur-xl border border-slate-200/80 rounded-xl shadow-xs">
                                                                     <div className="flex items-center gap-3">
@@ -7814,21 +7765,6 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                         </div>
                                                                     </div>
                                                                     <div className="flex items-center gap-2 sm:gap-3">
-                                                                        {cachedCatItems.length > 0 && (
-                                                                            <button
-                                                                                type="button"
-                                                                                onClick={async () => {
-                                                                                    for (const itemToCommit of cachedCatItems) {
-                                                                                        await commitInspectionToDatabase(hotel, itemToCommit.id);
-                                                                                    }
-                                                                                }}
-                                                                                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-[10px] font-black uppercase tracking-wider transition-all shadow-sm active:scale-95 cursor-pointer animate-pulse"
-                                                                                title="Commit all cached items in this category to database"
-                                                                            >
-                                                                                <Upload size={12} />
-                                                                                <span>Commit {cachedCatItems.length} Cached to DB</span>
-                                                                            </button>
-                                                                        )}
                                                                         <div className="hidden sm:flex flex-col items-end mr-1">
                                                                             <div className="flex items-center gap-1.5">
                                                                                 <div className="w-20 h-1.5 bg-slate-100 rounded-full overflow-hidden">
@@ -7915,27 +7851,8 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                     }
                                                                 }
 
-                                                                // Determine DB vs Local state for Sync/Cache indicator
-                                                                const dbScore = submission?.score !== undefined && submission?.score !== null 
-                                                                    ? submission.score 
-                                                                    : (submission?.is_na ? 'N/A' : undefined);
-                                                                const dbNotes = (submission?.auditor_notes || submission?.auditor_remarks || '').trim();
-
-                                                                const localScore = currentScore;
-                                                                const localComment = (currentComment || '').trim();
-
-                                                                const isLocallyScored = localScore !== undefined || localComment !== '';
-                                                                const isDbScored = submission && (dbScore !== undefined || dbNotes !== '');
-
-                                                                const normLocalScore = localScore === 'PASS' || localScore === 'pass' ? (item.points ?? 5) : (localScore === 'FAIL' || localScore === 'fail' ? 0 : localScore);
-                                                                const normDbScore = dbScore === 'PASS' || dbScore === 'pass' ? (item.points ?? 5) : (dbScore === 'FAIL' || dbScore === 'fail' ? 0 : dbScore);
-
-                                                                const scoreMatchesDb = String(normLocalScore ?? '') === String(normDbScore ?? '');
-                                                                const commentMatchesDb = localComment === dbNotes;
-
-                                                                const isSyncedToDb = isDbScored && scoreMatchesDb && commentMatchesDb;
-                                                                const isCachedUncommitted = isLocallyScored && (!submission || !scoreMatchesDb || !commentMatchesDb);
-                                                                const isUnscored = !isLocallyScored && !isDbScored;
+                                                                const isSavedToDb = !!submission && (submission.score !== undefined || submission.is_na === true || !!submission.auditor_notes || !!submission.auditor_remarks || !!submission.value);
+                                                                const isSaving = savingInspectionItemId === item.id;
 
                                                                 const hasSubmission = !!submission;
                                                                 const itemMaxPoints = item.points ?? 5;
@@ -7963,9 +7880,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                     <div 
                                                                         key={item.id} 
                                                                         className={`group bg-white rounded-xl border transition-all duration-200 overflow-hidden ${
-                                                                            isCachedUncommitted
-                                                                                ? 'border-amber-300 shadow-xs ring-2 ring-amber-100'
-                                                                                : currentScore !== undefined 
+                                                                            currentScore !== undefined 
                                                                                 ? 'border-slate-200 shadow-2xs opacity-95 bg-slate-50/20' 
                                                                                 : 'border-indigo-200 shadow-xs hover:shadow-md ring-2 ring-indigo-50/60'
                                                                         }`}
@@ -8011,14 +7926,9 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                             <span className="text-[9px] font-extrabold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">
                                                                                                 {itemMaxPoints} Max
                                                                                             </span>
-                                                                                            {isSyncedToDb && (
+                                                                                            {isSavedToDb && (
                                                                                                 <span className="text-[9px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded flex items-center gap-1">
-                                                                                                    <CheckCircle size={9} /> Synced
-                                                                                                </span>
-                                                                                            )}
-                                                                                            {isCachedUncommitted && (
-                                                                                                <span className="text-[9px] font-bold text-amber-800 bg-amber-100 border border-amber-300 px-1.5 py-0.5 rounded animate-pulse">
-                                                                                                    Cached (Uncommitted)
+                                                                                                    <CheckCircle size={9} /> Saved to DB
                                                                                                 </span>
                                                                                             )}
                                                                                         </div>
@@ -8104,16 +8014,11 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                             {item.points ?? 5} Points Max
                                                                                         </span>
 
-                                                                                        {/* SYNC / CACHE INDICATOR BADGE */}
-                                                                                        {isSyncedToDb ? (
+                                                                                        {/* DB SAVE STATUS BADGE */}
+                                                                                        {isSavedToDb ? (
                                                                                             <span className="px-2.5 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 text-[9px] font-black rounded-md uppercase tracking-wider flex items-center gap-1 shadow-2xs">
                                                                                                 <CheckCircle size={10} className="text-emerald-600 shrink-0" />
-                                                                                                <span>Synced to DB</span>
-                                                                                            </span>
-                                                                                        ) : isCachedUncommitted ? (
-                                                                                            <span className="px-2.5 py-0.5 bg-amber-100 text-amber-900 border border-amber-300 text-[9px] font-black rounded-md uppercase tracking-wider flex items-center gap-1 shadow-2xs animate-pulse">
-                                                                                                <Database size={10} className="text-amber-700 shrink-0" />
-                                                                                                <span>Cached (Uncommitted)</span>
+                                                                                                <span>Saved to DB</span>
                                                                                             </span>
                                                                                         ) : (
                                                                                             <span className="px-2.5 py-0.5 bg-slate-100 text-slate-500 border border-slate-200 text-[9px] font-black rounded-md uppercase tracking-wider flex items-center gap-1">
@@ -8151,9 +8056,11 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                         item={item}
                                                                                         hotel={hotel}
                                                                                         submission={submission}
+                                                                                        currentScore={currentScore}
+                                                                                        currentComment={currentComment}
                                                                                         onSaved={async () => {
-                                                                                            await commitInspectionToDatabase(hotel, item.id);
-                                                                                            fetchHotelSubmissionsForAuditor();
+                                                                                            await fetchFullItemSubmission(item.id, true);
+                                                                                            await fetchHotelSubmissionsForAuditor();
                                                                                         }}
                                                                                         userProfile={userProfile}
                                                                                     />
@@ -8363,43 +8270,22 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                         />
                                                                                     </div>
 
-                                                                                    {/* SYNC STATUS & COMMIT CONTROL */}
+                                                                                    {/* DB SAVE STATUS */}
                                                                                     <div className="pt-2">
-                                                                                        {isSyncedToDb ? (
+                                                                                        {isSaving ? (
+                                                                                            <div className="w-full py-2 px-3 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 cursor-default">
+                                                                                                <Loader2 size={14} className="animate-spin text-indigo-600" />
+                                                                                                <span>Saving to DB...</span>
+                                                                                            </div>
+                                                                                        ) : isSavedToDb ? (
                                                                                             <div className="w-full py-2 px-3 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 opacity-90 cursor-default">
                                                                                                 <CheckCircle size={14} className="text-emerald-600" />
-                                                                                                <span>Synced to DB</span>
+                                                                                                <span>Saved in DB</span>
                                                                                             </div>
-                                                                                        ) : isCachedUncommitted ? (
-                                                                                            <div className="w-full py-2.5 px-3 bg-amber-50 text-amber-800 border border-amber-200/90 rounded-xl font-bold text-xs flex flex-col items-center justify-center gap-1">
-                                                                                                <div className="flex items-center gap-1.5">
-                                                                                                    <Database size={13} className="text-amber-600 shrink-0" />
-                                                                                                    <span className="font-black uppercase tracking-wider text-[10px]">Cached (Uncommitted)</span>
-                                                                                                </div>
-                                                                                                {!isSelfAudit ? (
-                                                                                                    <span className="text-[9px] font-bold text-amber-700 text-center leading-tight">
-                                                                                                        Click "Commit Evidence to DB" to save
-                                                                                                    </span>
-                                                                                                ) : (
-                                                                                                    <button
-                                                                                                        type="button"
-                                                                                                        onClick={() => commitInspectionToDatabase(hotel, item.id)}
-                                                                                                        disabled={savingInspectionItemId === item.id}
-                                                                                                        className="mt-1 w-full py-2 px-3 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white rounded-lg font-bold text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
-                                                                                                    >
-                                                                                                        {savingInspectionItemId === item.id ? (
-                                                                                                            <>
-                                                                                                                <Loader2 size={12} className="animate-spin" />
-                                                                                                                <span>Committing...</span>
-                                                                                                            </>
-                                                                                                        ) : (
-                                                                                                            <>
-                                                                                                                <UploadCloud size={12} />
-                                                                                                                <span>Commit Audit to DB</span>
-                                                                                                            </>
-                                                                                                        )}
-                                                                                                    </button>
-                                                                                                )}
+                                                                                        ) : (currentScore !== undefined || (currentComment || '').trim() !== '') ? (
+                                                                                            <div className="w-full py-2 px-3 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 cursor-default">
+                                                                                                <Clock size={14} className="text-indigo-600" />
+                                                                                                <span>Draft - Click Save to DB</span>
                                                                                             </div>
                                                                                         ) : (
                                                                                             <div className="w-full py-2 px-3 bg-slate-100 text-slate-400 border border-slate-200 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 cursor-not-allowed">
