@@ -1096,7 +1096,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             try {
                 const { data, error } = await supabase
                     .from('audit_submissions')
-                    .select('hotel_id, item_id, is_na, value, evidence_urls');
+                    .select('hotel_id, item_id, is_na, score, status, updated_at');
                 if (!error && data && active) {
                     setAllSubmissions(data);
                 }
@@ -2401,10 +2401,12 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             const idList = Array.from(associatedIds).filter(id => id && String(id).trim().length > 0);
             let subsData: any[] | null = null;
 
+            const LIGHTWEIGHT_COLUMNS = 'id, hotel_id, item_id, is_na, score, status, auditor_notes, auditor_remarks, updated_at, created_at';
+
             if (idList.length > 0) {
                 const { data, error } = await supabase
                     .from('audit_submissions')
-                    .select('*')
+                    .select(LIGHTWEIGHT_COLUMNS)
                     .in('hotel_id', idList);
                 if (!error && data && data.length > 0) {
                     subsData = data;
@@ -2417,7 +2419,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 for (const tid of targetIds) {
                     const { data, error } = await supabase
                         .from('audit_submissions')
-                        .select('*')
+                        .select(LIGHTWEIGHT_COLUMNS)
                         .eq('hotel_id', tid);
                     if (!error && data && data.length > 0) {
                         subsData = data;
@@ -2426,11 +2428,11 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 }
             }
 
-            // Fallback 2: Select all submissions and filter using isSubmissionForHotel
+            // Fallback 2: Select all submissions lightweight and filter using isSubmissionForHotel
             if (!subsData || subsData.length === 0) {
                 const { data, error } = await supabase
                     .from('audit_submissions')
-                    .select('*');
+                    .select(LIGHTWEIGHT_COLUMNS);
                 if (!error && data && data.length > 0) {
                     if (currentHotel) {
                         subsData = data.filter(s => isSubmissionForHotel(s.hotel_id, currentHotel));
@@ -2455,7 +2457,9 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 if (sub && sub.item_id !== undefined && sub.item_id !== null) {
                     const itemIdStr = String(sub.item_id);
                     const hIdStr = String(sub.hotel_id || '');
-                    submissionsMap[itemIdStr] = sub;
+                    const existing = hotelSubmissions[itemIdStr] || {};
+                    // Merge lightweight data while preserving full load state if available
+                    submissionsMap[itemIdStr] = { ...existing, ...sub };
 
                     if (sub.score !== undefined && sub.score !== null) {
                         dbScores[`${hIdStr}_${itemIdStr}`] = sub.score;
@@ -2537,6 +2541,122 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 });
                 setHotelSubmissions(submissionsMap);
             }
+        }
+    };
+
+    // States & loaders for ON-DEMAND fetching when clicking [Inspect & Score]
+    const [loadingItemIds, setLoadingItemIds] = useState<Record<string, boolean>>({});
+
+    const fetchFullItemSubmission = async (itemId: string, force = false) => {
+        if (!selectedInspectionHotelId || !itemId) return;
+        if (!force && hotelSubmissions[itemId]?._isFullyLoaded) return;
+
+        setLoadingItemIds(prev => ({ ...prev, [itemId]: true }));
+        try {
+            const hotel = hotels.find(h => h.id === selectedInspectionHotelId) || hotels.find(h => isSubmissionForHotel(selectedInspectionHotelId, h));
+            const currentHotel = hotel || (selectedInspectionHotelId ? { id: selectedInspectionHotelId, code: selectedInspectionHotelId, name: selectedInspectionHotelId } as Hotel : undefined);
+
+            const associatedIds = new Set<string>();
+            if (currentHotel) {
+                if (currentHotel.id) {
+                    associatedIds.add(String(currentHotel.id));
+                    associatedIds.add(String(currentHotel.id).toLowerCase());
+                }
+                if (currentHotel.code) {
+                    associatedIds.add(String(currentHotel.code));
+                    associatedIds.add(String(currentHotel.code).toLowerCase());
+                }
+                if (currentHotel.name) associatedIds.add(String(currentHotel.name));
+            } else {
+                associatedIds.add(String(selectedInspectionHotelId));
+            }
+            const idList = Array.from(associatedIds).filter(Boolean);
+
+            const { data, error } = await supabase
+                .from('audit_submissions')
+                .select('*')
+                .eq('item_id', itemId)
+                .in('hotel_id', idList);
+
+            if (!error && data && data.length > 0) {
+                const sub = data[0];
+                setHotelSubmissions(prev => ({
+                    ...prev,
+                    [itemId]: { ...(prev[itemId] || {}), ...sub, _isFullyLoaded: true }
+                }));
+                if (sub.score !== undefined && sub.score !== null) {
+                    setInspectionScores(prev => ({ ...prev, [itemId]: sub.score }));
+                }
+                if (sub.auditor_notes || sub.auditor_remarks) {
+                    setInspectionComments(prev => ({ ...prev, [itemId]: (sub.auditor_notes || sub.auditor_remarks || '').trim() }));
+                }
+            } else {
+                setHotelSubmissions(prev => ({
+                    ...prev,
+                    [itemId]: { ...(prev[itemId] || {}), _isFullyLoaded: true }
+                }));
+            }
+        } catch (err) {
+            console.error("Error fetching item submission details:", err);
+        } finally {
+            setLoadingItemIds(prev => ({ ...prev, [itemId]: false }));
+        }
+    };
+
+    const fetchFullCategorySubmissions = async (itemIds: string[]) => {
+        if (!selectedInspectionHotelId || !itemIds || itemIds.length === 0) return;
+        const toFetch = itemIds.filter(id => !hotelSubmissions[id]?._isFullyLoaded);
+        if (toFetch.length === 0) return;
+
+        toFetch.forEach(id => setLoadingItemIds(prev => ({ ...prev, [id]: true })));
+        try {
+            const hotel = hotels.find(h => h.id === selectedInspectionHotelId) || hotels.find(h => isSubmissionForHotel(selectedInspectionHotelId, h));
+            const currentHotel = hotel || (selectedInspectionHotelId ? { id: selectedInspectionHotelId, code: selectedInspectionHotelId, name: selectedInspectionHotelId } as Hotel : undefined);
+
+            const associatedIds = new Set<string>();
+            if (currentHotel) {
+                if (currentHotel.id) {
+                    associatedIds.add(String(currentHotel.id));
+                    associatedIds.add(String(currentHotel.id).toLowerCase());
+                }
+                if (currentHotel.code) {
+                    associatedIds.add(String(currentHotel.code));
+                    associatedIds.add(String(currentHotel.code).toLowerCase());
+                }
+                if (currentHotel.name) associatedIds.add(String(currentHotel.name));
+            } else {
+                associatedIds.add(String(selectedInspectionHotelId));
+            }
+            const idList = Array.from(associatedIds).filter(Boolean);
+
+            const { data, error } = await supabase
+                .from('audit_submissions')
+                .select('*')
+                .in('item_id', toFetch)
+                .in('hotel_id', idList);
+
+            if (!error && data) {
+                const updates: Record<string, any> = {};
+                data.forEach((sub: any) => {
+                    updates[sub.item_id] = { ...(hotelSubmissions[sub.item_id] || {}), ...sub, _isFullyLoaded: true };
+                    if (sub.score !== undefined && sub.score !== null) {
+                        setInspectionScores(prev => ({ ...prev, [sub.item_id]: sub.score }));
+                    }
+                    if (sub.auditor_notes || sub.auditor_remarks) {
+                        setInspectionComments(prev => ({ ...prev, [sub.item_id]: (sub.auditor_notes || sub.auditor_remarks || '').trim() }));
+                    }
+                });
+                toFetch.forEach(id => {
+                    if (!updates[id]) {
+                        updates[id] = { ...(hotelSubmissions[id] || {}), _isFullyLoaded: true };
+                    }
+                });
+                setHotelSubmissions(prev => ({ ...prev, ...updates }));
+            }
+        } catch (err) {
+            console.error("Error fetching category submissions details:", err);
+        } finally {
+            toFetch.forEach(id => setLoadingItemIds(prev => ({ ...prev, [id]: false })));
         }
     };
 
@@ -7733,6 +7853,9 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                     }
                                                                                     return next;
                                                                                 });
+                                                                                if (!isCatAllExpanded) {
+                                                                                    fetchFullCategorySubmissions(catItems.map(i => i.id));
+                                                                                }
                                                                             }}
                                                                             className="ml-1 inline-flex items-center gap-1 px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all active:scale-95 cursor-pointer shadow-2xs"
                                                                             title="Expand or collapse all items in this category"
@@ -7850,7 +7973,10 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                         {!isItemExpanded ? (
                                                                             /* COMPACT LIST ROW VIEW */
                                                                             <div 
-                                                                                onClick={() => setExpandedInspectionItems(prev => ({ ...prev, [item.id]: true }))}
+                                                                                onClick={() => {
+                                                                                    setExpandedInspectionItems(prev => ({ ...prev, [item.id]: true }));
+                                                                                    fetchFullItemSubmission(item.id);
+                                                                                }}
                                                                                 className="p-3.5 sm:px-4 sm:py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 cursor-pointer hover:bg-slate-50/80 transition-colors"
                                                                             >
                                                                                 <div className="flex items-center gap-3 min-w-0 flex-1">
@@ -7931,6 +8057,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                         onClick={(e) => {
                                                                                             e.stopPropagation();
                                                                                             setExpandedInspectionItems(prev => ({ ...prev, [item.id]: true }));
+                                                                                            fetchFullItemSubmission(item.id);
                                                                                         }}
                                                                                         className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs rounded-xl flex items-center gap-1.5 shadow-xs transition-all cursor-pointer active:scale-95"
                                                                                     >
@@ -7960,6 +8087,13 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                         <span>Collapse Item</span>
                                                                                     </button>
                                                                                 </div>
+
+                                                                                {loadingItemIds[item.id] && (
+                                                                                    <div className="bg-indigo-50 border-b border-indigo-100 px-4 py-2 flex items-center justify-center gap-2 text-xs font-bold text-indigo-700 animate-pulse">
+                                                                                        <Loader2 size={14} className="animate-spin text-indigo-600" />
+                                                                                        <span>Loading submission data & evidence photos from database...</span>
+                                                                                    </div>
+                                                                                )}
 
                                                                                 <div className="flex flex-col lg:flex-row">
                                                                                     {/* LEFT SIDE: CRITERIA & HOTEL DATA */}
