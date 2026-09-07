@@ -121,24 +121,22 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
     const itemMaxPoints = Number(item.points !== undefined && item.points !== null ? item.points : 5);
     const numScore = typeof score === 'number' ? score : (score !== undefined && !isNaN(Number(score)) ? Number(score) : null);
 
-    const isPass = score !== undefined && score !== null && (
-      score === 'PASS' ||
-      score === 'pass' ||
-      (itemMaxPoints > 0 && numScore === itemMaxPoints) ||
-      (numScore !== null && numScore > 0) ||
-      (itemMaxPoints === 0 && (score === 'PASS' || score === 'pass'))
-    );
-
-    const isFail = score !== undefined && score !== null && (
-      score === 'FAIL' ||
-      score === 'fail' ||
-      (numScore !== null && numScore === 0 && itemMaxPoints > 0)
-    );
-
     const isNA = score !== undefined && score !== null && (
       score === 'N/A' ||
       score === 'na' ||
       score === 'NA'
+    );
+
+    const isPass = !isNA && score !== undefined && score !== null && (
+      score === 'PASS' ||
+      score === 'pass' ||
+      (numScore !== null && numScore > 0)
+    );
+
+    const isFail = !isNA && score !== undefined && score !== null && (
+      score === 'FAIL' ||
+      score === 'fail' ||
+      (numScore !== null && numScore === 0)
     );
 
     const isPending = score === undefined || score === null || score === '';

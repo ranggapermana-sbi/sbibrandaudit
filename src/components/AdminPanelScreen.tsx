@@ -7814,7 +7814,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                         const scoreVal = inspectionScores[sk1] ?? (sk2 ? inspectionScores[sk2] : undefined) ?? inspectionScores[item.id];
                                                                                         const sub = hotelSubmissions[item.id];
                                                                                         const score = scoreVal ?? sub?.score;
-                                                                                        const isPass = score === 'PASS' || score === 'pass' || score === 5 || score === '5';
+                                                                                        const isPass = score === 'PASS' || score === 'pass' || (typeof score === 'number' && score > 0) || (!isNaN(Number(score)) && Number(score) > 0);
                                                                                         const numScore = typeof score === 'number' ? score : (score !== undefined && !isNaN(Number(score)) ? Number(score) : null);
                                                                                         if (isPass) return sum + (item.points ?? 5);
                                                                                         if (numScore !== null && numScore > 0 && score !== 'FAIL' && score !== 'fail') return sum + Math.min(numScore, item.points ?? 5);
@@ -7917,16 +7917,22 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
 
                                                                 const hasSubmission = !!submission;
                                                                 const itemMaxPoints = item.points ?? 5;
-                                                                const isPass = currentScore !== undefined && (
+                                                                const isNA = currentScore !== undefined && (
+                                                                    currentScore === 'N/A' || currentScore === 'na' || currentScore === 'NA' ||
+                                                                    submission?.is_na === true || String(submission?.is_na) === 'true'
+                                                                );
+                                                                const isPass = !isNA && currentScore !== undefined && currentScore !== null && (
                                                                     currentScore === 'PASS' ||
-                                                                    (itemMaxPoints > 0 && currentScore === itemMaxPoints) ||
-                                                                    (itemMaxPoints === 0 && currentScore === 'PASS')
+                                                                    currentScore === 'pass' ||
+                                                                    (typeof currentScore === 'number' && currentScore > 0) ||
+                                                                    (!isNaN(Number(currentScore)) && Number(currentScore) > 0)
                                                                 );
-                                                                const isFail = currentScore !== undefined && (
+                                                                const isFail = !isNA && currentScore !== undefined && currentScore !== null && (
                                                                     currentScore === 'FAIL' ||
-                                                                    (itemMaxPoints > 0 && currentScore === 0)
+                                                                    currentScore === 'fail' ||
+                                                                    currentScore === 0 ||
+                                                                    currentScore === '0'
                                                                 );
-                                                                const isNA = currentScore !== undefined && currentScore === 'N/A';
                                                                 const isSelfAudit = item.filled_by_hotel !== false && item.filled_by_hotel !== 'false';
 
                                                                 const rawAuditor = submission?.submitted_by_name || submission?.submitted_by || '';
