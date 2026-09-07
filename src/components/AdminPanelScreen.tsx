@@ -2744,7 +2744,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 ? Number(score) 
                 : (score === 'PASS' || score === 'pass' ? 5 : (score === 'FAIL' || score === 'fail' ? 0 : null)));
 
-        // Update in-memory scores for responsive calculation ONLY (NO direct DB save)
+        // Update in-memory scores for immediate responsive UI feedback
         const updated = { ...inspectionScores };
         possibleHotelIds.forEach(hId => {
             const k = `${hId}_${itemId}`;
@@ -2765,6 +2765,9 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 updated_at: new Date().toISOString()
             }
         }));
+
+        // Automatically commit to database to prevent any lost audit scores
+        commitInspectionToDatabase(hotelOrId, itemId);
     };
 
     const saveInspectionComment = (hotelOrId: any, itemId: string, comment: string) => {
@@ -2793,7 +2796,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         if (!comment) delete updated[itemId]; else updated[itemId] = comment;
         setInspectionComments(updated);
 
-        // Update hotelSubmissions state directly in memory (NO direct DB save)
+        // Update hotelSubmissions state directly in memory
         setHotelSubmissions(prev => ({
             ...prev,
             [itemId]: {
@@ -2805,6 +2808,9 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 updated_at: new Date().toISOString()
             }
         }));
+
+        // Automatically commit comment updates to database
+        commitInspectionToDatabase(hotelOrId, itemId);
     };
 
     const commitInspectionToDatabase = async (hotelOrId: any, itemId: string) => {
@@ -2837,6 +2843,10 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
 
         setSavingInspectionItemId(itemId);
         try {
+            const submitterName = userProfile 
+                ? `Auditor: ${userProfile.first_name || ''} ${userProfile.last_name || ''}`.trim() || `Auditor: ${userProfile.email}`
+                : 'Auditor';
+
             const payload: any = {
                 hotel_id: canonicalHotelId,
                 item_id: String(itemId),
@@ -2844,6 +2854,8 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 is_na: !!isNA,
                 auditor_notes: (commentVal || '').trim(),
                 auditor_remarks: (commentVal || '').trim(),
+                submitted_by: submitterName,
+                submitted_by_name: submitterName,
                 updated_at: new Date().toISOString()
             };
             if (sub?.value) payload.value = sub.value;
@@ -2866,6 +2878,33 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                     fallbackPayload.auditor_remarks = (commentVal || '').trim();
                 }
                 await supabase.from('audit_submissions').upsert(fallbackPayload, { onConflict: 'hotel_id,item_id' });
+            }
+
+            // Cleanup non-canonical duplicate rows stored under alternate hotel ID aliases
+            const altHotelIds = [hotelObj?.id, hotelObj?.code, primaryId, subHotelId]
+                .filter(Boolean)
+                .map(id => String(id).trim())
+                .filter(id => id && id.toLowerCase() !== canonicalHotelId.toLowerCase() && id !== canonicalHotelId);
+
+            if (altHotelIds.length > 0) {
+                await supabase
+                    .from('audit_submissions')
+                    .delete()
+                    .eq('item_id', String(itemId))
+                    .in('hotel_id', altHotelIds);
+            }
+
+            // Sync with local storage caches
+            const lsPayload = JSON.stringify({
+                ...payload,
+                isSubmitted: true
+            });
+            try {
+                if (hotelObj?.id) localStorage.setItem(`sbi_audit_${hotelObj.id}_${itemId}`, lsPayload);
+                if (hotelObj?.code) localStorage.setItem(`sbi_audit_${hotelObj.code}_${itemId}`, lsPayload);
+                if (canonicalHotelId) localStorage.setItem(`sbi_audit_${canonicalHotelId}_${itemId}`, lsPayload);
+            } catch (lsErr) {
+                console.warn("LocalStorage save failed:", lsErr);
             }
         } catch (err) {
             console.error("Error committing inspection to DB:", err);
@@ -8293,51 +8332,41 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                     </div>
 
                                                                                     {/* DB SAVE STATUS & BUTTON */}
-                                                                                    <div className="pt-2">
+                                                                                    <div className="pt-2 flex flex-col gap-1.5">
                                                                                         {isSaving ? (
                                                                                             <div className="w-full py-2.5 px-3 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 cursor-default">
                                                                                                 <Loader2 size={14} className="animate-spin text-indigo-600" />
                                                                                                 <span>Saving to DB...</span>
                                                                                             </div>
-                                                                                        ) : isSelfAudit ? (
-                                                                                            /* Property Evidence Items (isSelfAudit === true) have no form on left, so Save button is here */
-                                                                                            (currentScore !== undefined || (currentComment || '').trim() !== '' || isSavedToDb) ? (
-                                                                                                <button
-                                                                                                    type="button"
-                                                                                                    id={`btn-save-db-${item.id}`}
-                                                                                                    onClick={async () => {
-                                                                                                        await commitInspectionToDatabase(hotel, item.id);
-                                                                                                        await fetchHotelSubmissionsForAuditor();
-                                                                                                    }}
-                                                                                                    className="w-full py-2.5 px-3 bg-indigo-600 hover:bg-indigo-700 active:scale-98 text-white rounded-xl font-black text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-md shadow-indigo-100 transition-all cursor-pointer"
-                                                                                                >
-                                                                                                    <UploadCloud size={15} />
-                                                                                                    <span>Save Audit to DB</span>
-                                                                                                </button>
-                                                                                            ) : (
-                                                                                                <div className="w-full py-2 px-3 bg-slate-100 text-slate-400 border border-slate-200 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 cursor-not-allowed">
-                                                                                                    <Clock size={14} className="text-slate-400" />
-                                                                                                    <span>Unscored - Select Pass/Fail/NA</span>
-                                                                                                </div>
-                                                                                            )
                                                                                         ) : (
-                                                                                            /* Auditor-Filled Items (!isSelfAudit) have the Save button inside AuditorEvidenceForm on left */
-                                                                                            isSavedToDb ? (
-                                                                                                <div className="w-full py-2 px-3 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 opacity-90 cursor-default">
-                                                                                                    <CheckCircle size={14} className="text-emerald-600" />
-                                                                                                    <span>Saved in DB</span>
-                                                                                                </div>
-                                                                                            ) : (currentScore !== undefined || (currentComment || '').trim() !== '') ? (
-                                                                                                <div className="w-full py-2 px-3 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 cursor-default">
-                                                                                                    <Clock size={14} className="text-indigo-600" />
-                                                                                                    <span>Draft - Click Save to DB on Left</span>
-                                                                                                </div>
-                                                                                            ) : (
-                                                                                                <div className="w-full py-2 px-3 bg-slate-100 text-slate-400 border border-slate-200 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 cursor-not-allowed">
-                                                                                                    <Clock size={14} className="text-slate-400" />
-                                                                                                    <span>Unscored</span>
-                                                                                                </div>
-                                                                                            )
+                                                                                            <>
+                                                                                                {(currentScore !== undefined || (currentComment || '').trim() !== '') ? (
+                                                                                                    <button
+                                                                                                        type="button"
+                                                                                                        id={`btn-save-db-${item.id}`}
+                                                                                                        onClick={async () => {
+                                                                                                            await commitInspectionToDatabase(hotel, item.id);
+                                                                                                            await fetchHotelSubmissionsForAuditor();
+                                                                                                        }}
+                                                                                                        className="w-full py-2.5 px-3 bg-indigo-600 hover:bg-indigo-700 active:scale-98 text-white rounded-xl font-black text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-md shadow-indigo-100 transition-all cursor-pointer"
+                                                                                                    >
+                                                                                                        <UploadCloud size={15} />
+                                                                                                        <span>Save Audit to DB</span>
+                                                                                                    </button>
+                                                                                                ) : (
+                                                                                                    <div className="w-full py-2 px-3 bg-slate-100 text-slate-400 border border-slate-200 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 cursor-not-allowed">
+                                                                                                        <Clock size={14} className="text-slate-400" />
+                                                                                                        <span>Unscored - Select Pass/Fail/NA</span>
+                                                                                                    </div>
+                                                                                                )}
+
+                                                                                                {isSavedToDb && (
+                                                                                                    <div className="w-full py-1.5 px-3 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg font-bold text-[11px] flex items-center justify-center gap-1.5 opacity-90 cursor-default">
+                                                                                                        <CheckCircle size={13} className="text-emerald-600" />
+                                                                                                        <span>Saved in DB</span>
+                                                                                                    </div>
+                                                                                                )}
+                                                                                            </>
                                                                                         )}
                                                                                     </div>
                                                                                 </div>

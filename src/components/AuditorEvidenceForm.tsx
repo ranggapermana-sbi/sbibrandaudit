@@ -365,7 +365,9 @@ export default function AuditorEvidenceForm({ item, hotel, submission, currentSc
             ? `Auditor: ${userProfile.first_name || ''} ${userProfile.last_name || ''}`.trim() || `Auditor: ${userProfile.email}`
             : 'Auditor';
 
-        const targetHotelId = String(submission?.hotel_id || hotel.code || hotel.id).trim();
+        // Always resolve canonical hotel code first (e.g. GBDA, SEKU, SIIN) to ensure consistent records
+        const canonicalHotelCode = String(hotel.code || '').trim().toUpperCase();
+        const targetHotelId = canonicalHotelCode || String(hotel.id || submission?.hotel_id || '').trim();
 
         const isNAFinal = isNa || currentScore === 'N/A' || currentScore === 'na' || currentScore === 'NA' || currentScore === 'Na';
 
@@ -426,8 +428,12 @@ export default function AuditorEvidenceForm({ item, hotel, submission, currentSc
                 }
             }
 
-            // Cleanup any duplicate rows stored under alternate hotel ID aliases
-            const altHotelIds = [hotel.id, hotel.code].filter(id => id && String(id).trim() !== targetHotelId);
+            // Cleanup any duplicate rows stored under non-canonical hotel ID aliases (e.g., numeric ID or lowercase code)
+            const altHotelIds = [hotel.id, hotel.code, submission?.hotel_id]
+                .filter(Boolean)
+                .map(id => String(id).trim())
+                .filter(id => id && id.toLowerCase() !== targetHotelId.toLowerCase() && id !== targetHotelId);
+
             if (altHotelIds.length > 0) {
                 await supabase
                     .from('audit_submissions')
@@ -436,21 +442,27 @@ export default function AuditorEvidenceForm({ item, hotel, submission, currentSc
                     .in('hotel_id', altHotelIds);
             }
 
-            // Sync with local storage
+            // Sync with local storage under hotel.id, hotel.code, and targetHotelId
+            const lsPayload = JSON.stringify({
+                ...fullSubmissionData,
+                isSubmitted: true
+            });
             try {
-                localStorage.setItem(`sbi_audit_${hotel.id}_${item.id}`, JSON.stringify({
-                    ...fullSubmissionData,
-                    isSubmitted: true
-                }));
+                if (hotel.id) localStorage.setItem(`sbi_audit_${hotel.id}_${item.id}`, lsPayload);
+                if (hotel.code) localStorage.setItem(`sbi_audit_${hotel.code}_${item.id}`, lsPayload);
+                if (targetHotelId) localStorage.setItem(`sbi_audit_${targetHotelId}_${item.id}`, lsPayload);
             } catch (lsErr) {
                 console.warn("LocalStorage save failed, string might be too large:", lsErr);
                 if (finalValue && finalValue.length > 500000) {
                     try {
-                        localStorage.setItem(`sbi_audit_${hotel.id}_${item.id}`, JSON.stringify({
+                        const lightweightPayload = JSON.stringify({
                             ...fullSubmissionData,
                             value: 'base64_too_large_for_local_storage',
                             isSubmitted: true
-                        }));
+                        });
+                        if (hotel.id) localStorage.setItem(`sbi_audit_${hotel.id}_${item.id}`, lightweightPayload);
+                        if (hotel.code) localStorage.setItem(`sbi_audit_${hotel.code}_${item.id}`, lightweightPayload);
+                        if (targetHotelId) localStorage.setItem(`sbi_audit_${targetHotelId}_${item.id}`, lightweightPayload);
                     } catch (lsErr2) {
                         console.error("Even small localStorage save failed:", lsErr2);
                     }
