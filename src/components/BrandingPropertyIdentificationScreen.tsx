@@ -1424,9 +1424,10 @@ export default function BrandingPropertyIdentificationScreen({ selectedCategory,
                     const data = await response.json();
                     if (Array.isArray(data)) {
                         const mapped = data.map((item: any) => {
+                            const rawCode = item.code ? String(item.code).trim().toUpperCase() : '';
                             const rawId = item.id !== undefined && item.id !== null ? String(item.id) : '';
                             const fallbackId = item.hotel_id !== undefined && item.hotel_id !== null ? String(item.hotel_id) : '';
-                            const finalId = rawId || fallbackId || item.code || String(item.name || '').replace(/\s+/g, '-').toLowerCase();
+                            const finalId = rawCode || rawId || fallbackId || String(item.name || '').replace(/\s+/g, '-').toLowerCase();
                             return {
                                 id: finalId,
                                 name: item.name || item.hotel_name || '',
@@ -1460,9 +1461,16 @@ export default function BrandingPropertyIdentificationScreen({ selectedCategory,
         const fetchCategoryItems = async () => {
             setIsLoading(true);
             try {
+                const currentHotel = hotels.find(h => String(h.id).toLowerCase() === String(selectedHotelId).toLowerCase() || String(h.code).toLowerCase() === String(selectedHotelId).toLowerCase());
+                const possibleHotelIds = Array.from(new Set([
+                    selectedHotelId,
+                    currentHotel?.code ? String(currentHotel.code).toUpperCase() : '',
+                    currentHotel?.id ? String(currentHotel.id) : ''
+                ].filter(Boolean)));
+
                 const [itemsRes, subsRes] = await Promise.all([
                     supabase.from('audit_items').select('*').eq('category_id', selectedCategory.id),
-                    selectedHotelId ? supabase.from('audit_submissions').select('*').eq('hotel_id', selectedHotelId) : Promise.resolve({ data: [], error: null })
+                    selectedHotelId ? supabase.from('audit_submissions').select('*').in('hotel_id', possibleHotelIds) : Promise.resolve({ data: [], error: null })
                 ]);
 
                 if (itemsRes.error) throw itemsRes.error;

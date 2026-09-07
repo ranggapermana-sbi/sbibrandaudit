@@ -229,6 +229,7 @@ export default function App() {
 
   const handleSelectHotel = (hotel: any) => {
     setActiveHotel(hotel);
+    const canonicalId = hotel?.code ? String(hotel.code).trim().toUpperCase() : (hotel?.id || '');
     setUserProfile((prev: any) => {
       if (!prev) return null;
       return {
@@ -236,7 +237,7 @@ export default function App() {
         assigned_hotel_id: prev.assigned_hotel_id || prev.hotel_id,
         assigned_hotel_name: prev.assigned_hotel_name || prev.hotel_name,
         assigned_hotel_code: prev.assigned_hotel_code || prev.hotel_code,
-        hotel_id: hotel.id,
+        hotel_id: canonicalId || hotel.id,
         hotel_name: hotel.name,
         hotel_code: hotel.code
       };
