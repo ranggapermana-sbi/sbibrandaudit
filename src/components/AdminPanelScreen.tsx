@@ -12,6 +12,85 @@ const isImageInput = (type: string) => {
     return ['camera', 'image', 'photo', 'picture', 'img', 'gallery', 'upload', 'file', 'single_image', 'multi_image', 'media'].includes(t);
 };
 
+const formatDirectImageUrl = (url: any): string => {
+    if (!url || typeof url !== 'string') return '';
+    let trimmed = url.trim();
+
+    // Convert Google Drive view URLs into direct image render URLs
+    const driveMatch = trimmed.match(/drive\.google\.com\/file\/d\/([^\/]+)/i) || trimmed.match(/drive\.google\.com\/open\?id=([^\&]+)/i);
+    if (driveMatch && driveMatch[1]) {
+        return `https://lh3.googleusercontent.com/d/${driveMatch[1]}`;
+    }
+
+    return trimmed;
+};
+
+const EvidencePhotoThumbnail: React.FC<{
+    url: string;
+    photoIndex: number;
+    itemName?: string;
+    hotelName?: string;
+    onEnlarge: (url: string, title: string) => void;
+}> = ({ url, photoIndex, itemName = '', hotelName = '', onEnlarge }) => {
+    const [hasError, setHasError] = useState(false);
+    const directUrl = formatDirectImageUrl(url);
+    const isHttp = directUrl.startsWith('http://') || directUrl.startsWith('https://');
+
+    if (hasError) {
+        if (isHttp) {
+            return (
+                <a
+                    href={directUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="group/img relative rounded-xl border border-indigo-200 overflow-hidden bg-indigo-50/50 p-3 flex flex-col items-center justify-center aspect-square text-center transition-all hover:bg-indigo-100/60 hover:shadow-sm"
+                    title="Click to open evidence link in new tab"
+                >
+                    <div className="w-9 h-9 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center mb-1.5 group-hover/img:scale-110 transition-transform shadow-xs">
+                        <ExternalLink size={17} />
+                    </div>
+                    <span className="text-[10px] font-black text-indigo-900 line-clamp-1">Photo {photoIndex}</span>
+                    <span className="text-[9px] font-bold text-indigo-600 uppercase tracking-tight mt-0.5 flex items-center gap-1">
+                        Open Link <ExternalLink size={10} />
+                    </span>
+                </a>
+            );
+        }
+
+        return (
+            <div className="relative rounded-xl border border-amber-200 bg-amber-50/60 p-3 flex flex-col items-center justify-center aspect-square text-center">
+                <AlertCircle size={20} className="text-amber-600 mb-1" />
+                <span className="text-[10px] font-black text-amber-900">Photo {photoIndex}</span>
+                <span className="text-[9px] font-medium text-amber-700 mt-0.5">Image Unavailable</span>
+            </div>
+        );
+    }
+
+    return (
+        <div 
+            className="group/img relative rounded-xl border border-slate-200 overflow-hidden bg-slate-900/5 flex items-center justify-center aspect-square cursor-zoom-in transition-all hover:border-indigo-300 hover:shadow-sm"
+            onClick={() => onEnlarge(directUrl, `${itemName} — Photo ${photoIndex} — ${hotelName}`)}
+        >
+            <img 
+                loading="lazy" 
+                decoding="async" 
+                src={directUrl} 
+                alt={`Submission Photo ${photoIndex}`} 
+                onError={() => setHasError(true)}
+                referrerPolicy={directUrl?.startsWith('blob:') || directUrl?.startsWith('data:') ? undefined : 'no-referrer'} 
+                className="w-full h-full object-cover" 
+            />
+            <div className="absolute inset-0 bg-slate-950/40 opacity-0 group-hover/img:opacity-100 transition-opacity flex flex-col items-center justify-center text-white font-black text-[10px] uppercase tracking-wider text-center p-2 gap-1">
+                <Maximize2 size={14} />
+                <span>Enlarge</span>
+            </div>
+            <div className="absolute bottom-1.5 right-1.5 bg-slate-900/80 backdrop-blur-md text-white text-[8px] font-extrabold px-1.5 py-0.5 rounded opacity-90 group-hover/img:opacity-0 transition-opacity flex items-center gap-1">
+                <Eye size={10} /> Photo {photoIndex}
+            </div>
+        </div>
+    );
+};
+
 const splitEvidenceUrls = (value: any): string[] => {
     if (!value) return [];
     let str = typeof value === 'object' ? JSON.stringify(value) : String(value).trim();
@@ -39,26 +118,32 @@ const splitEvidenceUrls = (value: any): string[] => {
     str = str.replace(/^["'\[]+|["'\]]+$/g, '').trim();
     if (!str) return [];
 
-    // 3. Split by commas, newlines, or semicolons
-    const rawParts = str.split(/[\n\r,;]+/);
-    const urls: string[] = [];
-    for (let i = 0; i < rawParts.length; i++) {
-        let part = rawParts[i].trim().replace(/^["']|["']$/g, '');
-        if (part.startsWith('data:image/') && part.includes(';base64')) {
-            let fullBase64 = rawParts[i];
-            if (i + 1 < rawParts.length) {
-                fullBase64 += ',' + rawParts[i + 1];
-                i++;
-            }
-            urls.push(fullBase64.trim().replace(/^["']|["']$/g, ''));
-        } else if (part) {
-            part = part.replace(/^["']|["']$/g, '');
-            if (part && (part.startsWith('http://') || part.startsWith('https://') || part.startsWith('/') || part.startsWith('data:') || part.startsWith('blob:') || part.includes('.'))) {
-                urls.push(part);
+    // 3. If contains data:image/, parse without corrupting base64 semicolons and commas
+    if (str.includes('data:image/')) {
+        const parts = str.split(/(?=(?:data:image\/|https?:\/\/))/g);
+        const results: string[] = [];
+        for (let p of parts) {
+            p = p.trim().replace(/^[,;\s"']+|[,;\s"']+$/g, '');
+            if (p && (p.startsWith('data:image/') || p.startsWith('http'))) {
+                if (p.startsWith('data:image/') && !p.includes(';base64,')) {
+                    continue; // Skip truncated header without data
+                }
+                results.push(formatDirectImageUrl(p));
             }
         }
+        if (results.length > 0) return results;
     }
-    return urls;
+
+    // 4. Split standard HTTP/HTTPS or document URLs by commas, newlines, or semicolons
+    const rawParts = str.split(/[\n\r,;]+/);
+    const urls: string[] = [];
+    for (let part of rawParts) {
+        part = part.trim().replace(/^["']|["']$/g, '');
+        if (part && (part.startsWith('http://') || part.startsWith('https://') || part.startsWith('/') || part.startsWith('blob:') || part.includes('.'))) {
+            urls.push(formatDirectImageUrl(part));
+        }
+    }
+    return urls.filter(Boolean);
 };
 
 const getRoleStyles = (accessLevel: string) => {
@@ -2446,7 +2531,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             const idList = Array.from(associatedIds).filter(id => id && String(id).trim().length > 0);
             let subsData: any[] | null = null;
 
-            const LIGHTWEIGHT_COLUMNS = 'id, hotel_id, item_id, is_na, score, auditor_notes, auditor_remarks, updated_at, created_at';
+            const LIGHTWEIGHT_COLUMNS = 'id, hotel_id, item_id, is_na, score, auditor_notes, auditor_remarks, submitted_by, submitted_by_name, updated_at, created_at';
 
             if (idList.length > 0) {
                 const { data, error } = await supabase
@@ -2502,11 +2587,19 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 if (sub && sub.item_id !== undefined && sub.item_id !== null) {
                     const itemIdStr = String(sub.item_id);
                     const hIdStr = String(sub.hotel_id || '');
-                    const existing = hotelSubmissions[itemIdStr] || submissionsMap[itemIdStr] || {};
+                    
+                    // CRITICAL: Only consider existing state if it actually belongs to the CURRENT hotel
+                    const existingInState = hotelSubmissions[itemIdStr];
+                    const stateBelongsToThisHotel = existingInState && existingInState.hotel_id && (
+                        (currentHotel && isSubmissionForHotel(existingInState.hotel_id, currentHotel)) ||
+                        idList.some(id => String(id).trim().toLowerCase() === String(existingInState.hotel_id).trim().toLowerCase())
+                    );
+                    const existing = stateBelongsToThisHotel ? existingInState : (submissionsMap[itemIdStr] || {});
+
                     // Merge data while preserving full load state and evidence value if available
                     const hasNewValue = sub.value && String(sub.value).trim() !== '' && String(sub.value) !== 'null';
-                    const mergedValue = hasNewValue ? sub.value : existing.value;
-                    const mergedFullyLoaded = existing._isFullyLoaded || sub._isFullyLoaded || false;
+                    const mergedValue = hasNewValue ? sub.value : (stateBelongsToThisHotel ? existing.value : undefined);
+                    const mergedFullyLoaded = (stateBelongsToThisHotel && existing._isFullyLoaded) || sub._isFullyLoaded || false;
                     submissionsMap[itemIdStr] = { 
                         ...existing, 
                         ...sub, 
@@ -2544,7 +2637,8 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
 
             setInspectionScores(prev => ({ ...prev, ...dbScores }));
             setInspectionComments(prev => ({ ...prev, ...dbComments }));
-            setHotelSubmissions(prev => ({ ...prev, ...submissionsMap }));
+            // Set strictly to current hotel's submissions map - do NOT merge with prev to avoid retaining other hotels
+            setHotelSubmissions(submissionsMap);
         } catch (err) {
             console.warn("Could not fetch audit submissions for auditor, using state fallback:", err);
             const hotel = hotels.find(h => h.id === selectedInspectionHotelId);
@@ -2565,9 +2659,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
 
     const fetchFullItemSubmission = async (itemId: string, force = false) => {
         if (!selectedInspectionHotelId || !itemId) return;
-        if (!force && hotelSubmissions[itemId]?._isFullyLoaded) return;
 
-        setLoadingItemIds(prev => ({ ...prev, [itemId]: true }));
         try {
             const hotel = hotels.find(h => h.id === selectedInspectionHotelId) || hotels.find(h => isSubmissionForHotel(selectedInspectionHotelId, h));
             const currentHotel = hotel || (selectedInspectionHotelId ? { id: selectedInspectionHotelId, code: selectedInspectionHotelId, name: selectedInspectionHotelId } as Hotel : undefined);
@@ -2587,6 +2679,16 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 associatedIds.add(String(selectedInspectionHotelId));
             }
             const idList = Array.from(associatedIds).filter(Boolean);
+
+            const existingSub = hotelSubmissions[itemId];
+            const isSameHotel = existingSub && existingSub.hotel_id && (
+                (currentHotel && isSubmissionForHotel(existingSub.hotel_id, currentHotel)) ||
+                idList.some(id => String(id).trim().toLowerCase() === String(existingSub.hotel_id).trim().toLowerCase())
+            );
+
+            if (!force && isSameHotel && existingSub?._isFullyLoaded) return;
+
+            setLoadingItemIds(prev => ({ ...prev, [itemId]: true }));
 
             const { data, error } = await supabase
                 .from('audit_submissions')
@@ -2622,19 +2724,25 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
 
                 setHotelSubmissions(prev => {
                     const prevSub = prev[itemId] || {};
-                    const prevSubValue = extractValidValue(prevSub) || prevSub.value || '';
-                    const finalValue = extractedVal || prevSubValue || extractValidValue(newestRow) || newestRow?.value || '';
-                    const finalScore = rowWithScore?.score !== undefined ? rowWithScore.score : prevSub.score;
-                    const finalNa = rowWithNa ? true : (newestRow?.is_na || prevSub.is_na);
-                    const finalNotes = (rowWithNotes?.auditor_notes || rowWithNotes?.auditor_remarks || prevSub.auditor_notes || '').trim();
+                    const prevIsSameHotel = prevSub.hotel_id && (
+                        (currentHotel && isSubmissionForHotel(prevSub.hotel_id, currentHotel)) ||
+                        idList.some(id => String(id).trim().toLowerCase() === String(prevSub.hotel_id).trim().toLowerCase())
+                    );
+                    const validPrevSub = prevIsSameHotel ? prevSub : {};
+                    const prevSubValue = extractValidValue(validPrevSub) || validPrevSub.value || '';
+                    const finalValue = extractedVal || extractValidValue(newestRow) || newestRow?.value || (prevIsSameHotel ? prevSubValue : '') || '';
+                    const finalScore = rowWithScore?.score !== undefined ? rowWithScore.score : (prevIsSameHotel ? validPrevSub.score : undefined);
+                    const finalNa = rowWithNa ? true : (newestRow?.is_na ?? (prevIsSameHotel ? validPrevSub.is_na : undefined));
+                    const finalNotes = (rowWithNotes?.auditor_notes || rowWithNotes?.auditor_remarks || (prevIsSameHotel ? validPrevSub.auditor_notes : '') || '').trim();
 
                     return {
                         ...prev,
                         [itemId]: {
-                            ...prevSub,
+                            ...validPrevSub,
                             ...newestRow,
+                            hotel_id: newestRow?.hotel_id || currentHotel?.code || currentHotel?.id || selectedInspectionHotelId,
                             value: finalValue,
-                            submitted_by_name: combinedSubmitter || newestRow?.submitted_by_name || prevSub.submitted_by_name,
+                            submitted_by_name: combinedSubmitter || newestRow?.submitted_by_name || (prevIsSameHotel ? validPrevSub.submitted_by_name : undefined),
                             score: finalScore,
                             is_na: finalNa,
                             auditor_notes: finalNotes,
@@ -2667,10 +2775,19 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                     });
                 }
             } else {
-                setHotelSubmissions(prev => ({
-                    ...prev,
-                    [itemId]: { ...(prev[itemId] || {}), _isFullyLoaded: true }
-                }));
+                setHotelSubmissions(prev => {
+                    const prevSub = prev[itemId] || {};
+                    const prevIsSameHotel = prevSub.hotel_id && (
+                        (currentHotel && isSubmissionForHotel(prevSub.hotel_id, currentHotel)) ||
+                        idList.some(id => String(id).trim().toLowerCase() === String(prevSub.hotel_id).trim().toLowerCase())
+                    );
+                    return {
+                        ...prev,
+                        [itemId]: prevIsSameHotel 
+                            ? { ...prevSub, _isFullyLoaded: true } 
+                            : { _isFullyLoaded: true, hotel_id: currentHotel?.code || currentHotel?.id || selectedInspectionHotelId, item_id: itemId }
+                    };
+                });
             }
         } catch (err) {
             console.error("Error fetching item submission details:", err);
@@ -2740,6 +2857,12 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                     Object.keys(rowsByItem).forEach(itemId => {
                         const itemRows = rowsByItem[itemId];
                         const prevSub = next[itemId] || {};
+                        const prevIsSameHotel = prevSub.hotel_id && (
+                            (currentHotel && isSubmissionForHotel(prevSub.hotel_id, currentHotel)) ||
+                            idList.some(id => String(id).trim().toLowerCase() === String(prevSub.hotel_id).trim().toLowerCase())
+                        );
+                        const validPrevSub = prevIsSameHotel ? prevSub : {};
+
                         const rowWithValue = itemRows.find(r => extractValidValueCat(r) !== '');
                         const extractedVal = rowWithValue ? extractValidValueCat(rowWithValue) : '';
                         const rowWithScore = itemRows.find(r => r && r.score !== undefined && r.score !== null);
@@ -2747,16 +2870,17 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                         const rowWithNa = itemRows.find(r => r && (r.is_na === true || String(r.is_na) === 'true'));
                         const newestRow = [...itemRows].sort((a, b) => new Date(b.updated_at || b.created_at || 0).getTime() - new Date(a.updated_at || a.created_at || 0).getTime())[0];
 
-                        const prevSubValue = extractValidValueCat(prevSub) || prevSub.value || '';
+                        const prevSubValue = extractValidValueCat(validPrevSub) || validPrevSub.value || '';
                         const finalValue = extractedVal || prevSubValue || extractValidValueCat(newestRow) || newestRow?.value || '';
-                        const finalNotes = (rowWithNotes?.auditor_notes || rowWithNotes?.auditor_remarks || prevSub.auditor_notes || '').trim();
+                        const finalNotes = (rowWithNotes?.auditor_notes || rowWithNotes?.auditor_remarks || validPrevSub.auditor_notes || '').trim();
 
                         next[itemId] = {
-                            ...prevSub,
+                            ...validPrevSub,
                             ...newestRow,
+                            hotel_id: newestRow?.hotel_id || currentHotel?.code || currentHotel?.id || selectedInspectionHotelId,
                             value: finalValue,
-                            score: rowWithScore?.score !== undefined ? rowWithScore.score : prevSub.score,
-                            is_na: rowWithNa ? true : (newestRow?.is_na || prevSub.is_na),
+                            score: rowWithScore?.score !== undefined ? rowWithScore.score : validPrevSub.score,
+                            is_na: rowWithNa ? true : (newestRow?.is_na || validPrevSub.is_na),
                             auditor_notes: finalNotes,
                             auditor_remarks: finalNotes,
                             _isFullyLoaded: true
@@ -2771,7 +2895,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                     });
                     toFetch.forEach(id => {
                         if (!next[id]) {
-                            next[id] = { ...(prev[id] || {}), _isFullyLoaded: true };
+                            next[id] = { _isFullyLoaded: true, hotel_id: currentHotel?.code || currentHotel?.id || selectedInspectionHotelId, item_id: id };
                         }
                     });
                     return next;
@@ -2786,9 +2910,14 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
 
     useEffect(() => {
         let active = true;
+        
+        // Immediately reset inspection-specific states so previous hotel submissions never linger
+        setHotelSubmissions({});
+        setExpandedInspectionItems({});
+        setLoadingItemIds({});
+
         const fetchSubmissionsLocal = async () => {
             if (!selectedInspectionHotelId) {
-                if (active) setHotelSubmissions({});
                 return;
             }
             await fetchHotelSubmissionsForAuditor();
@@ -2960,9 +3089,15 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
 
         setSavingInspectionItemId(itemId);
         try {
-            const submitterName = userProfile 
+            const auditorSubmitterName = userProfile 
                 ? `Auditor: ${userProfile.first_name || ''} ${userProfile.last_name || ''}`.trim() || `Auditor: ${userProfile.email}`
                 : 'Auditor';
+
+            // Preserve existing hotel submitter name if present and not starting with 'Auditor:'
+            const existingSubmitter = sub?.submitted_by_name || sub?.submitted_by || hotelSubmissions[itemId]?.submitted_by_name || hotelSubmissions[itemId]?.submitted_by;
+            const finalSubmitterName = (existingSubmitter && !existingSubmitter.startsWith('Auditor:'))
+                ? existingSubmitter
+                : auditorSubmitterName;
 
             const payload: any = {
                 hotel_id: canonicalHotelId,
@@ -2971,8 +3106,8 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 is_na: !!isNA,
                 auditor_notes: (commentVal || '').trim(),
                 auditor_remarks: (commentVal || '').trim(),
-                submitted_by: submitterName,
-                submitted_by_name: submitterName,
+                submitted_by: finalSubmitterName,
+                submitted_by_name: finalSubmitterName,
                 updated_at: new Date().toISOString()
             };
             const existingVal = sub?.value || sub?.photo_url || sub?.evidence_url || sub?.file_url || sub?.image_url || hotelSubmissions[itemId]?.value || hotelSubmissions[itemId]?.photo_url || hotelSubmissions[itemId]?.evidence_url;
@@ -8007,12 +8142,19 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                         {/* INSPECTION CARDS */}
                                                         <div className="grid grid-cols-1 gap-3 sm:gap-4">
                                                             {catItems.map((item) => {
-                                                                const submission = hotelSubmissions[item.id];
+                                                                const rawSubmission = hotelSubmissions[item.id];
+                                                                const isSubForThisHotel = rawSubmission && (
+                                                                    !rawSubmission.hotel_id ||
+                                                                    isSubmissionForHotel(rawSubmission.hotel_id, hotel) ||
+                                                                    String(rawSubmission.hotel_id).trim().toLowerCase() === String(hotel.id).trim().toLowerCase() ||
+                                                                    (hotel.code && String(rawSubmission.hotel_id).trim().toLowerCase() === String(hotel.code).trim().toLowerCase())
+                                                                );
+                                                                const submission = isSubForThisHotel ? rawSubmission : undefined;
                                                                 const scoreKey1 = `${hotel.id}_${item.id}`;
                                                                 const scoreKey2 = hotel?.code ? `${hotel.code}_${item.id}` : '';
                                                                 const scoreKey3 = submission?.hotel_id ? `${submission.hotel_id}_${item.id}` : '';
 
-                                                                let currentScore = inspectionScores[scoreKey1] ?? (scoreKey2 ? inspectionScores[scoreKey2] : undefined) ?? (scoreKey3 ? inspectionScores[scoreKey3] : undefined) ?? inspectionScores[item.id];
+                                                                let currentScore = inspectionScores[scoreKey1] ?? (scoreKey2 ? inspectionScores[scoreKey2] : undefined) ?? (scoreKey3 && isSubForThisHotel ? inspectionScores[scoreKey3] : undefined);
 
                                                                 if (currentScore === undefined && submission) {
                                                                     if (submission.score !== undefined && submission.score !== null) {
@@ -8022,7 +8164,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                     }
                                                                 }
 
-                                                                let currentComment = inspectionComments[scoreKey1] || (scoreKey2 ? inspectionComments[scoreKey2] : '') || (scoreKey3 ? inspectionComments[scoreKey3] : '') || inspectionComments[item.id] || '';
+                                                                let currentComment = inspectionComments[scoreKey1] || (scoreKey2 ? inspectionComments[scoreKey2] : '') || (scoreKey3 && isSubForThisHotel ? inspectionComments[scoreKey3] : '') || '';
 
                                                                 if (!currentComment && submission) {
                                                                     if (submission.auditor_notes && typeof submission.auditor_notes === 'string') {
@@ -8281,30 +8423,19 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                                     <div className="space-y-3">
                                                                                                         {/* Visual Evidence with In-App Lightbox */}
                                                                                                         {splitEvidenceUrls(submission.value).length > 0 && (
-                                                                                                             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                                                                                                                 {splitEvidenceUrls(submission.value).map((url, urlIdx) => (
-                                                                                                                     <div 
-                                                                                                                         key={urlIdx}
-                                                                                                                         className="group/img relative rounded-xl border border-slate-200 overflow-hidden bg-slate-900/5 flex items-center justify-center aspect-square cursor-zoom-in transition-all hover:border-indigo-300 hover:shadow-sm"
-                                                                                                                         onClick={() => setEnlargedImage({ url: url, title: `${item.name} — Photo ${urlIdx + 1} — ${hotel.name}` })}
-                                                                                                                     >
-                                                                                                                         <img loading="lazy" decoding="async" 
-                                                                                                                             src={url} 
-                                                                                                                             alt={`Submission Photo ${urlIdx + 1}`} 
-                                                                                                                             referrerPolicy={url?.startsWith('blob:') || url?.startsWith('data:') ? undefined : 'no-referrer'} 
-                                                                                                                             className="w-full h-full object-cover" 
-                                                                                                                         />
-                                                                                                                         <div className="absolute inset-0 bg-slate-950/40 opacity-0 group-hover/img:opacity-100 transition-opacity flex flex-col items-center justify-center text-white font-black text-[10px] uppercase tracking-wider text-center p-2 gap-1">
-                                                                                                                             <Maximize2 size={14} />
-                                                                                                                             <span>Enlarge</span>
-                                                                                                                         </div>
-                                                                                                                         <div className="absolute bottom-1.5 right-1.5 bg-slate-900/80 backdrop-blur-md text-white text-[8px] font-extrabold px-1.5 py-0.5 rounded opacity-90 group-hover/img:opacity-0 transition-opacity flex items-center gap-1">
-                                                                                                                             <Eye size={10} /> Photo {urlIdx + 1}
-                                                                                                                         </div>
-                                                                                                                     </div>
-                                                                                                                 ))}
-                                                                                                             </div>
-                                                                                                         )}
+                                                                                                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                                                                                                                {splitEvidenceUrls(submission.value).map((url, urlIdx) => (
+                                                                                                                    <EvidencePhotoThumbnail 
+                                                                                                                        key={`${url}_${urlIdx}`}
+                                                                                                                        url={url}
+                                                                                                                        photoIndex={urlIdx + 1}
+                                                                                                                        itemName={item.name}
+                                                                                                                        hotelName={hotel.name}
+                                                                                                                        onEnlarge={(u, t) => setEnlargedImage({ url: u, title: t })}
+                                                                                                                    />
+                                                                                                                ))}
+                                                                                                            </div>
+                                                                                                        )}
 
                                                                                                          {/* Document Evidence */}
                                                                                                         {item.inputType === 'document' && submission.value && (

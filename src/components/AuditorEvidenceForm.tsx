@@ -94,7 +94,7 @@ const uploadToIMGBB = async (file: File): Promise<string> => {
         });
         const data = await response.json();
         if (data.success) {
-            return data.data.url;
+            return data.data.display_url || data.data.image?.url || data.data.url;
         } else {
             console.error("IMGBB Upload Failed:", data);
             throw new Error(data.error?.message || "Upload failed");
@@ -103,6 +103,19 @@ const uploadToIMGBB = async (file: File): Promise<string> => {
         console.error("IMGBB fetch error:", err);
         throw err;
     }
+};
+
+const formatDirectImageUrl = (url: any): string => {
+    if (!url || typeof url !== 'string') return '';
+    let trimmed = url.trim();
+
+    // Convert Google Drive view URLs into direct image render URLs
+    const driveMatch = trimmed.match(/drive\.google\.com\/file\/d\/([^\/]+)/i) || trimmed.match(/drive\.google\.com\/open\?id=([^\&]+)/i);
+    if (driveMatch && driveMatch[1]) {
+        return `https://lh3.googleusercontent.com/d/${driveMatch[1]}`;
+    }
+
+    return trimmed;
 };
 
 const splitEvidenceUrls = (value: any): string[] => {
@@ -132,26 +145,32 @@ const splitEvidenceUrls = (value: any): string[] => {
     str = str.replace(/^["'\[]+|["'\]]+$/g, '').trim();
     if (!str) return [];
 
-    // 3. Split by commas, newlines, or semicolons
-    const rawParts = str.split(/[\n\r,;]+/);
-    const urls: string[] = [];
-    for (let i = 0; i < rawParts.length; i++) {
-        let part = rawParts[i].trim().replace(/^["']|["']$/g, '');
-        if (part.startsWith('data:image/') && part.includes(';base64')) {
-            let fullBase64 = rawParts[i];
-            if (i + 1 < rawParts.length) {
-                fullBase64 += ',' + rawParts[i + 1];
-                i++;
-            }
-            urls.push(fullBase64.trim().replace(/^["']|["']$/g, ''));
-        } else if (part) {
-            part = part.replace(/^["']|["']$/g, '');
-            if (part && (part.startsWith('http://') || part.startsWith('https://') || part.startsWith('/') || part.startsWith('data:') || part.startsWith('blob:') || part.includes('.'))) {
-                urls.push(part);
+    // 3. If contains data:image/, parse without corrupting base64 semicolons and commas
+    if (str.includes('data:image/')) {
+        const parts = str.split(/(?=(?:data:image\/|https?:\/\/))/g);
+        const results: string[] = [];
+        for (let p of parts) {
+            p = p.trim().replace(/^[,;\s"']+|[,;\s"']+$/g, '');
+            if (p && (p.startsWith('data:image/') || p.startsWith('http'))) {
+                if (p.startsWith('data:image/') && !p.includes(';base64,')) {
+                    continue; // Skip truncated header without data
+                }
+                results.push(formatDirectImageUrl(p));
             }
         }
+        if (results.length > 0) return results;
     }
-    return urls;
+
+    // 4. Split standard HTTP/HTTPS or document URLs by commas, newlines, or semicolons
+    const rawParts = str.split(/[\n\r,;]+/);
+    const urls: string[] = [];
+    for (let part of rawParts) {
+        part = part.trim().replace(/^["']|["']$/g, '');
+        if (part && (part.startsWith('http://') || part.startsWith('https://') || part.startsWith('/') || part.startsWith('blob:') || part.includes('.'))) {
+            urls.push(formatDirectImageUrl(part));
+        }
+    }
+    return urls.filter(Boolean);
 };
 
 export default function AuditorEvidenceForm({ item, hotel, submission, currentScore, currentComment, onSaved, userProfile }: AuditorEvidenceFormProps) {
@@ -389,9 +408,14 @@ export default function AuditorEvidenceForm({ item, hotel, submission, currentSc
             }
         }
 
-        const submitterName = userProfile 
+        const auditorSubmitterName = userProfile 
             ? `Auditor: ${userProfile.first_name || ''} ${userProfile.last_name || ''}`.trim() || `Auditor: ${userProfile.email}`
             : 'Auditor';
+
+        const existingSubmitter = submission?.submitted_by_name || submission?.submitted_by;
+        const submitterName = (existingSubmitter && !existingSubmitter.startsWith('Auditor:'))
+            ? existingSubmitter
+            : auditorSubmitterName;
 
         // Always resolve canonical hotel code first (e.g. GBDA, SEKU, SIIN) to ensure consistent records
         const canonicalHotelCode = String(hotel.code || '').trim().toUpperCase();
@@ -551,7 +575,12 @@ export default function AuditorEvidenceForm({ item, hotel, submission, currentSc
                                 <div className="grid grid-cols-3 gap-2">
                                     {photos.map(p => (
                                         <div key={p.id} className="relative aspect-square rounded-lg border border-slate-200 overflow-hidden group">
-                                            <img src={p.url} alt="evidence" className="w-full h-full object-cover" />
+                                            <img 
+                                                src={formatDirectImageUrl(p.url)} 
+                                                alt="evidence" 
+                                                referrerPolicy={p.url?.startsWith('blob:') || p.url?.startsWith('data:') ? undefined : 'no-referrer'} 
+                                                className="w-full h-full object-cover" 
+                                            />
                                             <button
                                                 type="button"
                                                 onClick={() => handleRemovePhoto(p.id)}

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronRight, Camera, Loader2, CheckCircle2, Image as ImageIcon, FileUp, Hash, Type, CheckSquare, UploadCloud, X, AlertCircle, RefreshCw, User, Lock, Unlock, Eye, Check } from 'lucide-react';
+import { ChevronRight, Camera, Loader2, CheckCircle2, Image as ImageIcon, FileUp, Hash, Type, CheckSquare, UploadCloud, X, AlertCircle, RefreshCw, User, Lock, Unlock, Eye, Check, ExternalLink } from 'lucide-react';
 import { supabase, HOTELS_URL, HOTELS_KEY } from '../lib/supabase';
 
 interface BrandingPropertyProps {
@@ -80,7 +80,7 @@ const uploadToIMGBB = async (file: File): Promise<string> => {
         });
         const data = await response.json();
         if (data.success) {
-            return data.data.url;
+            return data.data.display_url || data.data.image?.url || data.data.url;
         }
         console.error("IMGBB Upload Failed:", data);
         console.warn("Falling back to Base64 representation for persistent access.");
@@ -95,6 +95,19 @@ const uploadToIMGBB = async (file: File): Promise<string> => {
 const isImageInput = (type: string) => {
     const t = (type || '').toLowerCase().trim();
     return ['camera', 'image', 'photo', 'picture', 'img', 'gallery', 'upload', 'file', 'single_image', 'multi_image', 'media'].includes(t);
+};
+
+const formatDirectImageUrl = (url: any): string => {
+    if (!url || typeof url !== 'string') return '';
+    let trimmed = url.trim();
+
+    // Convert Google Drive view URLs into direct image render URLs
+    const driveMatch = trimmed.match(/drive\.google\.com\/file\/d\/([^\/]+)/i) || trimmed.match(/drive\.google\.com\/open\?id=([^\&]+)/i);
+    if (driveMatch && driveMatch[1]) {
+        return `https://lh3.googleusercontent.com/d/${driveMatch[1]}`;
+    }
+
+    return trimmed;
 };
 
 const splitEvidenceUrls = (value: any): string[] => {
@@ -124,26 +137,32 @@ const splitEvidenceUrls = (value: any): string[] => {
     str = str.replace(/^["'\[]+|["'\]]+$/g, '').trim();
     if (!str) return [];
 
-    // 3. Split by commas, newlines, or semicolons
-    const rawParts = str.split(/[\n\r,;]+/);
-    const urls: string[] = [];
-    for (let i = 0; i < rawParts.length; i++) {
-        let part = rawParts[i].trim().replace(/^["']|["']$/g, '');
-        if (part.startsWith('data:image/') && part.includes(';base64')) {
-            let fullBase64 = rawParts[i];
-            if (i + 1 < rawParts.length) {
-                fullBase64 += ',' + rawParts[i + 1];
-                i++;
-            }
-            urls.push(fullBase64.trim().replace(/^["']|["']$/g, ''));
-        } else if (part) {
-            part = part.replace(/^["']|["']$/g, '');
-            if (part && (part.startsWith('http://') || part.startsWith('https://') || part.startsWith('/') || part.startsWith('data:') || part.startsWith('blob:') || part.includes('.'))) {
-                urls.push(part);
+    // 3. If contains data:image/, parse without corrupting base64 semicolons and commas
+    if (str.includes('data:image/')) {
+        const parts = str.split(/(?=(?:data:image\/|https?:\/\/))/g);
+        const results: string[] = [];
+        for (let p of parts) {
+            p = p.trim().replace(/^[,;\s"']+|[,;\s"']+$/g, '');
+            if (p && (p.startsWith('data:image/') || p.startsWith('http'))) {
+                if (p.startsWith('data:image/') && !p.includes(';base64,')) {
+                    continue; // Skip truncated header without data
+                }
+                results.push(formatDirectImageUrl(p));
             }
         }
+        if (results.length > 0) return results;
     }
-    return urls;
+
+    // 4. Split standard HTTP/HTTPS or document URLs by commas, newlines, or semicolons
+    const rawParts = str.split(/[\n\r,;]+/);
+    const urls: string[] = [];
+    for (let part of rawParts) {
+        part = part.trim().replace(/^["']|["']$/g, '');
+        if (part && (part.startsWith('http://') || part.startsWith('https://') || part.startsWith('/') || part.startsWith('blob:') || part.includes('.'))) {
+            urls.push(formatDirectImageUrl(part));
+        }
+    }
+    return urls.filter(Boolean);
 };
 
 interface PhotoItem {
@@ -151,6 +170,96 @@ interface PhotoItem {
     url: string;
     file: File | null;
 }
+
+const EvidencePhotoTile: React.FC<{
+    photo: PhotoItem;
+    index: number;
+    isFieldDisabled: boolean;
+    onPreview: (url: string) => void;
+    onRemove: (id: string) => void;
+}> = ({ photo, index, isFieldDisabled, onPreview, onRemove }) => {
+    const [hasError, setHasError] = useState(false);
+    const directUrl = formatDirectImageUrl(photo.url);
+    const isHttp = directUrl.startsWith('http://') || directUrl.startsWith('https://');
+
+    if (hasError) {
+        return (
+            <div className="relative group rounded-xl border border-indigo-200 shadow-2xs overflow-hidden aspect-square bg-indigo-50/50 p-2.5 flex flex-col items-center justify-center text-center">
+                {isHttp ? (
+                    <a
+                        href={directUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex flex-col items-center justify-center text-center w-full h-full hover:opacity-80 transition-opacity"
+                        title="Open image in new tab"
+                    >
+                        <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center mb-1">
+                            <ExternalLink size={15} />
+                        </div>
+                        <span className="text-[10px] font-bold text-indigo-950">Photo {index + 1}</span>
+                        <span className="text-[8px] font-semibold text-indigo-600 uppercase tracking-tight mt-0.5">Open Link ↗</span>
+                    </a>
+                ) : (
+                    <div className="flex flex-col items-center justify-center text-center w-full h-full">
+                        <AlertCircle size={18} className="text-amber-500 mb-1" />
+                        <span className="text-[10px] font-bold text-slate-800">Photo {index + 1}</span>
+                        <span className="text-[8px] font-medium text-slate-500 mt-0.5">Unavailable</span>
+                    </div>
+                )}
+                {!isFieldDisabled && (
+                    <button 
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            onRemove(photo.id);
+                        }}
+                        className="absolute top-1.5 right-1.5 bg-red-500 hover:bg-red-600 text-white p-1 rounded-full shadow-md hover:scale-110 transition-transform z-10"
+                        type="button"
+                    >
+                        <X size={12} />
+                    </button>
+                )}
+            </div>
+        );
+    }
+
+    return (
+        <div 
+            onClick={() => onPreview(directUrl)}
+            className="relative group rounded-xl border border-slate-200 shadow-2xs overflow-hidden aspect-square bg-slate-50 cursor-pointer"
+        >
+            <img 
+                src={directUrl} 
+                alt={`Evidence ${index + 1}`} 
+                loading="lazy" 
+                decoding="async" 
+                onError={() => setHasError(true)}
+                referrerPolicy={directUrl?.startsWith('blob:') || directUrl?.startsWith('data:') ? undefined : 'no-referrer'} 
+                className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" 
+            />
+            <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                <span className="bg-slate-900/80 backdrop-blur-md text-white text-[10px] font-bold px-2.5 py-1.5 rounded-lg flex items-center gap-1 shadow-sm">
+                    <Eye size={12} />
+                    Preview
+                </span>
+            </div>
+            {!isFieldDisabled && (
+                <button 
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        onRemove(photo.id);
+                    }}
+                    className="absolute top-1.5 right-1.5 bg-red-500 hover:bg-red-600 text-white p-1.5 rounded-full shadow-md hover:scale-110 transition-transform z-10"
+                    type="button"
+                >
+                    <X size={14} />
+                </button>
+            )}
+            <div className="absolute bottom-1 left-1 bg-slate-900/70 text-white text-[8px] font-bold px-1.5 py-0.5 rounded">
+                Photo {index + 1}
+            </div>
+        </div>
+    );
+};
 
 const AuditItemCard: React.FC<{ 
     item: any, 
@@ -420,6 +529,7 @@ const AuditItemCard: React.FC<{
         setIsSubmitting(true);
         try {
             // Real-time safety check 1: Double-check finalized status in Supabase right before saving
+            let isFinalizedOnDb = false;
             try {
                 const { data: statusData } = await supabase
                     .from('hotel_audit_status')
@@ -427,7 +537,8 @@ const AuditItemCard: React.FC<{
                     .eq('hotel_id', hotelId)
                     .maybeSingle();
                 
-                if (statusData?.is_finalized) {
+                isFinalizedOnDb = !!statusData?.is_finalized;
+                if (isFinalizedOnDb) {
                     alert("This property's self-audit has been finalized and locked.");
                     setIsSubmitting(false);
                     return;
@@ -437,6 +548,7 @@ const AuditItemCard: React.FC<{
             }
 
             // Real-time safety check 2: Double-check existing submissions to prevent race conditions or simultaneous edits overriding each other
+            let existingSubRecord: any = null;
             try {
                 const { data: subData, error: subErr } = await supabase
                     .from('audit_submissions')
@@ -446,6 +558,7 @@ const AuditItemCard: React.FC<{
                     .maybeSingle();
                 
                 if (!subErr && subData) {
+                    existingSubRecord = subData;
                     const currentSubmitter = userProfile 
                         ? `${userProfile.first_name || ''} ${userProfile.last_name || ''}`.trim() || userProfile.full_name || userProfile.name || userProfile.email 
                         : (localStorage.getItem('sbi_user_name') || 'Property User');
@@ -455,8 +568,13 @@ const AuditItemCard: React.FC<{
                         (subData.submitted_by && subData.submitted_by === currentSubmitter);
 
                     const isAdminOrAuditor = userProfile?.access_level === 'admin' || userProfile?.access_level === 'auditor';
+                    const isAuditorSubmitter = 
+                        (subData.submitted_by_name && String(subData.submitted_by_name).startsWith('Auditor:')) ||
+                        (subData.submitted_by && String(subData.submitted_by).startsWith('Auditor:'));
+                    const isAuditUnlocked = !isFinalizedOnDb;
 
-                    if (!isSameSubmitter && !isAdminOrAuditor) {
+                    // Allow submission if: same submitter, admin/auditor, last submitter was an Auditor, or audit is unlocked for hotel revisions
+                    if (!isSameSubmitter && !isAdminOrAuditor && !isAuditorSubmitter && !isAuditUnlocked) {
                         alert(`Submission aborted: This item has already been submitted by ${subData.submitted_by_name || subData.submitted_by || 'another user'}. Your local view will be updated.`);
                         
                         // Update our component's state to match the existing database record
@@ -590,7 +708,7 @@ const AuditItemCard: React.FC<{
                 ? `${userProfile.first_name || ''} ${userProfile.last_name || ''}`.trim() || userProfile.full_name || userProfile.name || userProfile.email 
                 : (localStorage.getItem('sbi_user_name') || 'Property User');
 
-            const fullSubmissionData = {
+            const fullSubmissionData: any = {
                 hotel_id: hotelId,
                 item_id: item.id,
                 input_type: item.input_type,
@@ -600,9 +718,17 @@ const AuditItemCard: React.FC<{
                 notes: naReason,
                 submitted_by: submitterName,
                 submitted_by_name: submitterName,
-                created_at: new Date().toISOString(),
+                created_at: existingSubRecord?.created_at || new Date().toISOString(),
                 updated_at: new Date().toISOString()
             };
+
+            if (existingSubRecord) {
+                if (existingSubRecord.score !== undefined && existingSubRecord.score !== null) {
+                    fullSubmissionData.score = existingSubRecord.score;
+                }
+                if (existingSubRecord.auditor_notes) fullSubmissionData.auditor_notes = existingSubRecord.auditor_notes;
+                if (existingSubRecord.auditor_remarks) fullSubmissionData.auditor_remarks = existingSubRecord.auditor_remarks;
+            }
 
             try {
                 // Upsert with full schema (includes notes and submitted_by)
@@ -738,34 +864,14 @@ const AuditItemCard: React.FC<{
                         {photos.length > 0 && (
                             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
                                 {photos.map((p, idx) => (
-                                    <div 
-                                        key={p.id} 
-                                        onClick={() => setActivePreviewImage(p.url)}
-                                        className="relative group rounded-xl border border-slate-200 shadow-2xs overflow-hidden aspect-square bg-slate-50 cursor-pointer"
-                                    >
-                                        <img src={p.url} alt={`Evidence ${idx + 1}`} loading="lazy" decoding="async" referrerPolicy={p.url?.startsWith('blob:') || p.url?.startsWith('data:') ? undefined : 'no-referrer'} className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" />
-                                        <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                                            <span className="bg-slate-900/80 backdrop-blur-md text-white text-[10px] font-bold px-2.5 py-1.5 rounded-lg flex items-center gap-1 shadow-sm">
-                                                <Eye size={12} />
-                                                Preview
-                                            </span>
-                                        </div>
-                                        {!isFieldDisabled && (
-                                            <button 
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    removePhoto(p.id);
-                                                }}
-                                                className="absolute top-1.5 right-1.5 bg-red-500 hover:bg-red-600 text-white p-1.5 rounded-full shadow-md hover:scale-110 transition-transform z-10"
-                                                type="button"
-                                            >
-                                                <X size={14} />
-                                            </button>
-                                        )}
-                                        <div className="absolute bottom-1 left-1 bg-slate-900/70 text-white text-[8px] font-bold px-1.5 py-0.5 rounded">
-                                            Photo {idx + 1}
-                                        </div>
-                                    </div>
+                                    <EvidencePhotoTile
+                                        key={p.id}
+                                        photo={p}
+                                        index={idx}
+                                        isFieldDisabled={isFieldDisabled}
+                                        onPreview={(url) => setActivePreviewImage(url)}
+                                        onRemove={(id) => removePhoto(id)}
+                                    />
                                 ))}
                             </div>
                         )}
@@ -791,34 +897,14 @@ const AuditItemCard: React.FC<{
                         {photos.length > 0 && (
                             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
                                 {photos.map((p, idx) => (
-                                    <div 
-                                        key={p.id} 
-                                        onClick={() => setActivePreviewImage(p.url)}
-                                        className="relative group rounded-xl border border-slate-200 shadow-2xs overflow-hidden aspect-square bg-slate-50 cursor-pointer"
-                                    >
-                                        <img src={p.url} alt={`Evidence ${idx + 1}`} loading="lazy" decoding="async" referrerPolicy={p.url?.startsWith('blob:') || p.url?.startsWith('data:') ? undefined : 'no-referrer'} className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" />
-                                        <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                                            <span className="bg-slate-900/80 backdrop-blur-md text-white text-[10px] font-bold px-2.5 py-1.5 rounded-lg flex items-center gap-1 shadow-sm">
-                                                <Eye size={12} />
-                                                Preview
-                                            </span>
-                                        </div>
-                                        {!isFieldDisabled && (
-                                            <button 
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    removePhoto(p.id);
-                                                }}
-                                                className="absolute top-1.5 right-1.5 bg-red-500 hover:bg-red-600 text-white p-1.5 rounded-full shadow-md hover:scale-110 transition-transform z-10"
-                                                type="button"
-                                            >
-                                                <X size={14} />
-                                            </button>
-                                        )}
-                                        <div className="absolute bottom-1 left-1 bg-slate-900/70 text-white text-[8px] font-bold px-1.5 py-0.5 rounded">
-                                            Photo {idx + 1}
-                                        </div>
-                                    </div>
+                                    <EvidencePhotoTile
+                                        key={p.id}
+                                        photo={p}
+                                        index={idx}
+                                        isFieldDisabled={isFieldDisabled}
+                                        onPreview={(url) => setActivePreviewImage(url)}
+                                        onRemove={(id) => removePhoto(id)}
+                                    />
                                 ))}
                             </div>
                         )}
