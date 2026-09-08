@@ -94,24 +94,53 @@ const uploadToIMGBB = async (file: File): Promise<string> => {
 
 const isImageInput = (type: string) => {
     const t = (type || '').toLowerCase().trim();
-    return ['camera', 'image', 'photo', 'picture', 'img', 'gallery'].includes(t);
+    return ['camera', 'image', 'photo', 'picture', 'img', 'gallery', 'upload', 'file', 'single_image', 'multi_image', 'media'].includes(t);
 };
 
-const splitEvidenceUrls = (value: string): string[] => {
+const splitEvidenceUrls = (value: any): string[] => {
     if (!value) return [];
+    let str = typeof value === 'object' ? JSON.stringify(value) : String(value).trim();
+    if (!str || str === 'null' || str === 'undefined') return [];
+
+    // 1. Try parsing JSON array or object
+    if ((str.startsWith('[') && str.endsWith(']')) || (str.startsWith('{') && str.endsWith('}'))) {
+        try {
+            const parsed = JSON.parse(str);
+            if (Array.isArray(parsed)) {
+                return parsed.flatMap(item => splitEvidenceUrls(item)).filter(Boolean);
+            }
+            if (parsed && typeof parsed === 'object') {
+                if (parsed.url) return splitEvidenceUrls(parsed.url);
+                if (parsed.urls) return splitEvidenceUrls(parsed.urls);
+                if (parsed.image) return splitEvidenceUrls(parsed.image);
+                if (parsed.path) return splitEvidenceUrls(parsed.path);
+            }
+        } catch (e) {
+            // Proceed to string cleaning
+        }
+    }
+
+    // 2. Strip surrounding quotes and brackets
+    str = str.replace(/^["'\[]+|["'\]]+$/g, '').trim();
+    if (!str) return [];
+
+    // 3. Split by commas, newlines, or semicolons
+    const rawParts = str.split(/[\n\r,;]+/);
     const urls: string[] = [];
-    const parts = value.split(',');
-    for (let i = 0; i < parts.length; i++) {
-        const part = parts[i].trim();
+    for (let i = 0; i < rawParts.length; i++) {
+        let part = rawParts[i].trim().replace(/^["']|["']$/g, '');
         if (part.startsWith('data:image/') && part.includes(';base64')) {
-            let fullBase64 = parts[i];
-            if (i + 1 < parts.length) {
-                fullBase64 += ',' + parts[i + 1];
+            let fullBase64 = rawParts[i];
+            if (i + 1 < rawParts.length) {
+                fullBase64 += ',' + rawParts[i + 1];
                 i++;
             }
-            urls.push(fullBase64.trim());
+            urls.push(fullBase64.trim().replace(/^["']|["']$/g, ''));
         } else if (part) {
-            urls.push(part);
+            part = part.replace(/^["']|["']$/g, '');
+            if (part && (part.startsWith('http://') || part.startsWith('https://') || part.startsWith('/') || part.startsWith('data:') || part.startsWith('blob:') || part.includes('.'))) {
+                urls.push(part);
+            }
         }
     }
     return urls;

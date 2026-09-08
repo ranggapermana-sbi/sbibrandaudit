@@ -9,24 +9,53 @@ import AuditorEvidenceForm from './AuditorEvidenceForm';
 
 const isImageInput = (type: string) => {
     const t = (type || '').toLowerCase().trim();
-    return ['camera', 'image', 'photo', 'picture', 'img', 'gallery'].includes(t);
+    return ['camera', 'image', 'photo', 'picture', 'img', 'gallery', 'upload', 'file', 'single_image', 'multi_image', 'media'].includes(t);
 };
 
-const splitEvidenceUrls = (value: string): string[] => {
+const splitEvidenceUrls = (value: any): string[] => {
     if (!value) return [];
+    let str = typeof value === 'object' ? JSON.stringify(value) : String(value).trim();
+    if (!str || str === 'null' || str === 'undefined') return [];
+
+    // 1. Try parsing JSON array or object
+    if ((str.startsWith('[') && str.endsWith(']')) || (str.startsWith('{') && str.endsWith('}'))) {
+        try {
+            const parsed = JSON.parse(str);
+            if (Array.isArray(parsed)) {
+                return parsed.flatMap(item => splitEvidenceUrls(item)).filter(Boolean);
+            }
+            if (parsed && typeof parsed === 'object') {
+                if (parsed.url) return splitEvidenceUrls(parsed.url);
+                if (parsed.urls) return splitEvidenceUrls(parsed.urls);
+                if (parsed.image) return splitEvidenceUrls(parsed.image);
+                if (parsed.path) return splitEvidenceUrls(parsed.path);
+            }
+        } catch (e) {
+            // Proceed to string cleaning
+        }
+    }
+
+    // 2. Strip surrounding quotes and brackets
+    str = str.replace(/^["'\[]+|["'\]]+$/g, '').trim();
+    if (!str) return [];
+
+    // 3. Split by commas, newlines, or semicolons
+    const rawParts = str.split(/[\n\r,;]+/);
     const urls: string[] = [];
-    const parts = value.split(',');
-    for (let i = 0; i < parts.length; i++) {
-        const part = parts[i].trim();
+    for (let i = 0; i < rawParts.length; i++) {
+        let part = rawParts[i].trim().replace(/^["']|["']$/g, '');
         if (part.startsWith('data:image/') && part.includes(';base64')) {
-            let fullBase64 = parts[i];
-            if (i + 1 < parts.length) {
-                fullBase64 += ',' + parts[i + 1];
+            let fullBase64 = rawParts[i];
+            if (i + 1 < rawParts.length) {
+                fullBase64 += ',' + rawParts[i + 1];
                 i++;
             }
-            urls.push(fullBase64.trim());
+            urls.push(fullBase64.trim().replace(/^["']|["']$/g, ''));
         } else if (part) {
-            urls.push(part);
+            part = part.replace(/^["']|["']$/g, '');
+            if (part && (part.startsWith('http://') || part.startsWith('https://') || part.startsWith('/') || part.startsWith('data:') || part.startsWith('blob:') || part.includes('.'))) {
+                urls.push(part);
+            }
         }
     }
     return urls;
@@ -2473,9 +2502,10 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 if (sub && sub.item_id !== undefined && sub.item_id !== null) {
                     const itemIdStr = String(sub.item_id);
                     const hIdStr = String(sub.hotel_id || '');
-                    const existing = hotelSubmissions[itemIdStr] || {};
-                    // Merge lightweight data while preserving full load state and evidence value if available
-                    const mergedValue = sub.value !== undefined ? sub.value : existing.value;
+                    const existing = hotelSubmissions[itemIdStr] || submissionsMap[itemIdStr] || {};
+                    // Merge data while preserving full load state and evidence value if available
+                    const hasNewValue = sub.value && String(sub.value).trim() !== '' && String(sub.value) !== 'null';
+                    const mergedValue = hasNewValue ? sub.value : existing.value;
                     const mergedFullyLoaded = existing._isFullyLoaded || sub._isFullyLoaded || false;
                     submissionsMap[itemIdStr] = { 
                         ...existing, 
@@ -2565,25 +2595,70 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 .in('hotel_id', idList);
 
             if (!error && data && data.length > 0) {
-                const sub = data[0];
-                setHotelSubmissions(prev => ({
-                    ...prev,
-                    [itemId]: { ...(prev[itemId] || {}), ...sub, _isFullyLoaded: true }
-                }));
-                if (sub.score !== undefined && sub.score !== null) {
+                const extractValidValue = (r: any) => {
+                    if (!r) return '';
+                    const fields = [r.value, r.photo_url, r.evidence_url, r.file_url, r.image_url, r.evidence_urls, r.files];
+                    for (const f of fields) {
+                        if (f) {
+                            const parsedUrls = splitEvidenceUrls(f);
+                            if (parsedUrls.length > 0) return f;
+                            const str = typeof f === 'object' ? JSON.stringify(f) : String(f).trim();
+                            if (str && str !== 'null' && str !== 'undefined' && str !== '{}' && str !== '[]') return str;
+                        }
+                    }
+                    return '';
+                };
+
+                const rowWithValue = data.find(r => extractValidValue(r) !== '');
+                const extractedVal = rowWithValue ? extractValidValue(rowWithValue) : '';
+                const rowWithScore = data.find(r => r && r.score !== undefined && r.score !== null);
+                const rowWithNotes = data.find(r => r && (r.auditor_notes || r.auditor_remarks));
+                const rowWithNa = data.find(r => r && (r.is_na === true || String(r.is_na) === 'true'));
+
+                const submitters = Array.from(new Set(data.map(r => r.submitted_by_name || r.submitted_by).filter(Boolean)));
+                const combinedSubmitter = submitters.join(', ');
+
+                const newestRow = [...data].sort((a, b) => new Date(b.updated_at || b.created_at || 0).getTime() - new Date(a.updated_at || a.created_at || 0).getTime())[0];
+
+                setHotelSubmissions(prev => {
+                    const prevSub = prev[itemId] || {};
+                    const prevSubValue = extractValidValue(prevSub) || prevSub.value || '';
+                    const finalValue = extractedVal || prevSubValue || extractValidValue(newestRow) || newestRow?.value || '';
+                    const finalScore = rowWithScore?.score !== undefined ? rowWithScore.score : prevSub.score;
+                    const finalNa = rowWithNa ? true : (newestRow?.is_na || prevSub.is_na);
+                    const finalNotes = (rowWithNotes?.auditor_notes || rowWithNotes?.auditor_remarks || prevSub.auditor_notes || '').trim();
+
+                    return {
+                        ...prev,
+                        [itemId]: {
+                            ...prevSub,
+                            ...newestRow,
+                            value: finalValue,
+                            submitted_by_name: combinedSubmitter || newestRow?.submitted_by_name || prevSub.submitted_by_name,
+                            score: finalScore,
+                            is_na: finalNa,
+                            auditor_notes: finalNotes,
+                            auditor_remarks: finalNotes,
+                            _isFullyLoaded: true
+                        }
+                    };
+                });
+
+                const effectiveScore = rowWithScore?.score;
+                if (effectiveScore !== undefined && effectiveScore !== null) {
                     setInspectionScores(prev => {
-                        const next = { ...prev, [itemId]: sub.score };
-                        idList.forEach(hId => { next[`${hId}_${itemId}`] = sub.score; });
+                        const next = { ...prev, [itemId]: effectiveScore };
+                        idList.forEach(hId => { next[`${hId}_${itemId}`] = effectiveScore; });
                         return next;
                     });
-                } else if (sub.is_na === true || String(sub.is_na) === 'true') {
+                } else if (rowWithNa) {
                     setInspectionScores(prev => {
                         const next = { ...prev, [itemId]: 'N/A' };
                         idList.forEach(hId => { next[`${hId}_${itemId}`] = 'N/A'; });
                         return next;
                     });
                 }
-                const noteText = (sub.auditor_notes || sub.auditor_remarks || '').trim();
+                const noteText = (rowWithNotes?.auditor_notes || rowWithNotes?.auditor_remarks || '').trim();
                 if (noteText) {
                     setInspectionComments(prev => {
                         const next = { ...prev, [itemId]: noteText };
@@ -2637,22 +2712,70 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 .in('hotel_id', idList);
 
             if (!error && data) {
-                const updates: Record<string, any> = {};
+                const rowsByItem: Record<string, any[]> = {};
                 data.forEach((sub: any) => {
-                    updates[sub.item_id] = { ...(hotelSubmissions[sub.item_id] || {}), ...sub, _isFullyLoaded: true };
-                    if (sub.score !== undefined && sub.score !== null) {
-                        setInspectionScores(prev => ({ ...prev, [sub.item_id]: sub.score }));
-                    }
-                    if (sub.auditor_notes || sub.auditor_remarks) {
-                        setInspectionComments(prev => ({ ...prev, [sub.item_id]: (sub.auditor_notes || sub.auditor_remarks || '').trim() }));
+                    if (sub && sub.item_id !== undefined && sub.item_id !== null) {
+                        const iId = String(sub.item_id);
+                        if (!rowsByItem[iId]) rowsByItem[iId] = [];
+                        rowsByItem[iId].push(sub);
                     }
                 });
-                toFetch.forEach(id => {
-                    if (!updates[id]) {
-                        updates[id] = { ...(hotelSubmissions[id] || {}), _isFullyLoaded: true };
+
+                const extractValidValueCat = (r: any) => {
+                    if (!r) return '';
+                    const fields = [r.value, r.photo_url, r.evidence_url, r.file_url, r.image_url, r.evidence_urls, r.files];
+                    for (const f of fields) {
+                        if (f) {
+                            const parsedUrls = splitEvidenceUrls(f);
+                            if (parsedUrls.length > 0) return f;
+                            const str = typeof f === 'object' ? JSON.stringify(f) : String(f).trim();
+                            if (str && str !== 'null' && str !== 'undefined' && str !== '{}' && str !== '[]') return str;
+                        }
                     }
+                    return '';
+                };
+
+                setHotelSubmissions(prev => {
+                    const next = { ...prev };
+                    Object.keys(rowsByItem).forEach(itemId => {
+                        const itemRows = rowsByItem[itemId];
+                        const prevSub = next[itemId] || {};
+                        const rowWithValue = itemRows.find(r => extractValidValueCat(r) !== '');
+                        const extractedVal = rowWithValue ? extractValidValueCat(rowWithValue) : '';
+                        const rowWithScore = itemRows.find(r => r && r.score !== undefined && r.score !== null);
+                        const rowWithNotes = itemRows.find(r => r && (r.auditor_notes || r.auditor_remarks));
+                        const rowWithNa = itemRows.find(r => r && (r.is_na === true || String(r.is_na) === 'true'));
+                        const newestRow = [...itemRows].sort((a, b) => new Date(b.updated_at || b.created_at || 0).getTime() - new Date(a.updated_at || a.created_at || 0).getTime())[0];
+
+                        const prevSubValue = extractValidValueCat(prevSub) || prevSub.value || '';
+                        const finalValue = extractedVal || prevSubValue || extractValidValueCat(newestRow) || newestRow?.value || '';
+                        const finalNotes = (rowWithNotes?.auditor_notes || rowWithNotes?.auditor_remarks || prevSub.auditor_notes || '').trim();
+
+                        next[itemId] = {
+                            ...prevSub,
+                            ...newestRow,
+                            value: finalValue,
+                            score: rowWithScore?.score !== undefined ? rowWithScore.score : prevSub.score,
+                            is_na: rowWithNa ? true : (newestRow?.is_na || prevSub.is_na),
+                            auditor_notes: finalNotes,
+                            auditor_remarks: finalNotes,
+                            _isFullyLoaded: true
+                        };
+
+                        if (rowWithScore?.score !== undefined && rowWithScore.score !== null) {
+                            setInspectionScores(s => ({ ...s, [itemId]: rowWithScore.score }));
+                        }
+                        if (finalNotes) {
+                            setInspectionComments(c => ({ ...c, [itemId]: finalNotes }));
+                        }
+                    });
+                    toFetch.forEach(id => {
+                        if (!next[id]) {
+                            next[id] = { ...(prev[id] || {}), _isFullyLoaded: true };
+                        }
+                    });
+                    return next;
                 });
-                setHotelSubmissions(prev => ({ ...prev, ...updates }));
             }
         } catch (err) {
             console.error("Error fetching category submissions details:", err);
@@ -2765,9 +2888,6 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 updated_at: new Date().toISOString()
             }
         }));
-
-        // Automatically commit to database to prevent any lost audit scores
-        commitInspectionToDatabase(hotelOrId, itemId);
     };
 
     const saveInspectionComment = (hotelOrId: any, itemId: string, comment: string) => {
@@ -2796,7 +2916,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         if (!comment) delete updated[itemId]; else updated[itemId] = comment;
         setInspectionComments(updated);
 
-        // Update hotelSubmissions state directly in memory
+        // Update hotelSubmissions state directly in memory (commit ONLY when clicking 'SAVE AUDIT TO DB')
         setHotelSubmissions(prev => ({
             ...prev,
             [itemId]: {
@@ -2808,9 +2928,6 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 updated_at: new Date().toISOString()
             }
         }));
-
-        // Automatically commit comment updates to database
-        commitInspectionToDatabase(hotelOrId, itemId);
     };
 
     const commitInspectionToDatabase = async (hotelOrId: any, itemId: string) => {
@@ -2858,7 +2975,10 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 submitted_by_name: submitterName,
                 updated_at: new Date().toISOString()
             };
-            if (sub?.value) payload.value = sub.value;
+            const existingVal = sub?.value || sub?.photo_url || sub?.evidence_url || sub?.file_url || sub?.image_url || hotelSubmissions[itemId]?.value || hotelSubmissions[itemId]?.photo_url || hotelSubmissions[itemId]?.evidence_url;
+            if (existingVal) {
+                payload.value = existingVal;
+            }
             if (sub?.input_type) payload.input_type = sub.input_type;
 
             const { error } = await supabase.from('audit_submissions').upsert(payload, { onConflict: 'hotel_id,item_id' });
@@ -8160,9 +8280,9 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                                 ) : (
                                                                                                     <div className="space-y-3">
                                                                                                         {/* Visual Evidence with In-App Lightbox */}
-                                                                                                                                                                                                                 {(isImageInput(item.inputType) || (submission.value && (String(submission.value).startsWith('http') || String(submission.value).startsWith('data:image/') || String(submission.value).includes('imgbb.com')))) && submission.value && (
+                                                                                                        {splitEvidenceUrls(submission.value).length > 0 && (
                                                                                                              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                                                                                                                 {splitEvidenceUrls(String(submission.value)).map((url, urlIdx) => (
+                                                                                                                 {splitEvidenceUrls(submission.value).map((url, urlIdx) => (
                                                                                                                      <div 
                                                                                                                          key={urlIdx}
                                                                                                                          className="group/img relative rounded-xl border border-slate-200 overflow-hidden bg-slate-900/5 flex items-center justify-center aspect-square cursor-zoom-in transition-all hover:border-indigo-300 hover:shadow-sm"
@@ -8337,44 +8457,46 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                         />
                                                                                     </div>
 
-                                                                                    {/* DB SAVE STATUS & BUTTON */}
-                                                                                    <div className="pt-2 flex flex-col gap-1.5">
-                                                                                        {isSaving ? (
-                                                                                            <div className="w-full py-2.5 px-3 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 cursor-default">
-                                                                                                <Loader2 size={14} className="animate-spin text-indigo-600" />
-                                                                                                <span>Saving to DB...</span>
-                                                                                            </div>
-                                                                                        ) : (
-                                                                                            <>
-                                                                                                {(currentScore !== undefined || (currentComment || '').trim() !== '') ? (
-                                                                                                    <button
-                                                                                                        type="button"
-                                                                                                        id={`btn-save-db-${item.id}`}
-                                                                                                        onClick={async () => {
-                                                                                                            await commitInspectionToDatabase(hotel, item.id);
-                                                                                                            await fetchHotelSubmissionsForAuditor();
-                                                                                                        }}
-                                                                                                        className="w-full py-2.5 px-3 bg-indigo-600 hover:bg-indigo-700 active:scale-98 text-white rounded-xl font-black text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-md shadow-indigo-100 transition-all cursor-pointer"
-                                                                                                    >
-                                                                                                        <UploadCloud size={15} />
-                                                                                                        <span>Save Audit to DB</span>
-                                                                                                    </button>
-                                                                                                ) : (
-                                                                                                    <div className="w-full py-2 px-3 bg-slate-100 text-slate-400 border border-slate-200 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 cursor-not-allowed">
-                                                                                                        <Clock size={14} className="text-slate-400" />
-                                                                                                        <span>Unscored - Select Pass/Fail/NA</span>
-                                                                                                    </div>
-                                                                                                )}
+                                                                                    {/* DB SAVE STATUS & BUTTON (Only rendered for hotel-submitted items where AuditorEvidenceForm is not shown) */}
+                                                                                    {isSelfAudit && (
+                                                                                        <div className="pt-2 flex flex-col gap-1.5">
+                                                                                            {isSaving ? (
+                                                                                                <div className="w-full py-2.5 px-3 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 cursor-default">
+                                                                                                    <Loader2 size={14} className="animate-spin text-indigo-600" />
+                                                                                                    <span>Saving to DB...</span>
+                                                                                                </div>
+                                                                                            ) : (
+                                                                                                <>
+                                                                                                    {(currentScore !== undefined || (currentComment || '').trim() !== '') ? (
+                                                                                                        <button
+                                                                                                            type="button"
+                                                                                                            id={`btn-save-db-${item.id}`}
+                                                                                                            onClick={async () => {
+                                                                                                                await commitInspectionToDatabase(hotel, item.id);
+                                                                                                                await fetchHotelSubmissionsForAuditor();
+                                                                                                            }}
+                                                                                                            className="w-full py-2.5 px-3 bg-indigo-600 hover:bg-indigo-700 active:scale-98 text-white rounded-xl font-black text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-md shadow-indigo-100 transition-all cursor-pointer"
+                                                                                                        >
+                                                                                                            <UploadCloud size={15} />
+                                                                                                            <span>Save Audit to DB</span>
+                                                                                                        </button>
+                                                                                                    ) : (
+                                                                                                        <div className="w-full py-2 px-3 bg-slate-100 text-slate-400 border border-slate-200 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 cursor-not-allowed">
+                                                                                                            <Clock size={14} className="text-slate-400" />
+                                                                                                            <span>Unscored - Select Pass/Fail/NA</span>
+                                                                                                        </div>
+                                                                                                    )}
 
-                                                                                                {isSavedToDb && (
-                                                                                                    <div className="w-full py-1.5 px-3 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg font-bold text-[11px] flex items-center justify-center gap-1.5 opacity-90 cursor-default">
-                                                                                                        <CheckCircle size={13} className="text-emerald-600" />
-                                                                                                        <span>Saved in DB</span>
-                                                                                                    </div>
-                                                                                                )}
-                                                                                            </>
-                                                                                        )}
-                                                                                    </div>
+                                                                                                    {isSavedToDb && (
+                                                                                                        <div className="w-full py-1.5 px-3 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg font-bold text-[11px] flex items-center justify-center gap-1.5 opacity-90 cursor-default">
+                                                                                                            <CheckCircle size={13} className="text-emerald-600" />
+                                                                                                            <span>Saved in DB</span>
+                                                                                                        </div>
+                                                                                                    )}
+                                                                                                </>
+                                                                                            )}
+                                                                                        </div>
+                                                                                    )}
                                                                                 </div>
                                                                             </div>
                                                                             </div>
