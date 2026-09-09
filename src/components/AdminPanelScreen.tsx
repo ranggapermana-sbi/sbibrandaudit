@@ -2537,7 +2537,8 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 const { data, error } = await supabase
                     .from('audit_submissions')
                     .select(LIGHTWEIGHT_COLUMNS)
-                    .in('hotel_id', idList);
+                    .in('hotel_id', idList)
+                    .order('updated_at', { ascending: true });
                 if (!error && data && data.length > 0) {
                     subsData = data;
                 }
@@ -2732,7 +2733,9 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                     const prevSubValue = extractValidValue(validPrevSub) || validPrevSub.value || '';
                     const finalValue = extractedVal || extractValidValue(newestRow) || newestRow?.value || (prevIsSameHotel ? prevSubValue : '') || '';
                     const finalScore = rowWithScore?.score !== undefined ? rowWithScore.score : (prevIsSameHotel ? validPrevSub.score : undefined);
-                    const finalNa = rowWithNa ? true : (newestRow?.is_na ?? (prevIsSameHotel ? validPrevSub.is_na : undefined));
+                    const finalNa = rowWithScore?.score !== undefined 
+                        ? false 
+                        : (rowWithNa ? true : (newestRow?.is_na ?? (prevIsSameHotel ? validPrevSub.is_na : undefined)));
                     const finalNotes = (rowWithNotes?.auditor_notes || rowWithNotes?.auditor_remarks || (prevIsSameHotel ? validPrevSub.auditor_notes : '') || '').trim();
 
                     return {
@@ -2880,7 +2883,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                             hotel_id: newestRow?.hotel_id || currentHotel?.code || currentHotel?.id || selectedInspectionHotelId,
                             value: finalValue,
                             score: rowWithScore?.score !== undefined ? rowWithScore.score : validPrevSub.score,
-                            is_na: rowWithNa ? true : (newestRow?.is_na || validPrevSub.is_na),
+                            is_na: rowWithScore?.score !== undefined ? false : (rowWithNa ? true : (newestRow?.is_na || validPrevSub.is_na)),
                             auditor_notes: finalNotes,
                             auditor_remarks: finalNotes,
                             _isFullyLoaded: true
@@ -3071,7 +3074,10 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         const scoreVal = inspectionScores[`${canonicalHotelId}_${itemId}`] ?? inspectionScores[itemId] ?? sub?.score ?? (sub?.is_na ? 'N/A' : undefined);
         const commentVal = inspectionComments[`${canonicalHotelId}_${itemId}`] || inspectionComments[itemId] || sub?.auditor_notes || sub?.auditor_remarks || '';
 
-        const isNA = scoreVal === 'N/A' || scoreVal === 'na' || scoreVal === 'NA' || scoreVal === 'Na' || sub?.is_na;
+        // If scoreVal is explicitly provided (e.g. 0 for Fail, positive for Pass, or 'N/A' for NA), respect the auditor's explicit decision!
+        const isNA = scoreVal !== undefined && scoreVal !== null
+            ? (scoreVal === 'N/A' || scoreVal === 'na' || scoreVal === 'NA' || scoreVal === 'Na')
+            : (sub?.is_na === true || String(sub?.is_na) === 'true');
         let numScore: number | null = null;
         if (!isNA) {
             if (typeof scoreVal === 'number') {
@@ -3148,6 +3154,23 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                     .eq('item_id', String(itemId))
                     .in('hotel_id', altHotelIds);
             }
+
+            // Sync state in memory so subsequent re-renders or checks have updated score and is_na
+            setHotelSubmissions(prev => ({
+                ...prev,
+                [itemId]: {
+                    ...(prev[itemId] || {}),
+                    hotel_id: canonicalHotelId,
+                    item_id: String(itemId),
+                    score: isNA ? null : numScore,
+                    is_na: !!isNA,
+                    auditor_notes: (commentVal || '').trim(),
+                    auditor_remarks: (commentVal || '').trim(),
+                    submitted_by: finalSubmitterName,
+                    submitted_by_name: finalSubmitterName,
+                    updated_at: payload.updated_at
+                }
+            }));
 
             // Sync with local storage caches
             const lsPayload = JSON.stringify({
@@ -8180,8 +8203,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                 const hasSubmission = !!submission;
                                                                 const itemMaxPoints = item.points ?? 5;
                                                                 const isNA = currentScore !== undefined && (
-                                                                    currentScore === 'N/A' || currentScore === 'na' || currentScore === 'NA' ||
-                                                                    submission?.is_na === true || String(submission?.is_na) === 'true'
+                                                                    currentScore === 'N/A' || currentScore === 'na' || currentScore === 'NA' || currentScore === 'Na'
                                                                 );
                                                                 const isPass = !isNA && currentScore !== undefined && currentScore !== null && (
                                                                     currentScore === 'PASS' ||
@@ -8565,7 +8587,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                                 className={`py-2.5 px-1.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all duration-150 cursor-pointer flex flex-col items-center justify-center gap-0.5 border ${
                                                                                                     isNA
                                                                                                         ? 'bg-amber-500 hover:bg-amber-600 text-white border-amber-500 shadow-sm shadow-amber-100 ring-2 ring-amber-500 ring-offset-2'
-                                                                                                        : submission?.is_na
+                                                                                                        : (submission?.is_na && !isPass && !isFail)
                                                                                                         ? 'bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-300 hover:border-amber-400 animate-pulse'
                                                                                                         : 'bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-200 hover:border-amber-400'
                                                                                                 }`}
