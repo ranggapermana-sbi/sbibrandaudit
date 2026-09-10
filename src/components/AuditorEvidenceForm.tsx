@@ -191,6 +191,19 @@ export default function AuditorEvidenceForm({ item, hotel, submission, currentSc
 
     const [copied, setCopied] = useState(false);
 
+    const currentItemIdRef = useRef<string>(item.id);
+    const isLocallyEditedRef = useRef<boolean>(false);
+
+    const isYesVal = (v: any) => {
+        const s = String(v || '').toLowerCase().trim();
+        return ['true', 'yes', 'compliant', '1', 'pass'].includes(s);
+    };
+
+    const isNoVal = (v: any) => {
+        const s = String(v || '').toLowerCase().trim();
+        return ['false', 'no', 'non-compliant', '0', 'fail'].includes(s);
+    };
+
     useEffect(() => {
         if (currentScore === 'N/A' || currentScore === 'na' || currentScore === 'NA' || currentScore === 'Na') {
             setIsNa(true);
@@ -253,7 +266,14 @@ export default function AuditorEvidenceForm({ item, hotel, submission, currentSc
 
     // Load existing submission data
     useEffect(() => {
-        if (submission) {
+        // If switching to a different inspection item, reset local edit tracking
+        if (currentItemIdRef.current !== item.id) {
+            currentItemIdRef.current = item.id;
+            isLocallyEditedRef.current = false;
+        }
+
+        // Do NOT overwrite user's local unsaved form edits when background updates or score clicks re-render the submission prop
+        if (submission && !isLocallyEditedRef.current) {
             const rawVal = submission.value || submission.photo_url || submission.evidence_url || submission.file_url || submission.image_url || '';
             const val = typeof rawVal === 'object' ? JSON.stringify(rawVal) : String(rawVal).trim();
             setValue(val);
@@ -428,7 +448,7 @@ export default function AuditorEvidenceForm({ item, hotel, submission, currentSc
             if (typeof currentScore === 'number' && !isNaN(currentScore)) {
                 numScore = currentScore;
             } else if (currentScore === 'PASS' || currentScore === 'pass') {
-                numScore = item.points ?? 5;
+                numScore = (item.points !== undefined && item.points > 0) ? item.points : 1;
             } else if (currentScore === 'FAIL' || currentScore === 'fail') {
                 numScore = 0;
             } else if (currentScore !== undefined && currentScore !== null && !isNaN(Number(currentScore)) && String(currentScore).trim() !== '' && String(currentScore).trim().toLowerCase() !== 'null') {
@@ -528,6 +548,7 @@ export default function AuditorEvidenceForm({ item, hotel, submission, currentSc
                 }
             }
 
+            isLocallyEditedRef.current = false;
             setSaveSuccess(true);
             setTimeout(() => setSaveSuccess(false), 3000);
             onSaved();
@@ -686,7 +707,10 @@ export default function AuditorEvidenceForm({ item, hotel, submission, currentSc
                             <input
                                 type="number"
                                 value={value}
-                                onChange={(e) => setValue(e.target.value)}
+                                onChange={(e) => {
+                                    isLocallyEditedRef.current = true;
+                                    setValue(e.target.value);
+                                }}
                                 placeholder="Enter measurement, count, or value..."
                                 className="w-full p-2.5 bg-white border border-slate-200 focus:border-indigo-350 focus:ring-1 focus:ring-indigo-350 rounded-lg text-xs outline-none text-slate-800"
                             />
@@ -699,7 +723,10 @@ export default function AuditorEvidenceForm({ item, hotel, submission, currentSc
                             <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wide block">Auditor Observation Response</label>
                             <textarea
                                 value={value}
-                                onChange={(e) => setValue(e.target.value)}
+                                onChange={(e) => {
+                                    isLocallyEditedRef.current = true;
+                                    setValue(e.target.value);
+                                }}
                                 placeholder="Enter detailed inspection observation text..."
                                 className="w-full p-2.5 bg-white border border-slate-200 focus:border-indigo-350 focus:ring-1 focus:ring-indigo-350 rounded-lg text-xs outline-none text-slate-800 placeholder:text-slate-400"
                                 rows={2.5}
@@ -716,8 +743,11 @@ export default function AuditorEvidenceForm({ item, hotel, submission, currentSc
                                     <input
                                         type="radio"
                                         name={`compliance_radio_${item.id}`}
-                                        checked={value === 'true'}
-                                        onChange={() => setValue('true')}
+                                        checked={isYesVal(value)}
+                                        onChange={() => {
+                                            isLocallyEditedRef.current = true;
+                                            setValue('true');
+                                        }}
                                         className="text-emerald-500 focus:ring-emerald-400 h-3.5 w-3.5"
                                     />
                                     Yes (Compliant)
@@ -726,8 +756,11 @@ export default function AuditorEvidenceForm({ item, hotel, submission, currentSc
                                     <input
                                         type="radio"
                                         name={`compliance_radio_${item.id}`}
-                                        checked={value === 'false'}
-                                        onChange={() => setValue('false')}
+                                        checked={isNoVal(value)}
+                                        onChange={() => {
+                                            isLocallyEditedRef.current = true;
+                                            setValue('false');
+                                        }}
                                         className="text-rose-500 focus:ring-rose-400 h-3.5 w-3.5"
                                     />
                                     No (Non-Compliant)

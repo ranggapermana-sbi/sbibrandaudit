@@ -2613,20 +2613,20 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                         _isFullyLoaded: mergedFullyLoaded 
                     };
 
-                    if (sub.score !== undefined && sub.score !== null) {
-                        dbScores[`${hIdStr}_${itemIdStr}`] = sub.score;
-                        if (currentHotel) {
-                            dbScores[`${currentHotel.id}_${itemIdStr}`] = sub.score;
-                            if (currentHotel.code) dbScores[`${currentHotel.code}_${itemIdStr}`] = sub.score;
-                        }
-                        dbScores[itemIdStr] = sub.score;
-                    } else if (sub.is_na === true || String(sub.is_na) === 'true') {
+                    if (sub.is_na === true || String(sub.is_na) === 'true') {
                         dbScores[`${hIdStr}_${itemIdStr}`] = 'N/A';
                         if (currentHotel) {
                             dbScores[`${currentHotel.id}_${itemIdStr}`] = 'N/A';
                             if (currentHotel.code) dbScores[`${currentHotel.code}_${itemIdStr}`] = 'N/A';
                         }
                         dbScores[itemIdStr] = 'N/A';
+                    } else if (sub.score !== undefined && sub.score !== null) {
+                        dbScores[`${hIdStr}_${itemIdStr}`] = sub.score;
+                        if (currentHotel) {
+                            dbScores[`${currentHotel.id}_${itemIdStr}`] = sub.score;
+                            if (currentHotel.code) dbScores[`${currentHotel.code}_${itemIdStr}`] = sub.score;
+                        }
+                        dbScores[itemIdStr] = sub.score;
                     }
 
                     const noteText = (sub.auditor_notes || sub.auditor_remarks || '').trim();
@@ -3025,11 +3025,13 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         ].filter(Boolean)));
 
         const isNA = score === 'N/A' || score === 'na' || score === 'NA' || score === 'Na';
+        const targetItem = (items || []).find(i => String(i.id) === String(itemId)) || DEFAULT_OFFLINE_ITEMS.find(i => String(i.id) === String(itemId));
+        const targetPoints = targetItem?.points ?? 5;
         const numScore = typeof score === 'number' 
             ? score 
             : (score !== undefined && score !== null && !isNaN(Number(score)) && String(score) !== '' 
                 ? Number(score) 
-                : (score === 'PASS' || score === 'pass' ? 5 : (score === 'FAIL' || score === 'fail' ? 0 : null)));
+                : (score === 'PASS' || score === 'pass' ? (targetPoints > 0 ? targetPoints : 1) : (score === 'FAIL' || score === 'fail' ? 0 : null)));
 
         // Update in-memory scores for immediate responsive UI feedback
         const updated = { ...inspectionScores };
@@ -3103,6 +3105,9 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         const canonicalHotelId = String(hotelObj?.code || subHotelId || hotelObj?.id || primaryId || '').trim().toUpperCase();
         if (!canonicalHotelId) return;
 
+        const targetItem = (items || []).find(i => String(i.id) === String(itemId)) || DEFAULT_OFFLINE_ITEMS.find(i => String(i.id) === String(itemId));
+        const itemMaxPoints = targetItem?.points ?? 5;
+
         const scoreVal = inspectionScores[`${canonicalHotelId}_${itemId}`] ?? inspectionScores[itemId] ?? sub?.score ?? (sub?.is_na ? 'N/A' : undefined);
         const commentVal = inspectionComments[`${canonicalHotelId}_${itemId}`] || inspectionComments[itemId] || sub?.auditor_notes || sub?.auditor_remarks || '';
 
@@ -3115,7 +3120,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             if (typeof scoreVal === 'number' && !isNaN(scoreVal)) {
                 numScore = scoreVal;
             } else if (scoreVal === 'PASS' || scoreVal === 'pass') {
-                numScore = 5;
+                numScore = (itemMaxPoints > 0 ? itemMaxPoints : 1);
             } else if (scoreVal === 'FAIL' || scoreVal === 'fail') {
                 numScore = 0;
             } else if (scoreVal !== undefined && scoreVal !== null && !isNaN(Number(scoreVal)) && String(scoreVal).trim() !== '' && String(scoreVal).trim().toLowerCase() !== 'null') {
@@ -8225,10 +8230,10 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                 let currentScore = inspectionScores[scoreKey1] ?? (scoreKey2 ? inspectionScores[scoreKey2] : undefined) ?? (scoreKey3 && isSubForThisHotel ? inspectionScores[scoreKey3] : undefined);
 
                                                                 if (currentScore === undefined && submission) {
-                                                                    if (submission.score !== undefined && submission.score !== null) {
-                                                                        currentScore = submission.score;
-                                                                    } else if (submission.is_na === true || String(submission.is_na) === 'true') {
+                                                                    if (submission.is_na === true || String(submission.is_na) === 'true') {
                                                                         currentScore = 'N/A';
+                                                                    } else if (submission.score !== undefined && submission.score !== null) {
+                                                                        currentScore = submission.score;
                                                                     }
                                                                 }
 
