@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { ArrowLeft, CheckCircle, Clock, Building, BarChart3, ChevronRight, ChevronLeft, ChevronsLeft, ChevronsRight, ArrowUpDown, Plus, Trash2, Edit, Search, X, AlertCircle, MapPin, Settings2, Calendar, Star, Briefcase, ClipboardList, FileCheck, Layers, Package, Camera, ImageIcon, FileText, Hash, Type, CheckSquare, Users, ShieldCheck, Percent, GripVertical, ChevronUp, ChevronDown, Eye, User, RefreshCw, CheckCircle2, Maximize2, ExternalLink, ZoomIn, Database, Copy, Check, Lock, Unlock, Upload, UploadCloud, Loader2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { apiCache } from '../lib/cache';
@@ -255,6 +255,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
 
     const [copiedDocId, setCopiedDocId] = useState<string | null>(null);
     const [savingInspectionItemId, setSavingInspectionItemId] = useState<string | null>(null);
+    const [recentlySavedItemId, setRecentlySavedItemId] = useState<string | null>(null);
 
     const handleCopyDocLink = (text: string, id: string) => {
         if (!text) return;
@@ -2315,6 +2316,10 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     const [inspectionScores, setInspectionScores] = useState<Record<string, number | string>>({});
     const [inspectionComments, setInspectionComments] = useState<Record<string, string>>({});
 
+    const previousInspectionHotelIdRef = useRef<string>('');
+    const hotelSubmissionsRef = useRef<Record<string, any>>(hotelSubmissions);
+    hotelSubmissionsRef.current = hotelSubmissions;
+
     // Pre-calculate lowercased associated IDs for each hotel for O(1) lookups
     const hotelAssociatedIdsMap = useMemo(() => {
         const map = new Map<string, Set<string>>();
@@ -2531,7 +2536,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             const idList = Array.from(associatedIds).filter(id => id && String(id).trim().length > 0);
             let subsData: any[] | null = null;
 
-            const LIGHTWEIGHT_COLUMNS = 'id, hotel_id, item_id, is_na, score, auditor_notes, auditor_remarks, submitted_by, submitted_by_name, updated_at, created_at';
+            const LIGHTWEIGHT_COLUMNS = 'id, hotel_id, item_id, input_type, value, is_na, na_reason, score, auditor_notes, auditor_remarks, notes, submitted_by, submitted_by_name, updated_at, created_at';
 
             if (idList.length > 0) {
                 const { data, error } = await supabase
@@ -2590,7 +2595,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                     const hIdStr = String(sub.hotel_id || '');
                     
                     // CRITICAL: Only consider existing state if it actually belongs to the CURRENT hotel
-                    const existingInState = hotelSubmissions[itemIdStr];
+                    const existingInState = hotelSubmissionsRef.current[itemIdStr];
                     const stateBelongsToThisHotel = existingInState && existingInState.hotel_id && (
                         (currentHotel && isSubmissionForHotel(existingInState.hotel_id, currentHotel)) ||
                         idList.some(id => String(id).trim().toLowerCase() === String(existingInState.hotel_id).trim().toLowerCase())
@@ -2638,8 +2643,32 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
 
             setInspectionScores(prev => ({ ...prev, ...dbScores }));
             setInspectionComments(prev => ({ ...prev, ...dbComments }));
-            // Set strictly to current hotel's submissions map - do NOT merge with prev to avoid retaining other hotels
-            setHotelSubmissions(submissionsMap);
+            // Safely merge submissionsMap ensuring fully loaded item details and photos are never overwritten with null/empty
+            setHotelSubmissions(prev => {
+                const next: Record<string, any> = { ...submissionsMap };
+                Object.keys(prev).forEach(k => {
+                    const prevItem = prev[k];
+                    if (prevItem && (prevItem._isFullyLoaded || prevItem.value)) {
+                        const belongs = prevItem.hotel_id && (
+                            (currentHotel && isSubmissionForHotel(prevItem.hotel_id, currentHotel)) ||
+                            idList.some(id => String(id).trim().toLowerCase() === String(prevItem.hotel_id).trim().toLowerCase())
+                        );
+                        if (belongs) {
+                            next[k] = {
+                                ...next[k],
+                                ...prevItem,
+                                score: next[k]?.score !== undefined ? next[k].score : prevItem.score,
+                                is_na: next[k]?.is_na !== undefined ? next[k].is_na : prevItem.is_na,
+                                auditor_notes: next[k]?.auditor_notes || prevItem.auditor_notes,
+                                auditor_remarks: next[k]?.auditor_remarks || prevItem.auditor_remarks,
+                                value: prevItem.value || next[k]?.value,
+                                _isFullyLoaded: prevItem._isFullyLoaded || next[k]?._isFullyLoaded || false,
+                            };
+                        }
+                    }
+                });
+                return next;
+            });
         } catch (err) {
             console.warn("Could not fetch audit submissions for auditor, using state fallback:", err);
             const hotel = hotels.find(h => h.id === selectedInspectionHotelId);
@@ -2650,7 +2679,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                         submissionsMap[sub.item_id] = sub;
                     }
                 });
-                setHotelSubmissions(submissionsMap);
+                setHotelSubmissions(prev => ({ ...submissionsMap, ...prev }));
             }
         }
     };
@@ -2914,10 +2943,13 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     useEffect(() => {
         let active = true;
         
-        // Immediately reset inspection-specific states so previous hotel submissions never linger
-        setHotelSubmissions({});
-        setExpandedInspectionItems({});
-        setLoadingItemIds({});
+        // Reset inspection-specific states ONLY when switching to a different hotel
+        if (previousInspectionHotelIdRef.current !== selectedInspectionHotelId) {
+            previousInspectionHotelIdRef.current = selectedInspectionHotelId;
+            setHotelSubmissions({});
+            setExpandedInspectionItems({});
+            setLoadingItemIds({});
+        }
 
         const fetchSubmissionsLocal = async () => {
             if (!selectedInspectionHotelId) {
@@ -2952,7 +2984,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             supabase.removeChannel(channel);
             clearInterval(interval);
         };
-    }, [selectedInspectionHotelId, profilesList, hotels]);
+    }, [selectedInspectionHotelId]);
 
     const safeFormatDate = (dateStr: any) => {
         if (!dateStr) return 'Recent';
@@ -3076,22 +3108,24 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
 
         // If scoreVal is explicitly provided (e.g. 0 for Fail, positive for Pass, or 'N/A' for NA), respect the auditor's explicit decision!
         const isNA = scoreVal !== undefined && scoreVal !== null
-            ? (scoreVal === 'N/A' || scoreVal === 'na' || scoreVal === 'NA' || scoreVal === 'Na')
+            ? (scoreVal === 'N/A' || scoreVal === 'na' || scoreVal === 'NA' || scoreVal === 'Na' || scoreVal === 'exempt')
             : (sub?.is_na === true || String(sub?.is_na) === 'true');
         let numScore: number | null = null;
         if (!isNA) {
-            if (typeof scoreVal === 'number') {
+            if (typeof scoreVal === 'number' && !isNaN(scoreVal)) {
                 numScore = scoreVal;
             } else if (scoreVal === 'PASS' || scoreVal === 'pass') {
                 numScore = 5;
             } else if (scoreVal === 'FAIL' || scoreVal === 'fail') {
                 numScore = 0;
-            } else if (scoreVal !== undefined && scoreVal !== null && !isNaN(Number(scoreVal)) && String(scoreVal).trim() !== '') {
+            } else if (scoreVal !== undefined && scoreVal !== null && !isNaN(Number(scoreVal)) && String(scoreVal).trim() !== '' && String(scoreVal).trim().toLowerCase() !== 'null') {
                 numScore = Number(scoreVal);
-            } else if (sub?.score !== undefined && sub?.score !== null) {
+            } else if (sub?.score !== undefined && sub?.score !== null && !isNaN(Number(sub.score))) {
                 numScore = Number(sub.score);
             }
         }
+
+        const sanitizedScore = (isNA || numScore === null || isNaN(numScore)) ? null : Number(numScore);
 
         setSavingInspectionItemId(itemId);
         try {
@@ -3108,10 +3142,11 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             const payload: any = {
                 hotel_id: canonicalHotelId,
                 item_id: String(itemId),
-                score: isNA ? null : numScore,
+                score: sanitizedScore,
                 is_na: !!isNA,
                 auditor_notes: (commentVal || '').trim(),
                 auditor_remarks: (commentVal || '').trim(),
+                notes: (commentVal || '').trim() || sub?.notes || '',
                 submitted_by: finalSubmitterName,
                 submitted_by_name: finalSubmitterName,
                 updated_at: new Date().toISOString()
@@ -3128,7 +3163,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 const fallbackPayload: any = {
                     hotel_id: canonicalHotelId,
                     item_id: String(itemId),
-                    score: isNA ? null : numScore,
+                    score: sanitizedScore,
                     is_na: !!isNA,
                     updated_at: new Date().toISOString()
                 };
@@ -3138,7 +3173,10 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                     fallbackPayload.auditor_notes = (commentVal || '').trim();
                     fallbackPayload.auditor_remarks = (commentVal || '').trim();
                 }
-                await supabase.from('audit_submissions').upsert(fallbackPayload, { onConflict: 'hotel_id,item_id' });
+                const { error: fallbackError } = await supabase.from('audit_submissions').upsert(fallbackPayload, { onConflict: 'hotel_id,item_id' });
+                if (fallbackError) {
+                    console.error("Supabase fallback upsert error:", fallbackError);
+                }
             }
 
             // Cleanup non-canonical duplicate rows stored under alternate hotel ID aliases
@@ -3162,10 +3200,11 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                     ...(prev[itemId] || {}),
                     hotel_id: canonicalHotelId,
                     item_id: String(itemId),
-                    score: isNA ? null : numScore,
+                    score: sanitizedScore,
                     is_na: !!isNA,
                     auditor_notes: (commentVal || '').trim(),
                     auditor_remarks: (commentVal || '').trim(),
+                    notes: (commentVal || '').trim() || sub?.notes || '',
                     submitted_by: finalSubmitterName,
                     submitted_by_name: finalSubmitterName,
                     updated_at: payload.updated_at
@@ -3184,6 +3223,12 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             } catch (lsErr) {
                 console.warn("LocalStorage save failed:", lsErr);
             }
+
+            // Set visual confirmation indicator
+            setRecentlySavedItemId(itemId);
+            setTimeout(() => {
+                setRecentlySavedItemId(prev => prev === itemId ? null : prev);
+            }, 3500);
         } catch (err) {
             console.error("Error committing inspection to DB:", err);
         } finally {
@@ -8366,10 +8411,15 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                         </span>
 
                                                                                         {/* DB SAVE STATUS BADGE */}
-                                                                                        {isSavedToDb ? (
+                                                                                        {recentlySavedItemId === item.id ? (
+                                                                                            <span className="px-2.5 py-0.5 bg-emerald-600 text-white text-[9px] font-black rounded-md uppercase tracking-wider flex items-center gap-1 animate-pulse shadow-xs">
+                                                                                                <CheckCircle size={10} className="text-white stroke-[3] shrink-0" />
+                                                                                                <span>Saved to DB!</span>
+                                                                                            </span>
+                                                                                        ) : isSavedToDb ? (
                                                                                             <span className="px-2.5 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 text-[9px] font-black rounded-md uppercase tracking-wider flex items-center gap-1 shadow-2xs">
                                                                                                 <CheckCircle size={10} className="text-emerald-600 shrink-0" />
-                                                                                                <span>Saved to DB</span>
+                                                                                                <span>Saved in DB {hotel?.code ? `(${String(hotel.code).toUpperCase()})` : ''}</span>
                                                                                             </span>
                                                                                         ) : (
                                                                                             <span className="px-2.5 py-0.5 bg-slate-100 text-slate-500 border border-slate-200 text-[9px] font-black rounded-md uppercase tracking-wider flex items-center gap-1">
@@ -8614,9 +8664,9 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                     {isSelfAudit && (
                                                                                         <div className="pt-2 flex flex-col gap-1.5">
                                                                                             {isSaving ? (
-                                                                                                <div className="w-full py-2.5 px-3 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 cursor-default">
-                                                                                                    <Loader2 size={14} className="animate-spin text-indigo-600" />
-                                                                                                    <span>Saving to DB...</span>
+                                                                                                <div className="w-full py-2.5 px-3 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-xl font-black text-xs flex items-center justify-center gap-2 cursor-default animate-pulse">
+                                                                                                    <Loader2 size={15} className="animate-spin text-indigo-600" />
+                                                                                                    <span>Saving to Supabase DB...</span>
                                                                                                 </div>
                                                                                             ) : (
                                                                                                 <>
@@ -8628,7 +8678,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                                                 await commitInspectionToDatabase(hotel, item.id);
                                                                                                                 await fetchHotelSubmissionsForAuditor();
                                                                                                             }}
-                                                                                                            className="w-full py-2.5 px-3 bg-indigo-600 hover:bg-indigo-700 active:scale-98 text-white rounded-xl font-black text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-md shadow-indigo-100 transition-all cursor-pointer"
+                                                                                                            className="w-full py-2.5 px-3 bg-indigo-600 hover:bg-indigo-700 active:scale-98 text-white rounded-xl font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-md shadow-indigo-100 transition-all cursor-pointer"
                                                                                                         >
                                                                                                             <UploadCloud size={15} />
                                                                                                             <span>Save Audit to DB</span>
@@ -8640,12 +8690,17 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                                         </div>
                                                                                                     )}
 
-                                                                                                    {isSavedToDb && (
-                                                                                                        <div className="w-full py-1.5 px-3 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg font-bold text-[11px] flex items-center justify-center gap-1.5 opacity-90 cursor-default">
-                                                                                                            <CheckCircle size={13} className="text-emerald-600" />
-                                                                                                            <span>Saved in DB</span>
+                                                                                                    {recentlySavedItemId === item.id ? (
+                                                                                                        <div className="w-full py-2 px-3 bg-emerald-600 text-white rounded-xl font-black text-xs flex items-center justify-center gap-2 shadow-sm animate-pulse">
+                                                                                                            <CheckCircle size={15} className="text-white stroke-[3]" />
+                                                                                                            <span>Saved to DB! (Hotel: {String(hotel?.code || hotel?.id || '').toUpperCase()})</span>
                                                                                                         </div>
-                                                                                                    )}
+                                                                                                    ) : isSavedToDb ? (
+                                                                                                        <div className="w-full py-1.5 px-3 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg font-bold text-[11px] flex items-center justify-center gap-1.5 shadow-2xs cursor-default">
+                                                                                                            <CheckCircle size={13} className="text-emerald-600" />
+                                                                                                            <span>Saved in DB {hotel?.code ? `(${String(hotel.code).toUpperCase()})` : ''}</span>
+                                                                                                        </div>
+                                                                                                    ) : null}
                                                                                                 </>
                                                                                             )}
                                                                                         </div>

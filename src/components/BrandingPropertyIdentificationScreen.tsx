@@ -723,8 +723,8 @@ const AuditItemCard: React.FC<{
             };
 
             if (existingSubRecord) {
-                if (existingSubRecord.score !== undefined && existingSubRecord.score !== null) {
-                    fullSubmissionData.score = existingSubRecord.score;
+                if (existingSubRecord.score !== undefined && existingSubRecord.score !== null && !isNaN(Number(existingSubRecord.score))) {
+                    fullSubmissionData.score = Number(existingSubRecord.score);
                 }
                 if (existingSubRecord.auditor_notes) fullSubmissionData.auditor_notes = existingSubRecord.auditor_notes;
                 if (existingSubRecord.auditor_remarks) fullSubmissionData.auditor_remarks = existingSubRecord.auditor_remarks;
@@ -1579,8 +1579,14 @@ export default function BrandingPropertyIdentificationScreen({ selectedCategory,
                 const currentHotel = hotels.find(h => String(h.id).toLowerCase() === String(selectedHotelId).toLowerCase() || String(h.code).toLowerCase() === String(selectedHotelId).toLowerCase());
                 const possibleHotelIds = Array.from(new Set([
                     selectedHotelId,
+                    String(selectedHotelId).toLowerCase(),
+                    String(selectedHotelId).toUpperCase(),
                     currentHotel?.code ? String(currentHotel.code).toUpperCase() : '',
-                    currentHotel?.id ? String(currentHotel.id) : ''
+                    currentHotel?.code ? String(currentHotel.code).toLowerCase() : '',
+                    currentHotel?.id ? String(currentHotel.id) : '',
+                    userProfile?.hotel_code ? String(userProfile.hotel_code).toUpperCase() : '',
+                    userProfile?.hotel_code ? String(userProfile.hotel_code).toLowerCase() : '',
+                    userProfile?.hotel_id ? String(userProfile.hotel_id) : ''
                 ].filter(Boolean)));
 
                 const [itemsRes, subsRes] = await Promise.all([

@@ -419,24 +419,26 @@ export default function AuditorEvidenceForm({ item, hotel, submission, currentSc
 
         // Always resolve canonical hotel code first (e.g. GBDA, SEKU, SIIN) to ensure consistent records
         const canonicalHotelCode = String(hotel.code || '').trim().toUpperCase();
-        const targetHotelId = canonicalHotelCode || String(hotel.id || submission?.hotel_id || '').trim();
+        const targetHotelId = canonicalHotelCode || String(hotel.id || submission?.hotel_id || '').trim().toUpperCase();
 
-        const isNAFinal = isNa || currentScore === 'N/A' || currentScore === 'na' || currentScore === 'NA' || currentScore === 'Na';
+        const isNAFinal = isNa || currentScore === 'N/A' || currentScore === 'na' || currentScore === 'NA' || currentScore === 'Na' || currentScore === 'exempt';
 
         let numScore: number | null = null;
         if (!isNAFinal) {
-            if (typeof currentScore === 'number') {
+            if (typeof currentScore === 'number' && !isNaN(currentScore)) {
                 numScore = currentScore;
             } else if (currentScore === 'PASS' || currentScore === 'pass') {
                 numScore = item.points ?? 5;
             } else if (currentScore === 'FAIL' || currentScore === 'fail') {
                 numScore = 0;
-            } else if (currentScore !== undefined && currentScore !== null && !isNaN(Number(currentScore)) && String(currentScore).trim() !== '') {
+            } else if (currentScore !== undefined && currentScore !== null && !isNaN(Number(currentScore)) && String(currentScore).trim() !== '' && String(currentScore).trim().toLowerCase() !== 'null') {
                 numScore = Number(currentScore);
-            } else if (submission?.score !== undefined && submission?.score !== null) {
+            } else if (submission?.score !== undefined && submission?.score !== null && !isNaN(Number(submission.score))) {
                 numScore = Number(submission.score);
             }
         }
+
+        const sanitizedScore = (isNAFinal || numScore === null || isNaN(numScore)) ? null : Number(numScore);
 
         const existingEvidence = submission?.value || submission?.photo_url || submission?.evidence_url || submission?.file_url || submission?.image_url || '';
         if (!finalValue && existingEvidence) {
@@ -448,10 +450,10 @@ export default function AuditorEvidenceForm({ item, hotel, submission, currentSc
         const fullSubmissionData = {
             hotel_id: targetHotelId,
             item_id: item.id,
-            input_type: item.inputType,
+            input_type: item.inputType || 'photo',
             value: finalValue,
-            score: isNAFinal ? null : numScore,
-            is_na: isNAFinal,
+            score: sanitizedScore,
+            is_na: !!isNAFinal,
             na_reason: naReason || (isNAFinal ? 'Marked N/A' : ''),
             auditor_notes: finalComment,
             auditor_remarks: finalComment,
@@ -469,10 +471,10 @@ export default function AuditorEvidenceForm({ item, hotel, submission, currentSc
                 const coreSubmissionData = {
                     hotel_id: targetHotelId,
                     item_id: item.id,
-                    input_type: item.inputType,
+                    input_type: item.inputType || 'photo',
                     value: finalValue,
-                    score: isNAFinal ? null : numScore,
-                    is_na: isNAFinal,
+                    score: sanitizedScore,
+                    is_na: !!isNAFinal,
                     na_reason: naReason,
                     auditor_notes: finalComment,
                     auditor_remarks: finalComment,
@@ -736,38 +738,38 @@ export default function AuditorEvidenceForm({ item, hotel, submission, currentSc
                 </div>
             )}
 
-            <div className="flex items-center justify-between gap-3 pt-2 border-t border-slate-100">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-3 border-t border-slate-200/80">
                 <div className="flex items-center gap-2">
-                    {submission ? (
-                        <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 text-[9px] font-black rounded-md uppercase tracking-wider inline-flex items-center gap-1">
-                            <Check size={10} className="text-emerald-600" /> Saved in DB
+                    {submission && (submission.id || submission.updated_at || submission.value || submission.score !== undefined || submission.is_na === true || submission.auditor_notes) ? (
+                        <span className="px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-black rounded-lg uppercase tracking-wider inline-flex items-center gap-1.5 shadow-xs">
+                            <Check size={12} className="text-emerald-600" /> Saved in DB {hotel.code ? `(${String(hotel.code).toUpperCase()})` : ''}
                         </span>
                     ) : (
-                        <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 border border-indigo-200 text-[9px] font-black rounded-md uppercase tracking-wider inline-flex items-center gap-1">
-                            <Clock size={10} className="text-indigo-600" /> Draft - Ready to Commit
+                        <span className="px-2.5 py-1 bg-amber-50 text-amber-700 border border-amber-200 text-[10px] font-black rounded-lg uppercase tracking-wider inline-flex items-center gap-1.5">
+                            <Clock size={12} className="text-amber-600" /> Unsaved Draft
                         </span>
                     )}
                 </div>
 
-                <div className="flex items-center gap-3">
+                <div className="flex items-center justify-end gap-3">
                     {saveSuccess && (
-                        <span className="text-[10px] font-bold text-emerald-600 flex items-center gap-1 animate-pulse">
-                            <Check size={12} /> Committed to DB!
+                        <span className="text-[11px] font-black text-emerald-600 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-lg flex items-center gap-1.5 animate-pulse">
+                            <Check size={13} className="text-emerald-600 stroke-[3]" /> Saved to Supabase DB!
                         </span>
                     )}
                     
                     <button
                         type="submit"
                         disabled={isSubmitting}
-                        className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[11px] uppercase tracking-wide rounded-lg shadow-sm transition-all active:scale-95 disabled:opacity-50 disabled:pointer-events-none flex items-center gap-1.5 cursor-pointer"
+                        className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs uppercase tracking-wider rounded-xl shadow-md shadow-indigo-100 transition-all active:scale-95 disabled:opacity-50 disabled:pointer-events-none flex items-center gap-2 cursor-pointer"
                     >
                         {isSubmitting ? (
                             <>
-                                <Loader2 size={12} className="animate-spin" /> Committing...
+                                <Loader2 size={14} className="animate-spin" /> <span>Saving to DB...</span>
                             </>
                         ) : (
                             <>
-                                <UploadCloud size={12} />
+                                <UploadCloud size={14} />
                                 <span>Save Audit to DB</span>
                             </>
                         )}
