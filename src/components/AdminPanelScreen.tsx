@@ -2317,6 +2317,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     const [inspectionComments, setInspectionComments] = useState<Record<string, string>>({});
 
     const previousInspectionHotelIdRef = useRef<string>('');
+    const commentDebounceTimersRef = useRef<Record<string, NodeJS.Timeout>>({});
     const hotelSubmissionsRef = useRef<Record<string, any>>(hotelSubmissions);
     hotelSubmissionsRef.current = hotelSubmissions;
 
@@ -2482,6 +2483,50 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         return 'Property User';
     };
 
+    const getAssociatedHotelIds = (hotelObj: any, selectedId?: string): string[] => {
+        const ids = new Set<string>();
+        const targetHotel = hotelObj || (selectedId ? hotels.find(h => h.id === selectedId || isSubmissionForHotel(selectedId, h)) : undefined);
+        const h = targetHotel || (selectedId ? { id: selectedId, code: selectedId, name: selectedId } as Hotel : undefined);
+
+        if (h) {
+            if (h.id) {
+                const s = String(h.id).trim();
+                ids.add(s); ids.add(s.toLowerCase()); ids.add(s.toUpperCase());
+            }
+            if (h.code) {
+                const s = String(h.code).trim();
+                ids.add(s); ids.add(s.toLowerCase()); ids.add(s.toUpperCase());
+            }
+            if (h.name) {
+                ids.add(String(h.name).trim());
+            }
+        }
+        if (selectedId) {
+            const s = String(selectedId).trim();
+            ids.add(s); ids.add(s.toLowerCase()); ids.add(s.toUpperCase());
+        }
+
+        (profilesList || []).forEach(p => {
+            const matchesCode = p.hotel_code && h?.code && String(p.hotel_code).trim().toLowerCase() === String(h.code).trim().toLowerCase();
+            const matchesName = p.hotel_name && h?.name && String(p.hotel_name).trim().toLowerCase() === String(h.name).trim().toLowerCase();
+            const matchesId = p.hotel_id && h?.id && String(p.hotel_id).trim().toLowerCase() === String(h.id).trim().toLowerCase();
+            if (matchesCode || matchesName || matchesId) {
+                if (p.hotel_id) {
+                    const s = String(p.hotel_id).trim();
+                    ids.add(s); ids.add(s.toLowerCase()); ids.add(s.toUpperCase());
+                }
+                if (p.hotel_code) {
+                    const s = String(p.hotel_code).trim();
+                    ids.add(s); ids.add(s.toLowerCase()); ids.add(s.toUpperCase());
+                }
+                if (p.hotel_name) ids.add(String(p.hotel_name).trim());
+                if (p.id) ids.add(String(p.id).trim());
+            }
+        });
+
+        return Array.from(ids).filter(id => id && id.length > 0);
+    };
+
     const fetchHotelSubmissionsForAuditor = async () => {
         if (!selectedInspectionHotelId) {
             setHotelSubmissions({});
@@ -2491,49 +2536,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             const hotel = hotels.find(h => h.id === selectedInspectionHotelId) || hotels.find(h => isSubmissionForHotel(selectedInspectionHotelId, h));
             const currentHotel = hotel || (selectedInspectionHotelId ? { id: selectedInspectionHotelId, code: selectedInspectionHotelId, name: selectedInspectionHotelId } as Hotel : undefined);
 
-            const associatedIds = new Set<string>();
-            if (currentHotel) {
-                if (currentHotel.id) {
-                    associatedIds.add(String(currentHotel.id));
-                    associatedIds.add(String(currentHotel.id).toLowerCase());
-                    associatedIds.add(String(currentHotel.id).toUpperCase());
-                }
-                if (currentHotel.code) {
-                    associatedIds.add(String(currentHotel.code));
-                    associatedIds.add(String(currentHotel.code).toLowerCase());
-                    associatedIds.add(String(currentHotel.code).toUpperCase());
-                }
-                if (currentHotel.name) {
-                    associatedIds.add(String(currentHotel.name));
-                }
-                
-                profilesList.forEach(p => {
-                    const matchesCode = p.hotel_code && currentHotel.code && String(p.hotel_code).trim().toLowerCase() === String(currentHotel.code).trim().toLowerCase();
-                    const matchesName = p.hotel_name && currentHotel.name && String(p.hotel_name).trim().toLowerCase() === String(currentHotel.name).trim().toLowerCase();
-                    const matchesId = p.hotel_id && currentHotel.id && String(p.hotel_id).trim().toLowerCase() === String(currentHotel.id).trim().toLowerCase();
-                    if (matchesCode || matchesName || matchesId) {
-                        if (p.hotel_id) {
-                            associatedIds.add(String(p.hotel_id));
-                            associatedIds.add(String(p.hotel_id).toLowerCase());
-                        }
-                        if (p.hotel_code) {
-                            associatedIds.add(String(p.hotel_code));
-                            associatedIds.add(String(p.hotel_code).toLowerCase());
-                        }
-                        if (p.hotel_name) {
-                            associatedIds.add(String(p.hotel_name));
-                        }
-                        if (p.id) {
-                            associatedIds.add(String(p.id));
-                        }
-                    }
-                });
-            } else {
-                associatedIds.add(String(selectedInspectionHotelId));
-                associatedIds.add(String(selectedInspectionHotelId).toLowerCase());
-            }
-
-            const idList = Array.from(associatedIds).filter(id => id && String(id).trim().length > 0);
+            const idList = getAssociatedHotelIds(currentHotel, selectedInspectionHotelId);
             let subsData: any[] | null = null;
 
             const LIGHTWEIGHT_COLUMNS = 'id, hotel_id, item_id, input_type, value, is_na, na_reason, score, auditor_notes, auditor_remarks, notes, submitted_by, submitted_by_name, updated_at, created_at';
@@ -2643,7 +2646,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
 
             setInspectionScores(prev => ({ ...prev, ...dbScores }));
             setInspectionComments(prev => ({ ...prev, ...dbComments }));
-            // Safely merge submissionsMap ensuring fully loaded item details and photos are never overwritten with null/empty
+            // Safely merge submissionsMap ensuring fresh DB scores/remarks take precedence over stale local memory
             setHotelSubmissions(prev => {
                 const next: Record<string, any> = { ...submissionsMap };
                 Object.keys(prev).forEach(k => {
@@ -2654,16 +2657,22 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                             idList.some(id => String(id).trim().toLowerCase() === String(prevItem.hotel_id).trim().toLowerCase())
                         );
                         if (belongs) {
-                            next[k] = {
-                                ...next[k],
-                                ...prevItem,
-                                score: next[k]?.score !== undefined ? next[k].score : prevItem.score,
-                                is_na: next[k]?.is_na !== undefined ? next[k].is_na : prevItem.is_na,
-                                auditor_notes: next[k]?.auditor_notes || prevItem.auditor_notes,
-                                auditor_remarks: next[k]?.auditor_remarks || prevItem.auditor_remarks,
-                                value: prevItem.value || next[k]?.value,
-                                _isFullyLoaded: prevItem._isFullyLoaded || next[k]?._isFullyLoaded || false,
-                            };
+                            if (next[k]) {
+                                // DB record exists: DB row takes precedence over prevItem for scores and remarks!
+                                next[k] = {
+                                    ...prevItem,
+                                    ...next[k],
+                                    score: next[k].score !== undefined ? next[k].score : prevItem.score,
+                                    is_na: next[k].is_na !== undefined ? next[k].is_na : prevItem.is_na,
+                                    auditor_notes: (next[k].auditor_notes || next[k].auditor_remarks || prevItem.auditor_notes || prevItem.auditor_remarks || '').trim(),
+                                    auditor_remarks: (next[k].auditor_remarks || next[k].auditor_notes || prevItem.auditor_remarks || prevItem.auditor_notes || '').trim(),
+                                    value: next[k].value || prevItem.value,
+                                    photo_url: next[k].photo_url || prevItem.photo_url,
+                                    _isFullyLoaded: prevItem._isFullyLoaded || next[k]._isFullyLoaded || false,
+                                };
+                            } else {
+                                next[k] = prevItem;
+                            }
                         }
                     }
                 });
@@ -2679,7 +2688,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                         submissionsMap[sub.item_id] = sub;
                     }
                 });
-                setHotelSubmissions(prev => ({ ...submissionsMap, ...prev }));
+                setHotelSubmissions(prev => ({ ...prev, ...submissionsMap }));
             }
         }
     };
@@ -2687,28 +2696,13 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     // States & loaders for ON-DEMAND fetching when clicking [Inspect & Score]
     const [loadingItemIds, setLoadingItemIds] = useState<Record<string, boolean>>({});
 
-    const fetchFullItemSubmission = async (itemId: string, force = false) => {
+    const fetchFullItemSubmission = async (itemId: string, force = true) => {
         if (!selectedInspectionHotelId || !itemId) return;
 
         try {
             const hotel = hotels.find(h => h.id === selectedInspectionHotelId) || hotels.find(h => isSubmissionForHotel(selectedInspectionHotelId, h));
             const currentHotel = hotel || (selectedInspectionHotelId ? { id: selectedInspectionHotelId, code: selectedInspectionHotelId, name: selectedInspectionHotelId } as Hotel : undefined);
-
-            const associatedIds = new Set<string>();
-            if (currentHotel) {
-                if (currentHotel.id) {
-                    associatedIds.add(String(currentHotel.id));
-                    associatedIds.add(String(currentHotel.id).toLowerCase());
-                }
-                if (currentHotel.code) {
-                    associatedIds.add(String(currentHotel.code));
-                    associatedIds.add(String(currentHotel.code).toLowerCase());
-                }
-                if (currentHotel.name) associatedIds.add(String(currentHotel.name));
-            } else {
-                associatedIds.add(String(selectedInspectionHotelId));
-            }
-            const idList = Array.from(associatedIds).filter(Boolean);
+            const idList = getAssociatedHotelIds(currentHotel, selectedInspectionHotelId);
 
             const existingSub = hotelSubmissions[itemId];
             const isSameHotel = existingSub && existingSub.hotel_id && (
@@ -2837,22 +2831,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         try {
             const hotel = hotels.find(h => h.id === selectedInspectionHotelId) || hotels.find(h => isSubmissionForHotel(selectedInspectionHotelId, h));
             const currentHotel = hotel || (selectedInspectionHotelId ? { id: selectedInspectionHotelId, code: selectedInspectionHotelId, name: selectedInspectionHotelId } as Hotel : undefined);
-
-            const associatedIds = new Set<string>();
-            if (currentHotel) {
-                if (currentHotel.id) {
-                    associatedIds.add(String(currentHotel.id));
-                    associatedIds.add(String(currentHotel.id).toLowerCase());
-                }
-                if (currentHotel.code) {
-                    associatedIds.add(String(currentHotel.code));
-                    associatedIds.add(String(currentHotel.code).toLowerCase());
-                }
-                if (currentHotel.name) associatedIds.add(String(currentHotel.name));
-            } else {
-                associatedIds.add(String(selectedInspectionHotelId));
-            }
-            const idList = Array.from(associatedIds).filter(Boolean);
+            const idList = getAssociatedHotelIds(currentHotel, selectedInspectionHotelId);
 
             const { data, error } = await supabase
                 .from('audit_submissions')
@@ -2919,10 +2898,25 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                         };
 
                         if (rowWithScore?.score !== undefined && rowWithScore.score !== null) {
-                            setInspectionScores(s => ({ ...s, [itemId]: rowWithScore.score }));
+                            const sc = rowWithScore.score;
+                            setInspectionScores(s => {
+                                const next = { ...s, [itemId]: sc };
+                                idList.forEach(hId => { next[`${hId}_${itemId}`] = sc; });
+                                return next;
+                            });
+                        } else if (rowWithNa) {
+                            setInspectionScores(s => {
+                                const next = { ...s, [itemId]: 'N/A' };
+                                idList.forEach(hId => { next[`${hId}_${itemId}`] = 'N/A'; });
+                                return next;
+                            });
                         }
                         if (finalNotes) {
-                            setInspectionComments(c => ({ ...c, [itemId]: finalNotes }));
+                            setInspectionComments(c => {
+                                const next = { ...c, [itemId]: finalNotes };
+                                idList.forEach(hId => { next[`${hId}_${itemId}`] = finalNotes; });
+                                return next;
+                            });
                         }
                     });
                     toFetch.forEach(id => {
@@ -3054,6 +3048,9 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 updated_at: new Date().toISOString()
             }
         }));
+
+        // Auto-commit directly to Supabase database so score is instantly saved and synced
+        commitInspectionToDatabase(hotelOrId, itemId, score);
     };
 
     const saveInspectionComment = (hotelOrId: any, itemId: string, comment: string) => {
@@ -3082,7 +3079,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         if (!comment) delete updated[itemId]; else updated[itemId] = comment;
         setInspectionComments(updated);
 
-        // Update hotelSubmissions state directly in memory (commit ONLY when clicking 'SAVE AUDIT TO DB')
+        // Update hotelSubmissions state directly in memory
         setHotelSubmissions(prev => ({
             ...prev,
             [itemId]: {
@@ -3094,9 +3091,22 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 updated_at: new Date().toISOString()
             }
         }));
+
+        // Debounce auto-commit to Supabase database for smooth typing
+        if (commentDebounceTimersRef.current[itemId]) {
+            clearTimeout(commentDebounceTimersRef.current[itemId]);
+        }
+        commentDebounceTimersRef.current[itemId] = setTimeout(() => {
+            commitInspectionToDatabase(hotelOrId, itemId, undefined, trimmed);
+        }, 600);
     };
 
-    const commitInspectionToDatabase = async (hotelOrId: any, itemId: string) => {
+    const commitInspectionToDatabase = async (
+        hotelOrId: any, 
+        itemId: string, 
+        overrideScore?: number | string | null, 
+        overrideComment?: string
+    ) => {
         const hotelObj = typeof hotelOrId === 'object' ? hotelOrId : hotels.find(h => String(h.id) === String(hotelOrId) || String(h.code).toLowerCase() === String(hotelOrId).toLowerCase());
         const primaryId = typeof hotelOrId === 'string' ? hotelOrId : (hotelOrId?.id || selectedInspectionHotelId);
         const sub = hotelSubmissions[itemId];
@@ -3108,8 +3118,42 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         const targetItem = (items || []).find(i => String(i.id) === String(itemId)) || DEFAULT_OFFLINE_ITEMS.find(i => String(i.id) === String(itemId));
         const itemMaxPoints = targetItem?.points ?? 5;
 
-        const scoreVal = inspectionScores[`${canonicalHotelId}_${itemId}`] ?? inspectionScores[itemId] ?? sub?.score ?? (sub?.is_na ? 'N/A' : undefined);
-        const commentVal = inspectionComments[`${canonicalHotelId}_${itemId}`] || inspectionComments[itemId] || sub?.auditor_notes || sub?.auditor_remarks || '';
+        const keysToTry = [
+            `${canonicalHotelId}_${itemId}`,
+            `${canonicalHotelId.toLowerCase()}_${itemId}`,
+            `${canonicalHotelId.toUpperCase()}_${itemId}`,
+            hotelObj?.id ? `${hotelObj.id}_${itemId}` : '',
+            hotelObj?.id ? `${String(hotelObj.id).toLowerCase()}_${itemId}` : '',
+            hotelObj?.code ? `${hotelObj.code}_${itemId}` : '',
+            hotelObj?.code ? `${String(hotelObj.code).toLowerCase()}_${itemId}` : '',
+            itemId
+        ].filter(Boolean);
+
+        let scoreVal: any = overrideScore !== undefined ? overrideScore : undefined;
+        if (scoreVal === undefined) {
+            for (const k of keysToTry) {
+                if (inspectionScores[k] !== undefined) {
+                    scoreVal = inspectionScores[k];
+                    break;
+                }
+            }
+        }
+        if (scoreVal === undefined) {
+            scoreVal = sub?.score ?? (sub?.is_na ? 'N/A' : undefined);
+        }
+
+        let commentVal = overrideComment !== undefined ? overrideComment : '';
+        if (!commentVal) {
+            for (const k of keysToTry) {
+                if (inspectionComments[k]) {
+                    commentVal = inspectionComments[k];
+                    break;
+                }
+            }
+        }
+        if (!commentVal) {
+            commentVal = sub?.auditor_notes || sub?.auditor_remarks || '';
+        }
 
         // If scoreVal is explicitly provided (e.g. 0 for Fail, positive for Pass, or 'N/A' for NA), respect the auditor's explicit decision!
         const isNA = scoreVal !== undefined && scoreVal !== null
@@ -8223,11 +8267,26 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                     (hotel.code && String(rawSubmission.hotel_id).trim().toLowerCase() === String(hotel.code).trim().toLowerCase())
                                                                 );
                                                                 const submission = isSubForThisHotel ? rawSubmission : undefined;
-                                                                const scoreKey1 = `${hotel.id}_${item.id}`;
-                                                                const scoreKey2 = hotel?.code ? `${hotel.code}_${item.id}` : '';
-                                                                const scoreKey3 = submission?.hotel_id ? `${submission.hotel_id}_${item.id}` : '';
+                                                                const scoreKeysToTry = [
+                                                                    `${hotel.id}_${item.id}`,
+                                                                    `${String(hotel.id).toLowerCase()}_${item.id}`,
+                                                                    `${String(hotel.id).toUpperCase()}_${item.id}`,
+                                                                    hotel?.code ? `${hotel.code}_${item.id}` : '',
+                                                                    hotel?.code ? `${String(hotel.code).toLowerCase()}_${item.id}` : '',
+                                                                    hotel?.code ? `${String(hotel.code).toUpperCase()}_${item.id}` : '',
+                                                                    submission?.hotel_id ? `${submission.hotel_id}_${item.id}` : '',
+                                                                    submission?.hotel_id ? `${String(submission.hotel_id).toLowerCase()}_${item.id}` : '',
+                                                                    submission?.hotel_id ? `${String(submission.hotel_id).toUpperCase()}_${item.id}` : '',
+                                                                    item.id
+                                                                ].filter(Boolean);
 
-                                                                let currentScore = inspectionScores[scoreKey1] ?? (scoreKey2 ? inspectionScores[scoreKey2] : undefined) ?? (scoreKey3 && isSubForThisHotel ? inspectionScores[scoreKey3] : undefined);
+                                                                let currentScore: any = undefined;
+                                                                for (const k of scoreKeysToTry) {
+                                                                    if (inspectionScores[k] !== undefined) {
+                                                                        currentScore = inspectionScores[k];
+                                                                        break;
+                                                                    }
+                                                                }
 
                                                                 if (currentScore === undefined && submission) {
                                                                     if (submission.is_na === true || String(submission.is_na) === 'true') {
@@ -8237,7 +8296,13 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                     }
                                                                 }
 
-                                                                let currentComment = inspectionComments[scoreKey1] || (scoreKey2 ? inspectionComments[scoreKey2] : '') || (scoreKey3 && isSubForThisHotel ? inspectionComments[scoreKey3] : '') || '';
+                                                                let currentComment = '';
+                                                                for (const k of scoreKeysToTry) {
+                                                                    if (inspectionComments[k]) {
+                                                                        currentComment = inspectionComments[k];
+                                                                        break;
+                                                                    }
+                                                                }
 
                                                                 if (!currentComment && submission) {
                                                                     if (submission.auditor_notes && typeof submission.auditor_notes === 'string') {
