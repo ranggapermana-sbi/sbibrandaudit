@@ -3058,7 +3058,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             subHotelId ? String(subHotelId) : ''
         ].filter(Boolean)));
 
-        const trimmed = (comment || '').trim();
+        const rawComment = comment || '';
 
         const updated = { ...inspectionComments };
         possibleHotelIds.forEach(hId => {
@@ -3075,8 +3075,8 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 ...(prev[itemId] || {}),
                 hotel_id: canonicalHotelId,
                 item_id: String(itemId),
-                auditor_notes: trimmed,
-                auditor_remarks: trimmed,
+                auditor_notes: rawComment,
+                auditor_remarks: rawComment,
                 updated_at: new Date().toISOString()
             }
         }));

@@ -329,10 +329,10 @@ export function useAuditInspectionV2(
     const updateItemComment = useCallback((itemId: string, comment: string) => {
         if (!canonicalHotelCode) return;
 
-        const trimmedComment = comment.trim();
+        const rawComment = comment;
         const nowIso = new Date().toISOString();
 
-        // Optimistic local state update
+        // Optimistic local state update with raw comment (preserving trailing spaces)
         setSubmissionsMap(prev => {
             const existing = prev[itemId] || {};
             return {
@@ -341,8 +341,8 @@ export function useAuditInspectionV2(
                     ...existing,
                     hotel_id: canonicalHotelCode,
                     item_id: String(itemId),
-                    auditor_notes: trimmedComment,
-                    auditor_remarks: trimmedComment,
+                    auditor_notes: rawComment,
+                    auditor_remarks: rawComment,
                     updated_at: nowIso
                 }
             };
