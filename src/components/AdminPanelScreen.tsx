@@ -1,28 +1,17 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { ArrowLeft, CheckCircle, Clock, Building, BarChart3, ChevronRight, ChevronLeft, ChevronsLeft, ChevronsRight, ArrowUpDown, Plus, Trash2, Edit, Search, X, AlertCircle, MapPin, Settings2, Calendar, Star, Briefcase, ClipboardList, FileCheck, Layers, Package, Camera, ImageIcon, FileText, Hash, Type, CheckSquare, Users, ShieldCheck, Percent, GripVertical, ChevronUp, ChevronDown, Eye, User, RefreshCw, CheckCircle2, Maximize2, ExternalLink, ZoomIn, Database, Copy, Check, Lock, Unlock, Upload, UploadCloud, Loader2 } from 'lucide-react';
+import { ArrowLeft, CheckCircle, Clock, Building, BarChart3, ChevronRight, ChevronLeft, ChevronsLeft, ChevronsRight, ArrowUpDown, Plus, Trash2, Edit, Search, X, AlertCircle, MapPin, Settings2, Calendar, Star, Briefcase, ClipboardList, FileCheck, Layers, Package, Camera, ImageIcon, FileText, Hash, Type, CheckSquare, Users, ShieldCheck, Percent, GripVertical, ChevronUp, ChevronDown, Eye, User, RefreshCw, CheckCircle2, Maximize2, ExternalLink, ZoomIn, Database, Copy, Check, Lock, Unlock, Upload, UploadCloud, Loader2, Sparkles } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { apiCache } from '../lib/cache';
 
 import { Department, Hotel, AuditBatch, AuditCategory, AuditItem, AuditGroup } from '../types';
 import { DEFAULT_DEPARTMENTS, DEFAULT_CATEGORIES, DEFAULT_HOTELS, DEFAULT_BATCHES, DEFAULT_GROUPS, DEFAULT_OFFLINE_ITEMS, HARDCODED_TEST_HOTELS } from '../lib/constants';
 import AuditorEvidenceForm from './AuditorEvidenceForm';
+import { AuditInspectionV2 } from './audit-v2/AuditInspectionV2';
+import { parseEvidenceUrls, formatDirectImageUrl, sanitizeImageDataUrl } from '../lib/evidenceUtils';
 
 const isImageInput = (type: string) => {
     const t = (type || '').toLowerCase().trim();
     return ['camera', 'image', 'photo', 'picture', 'img', 'gallery', 'upload', 'file', 'single_image', 'multi_image', 'media'].includes(t);
-};
-
-const formatDirectImageUrl = (url: any): string => {
-    if (!url || typeof url !== 'string') return '';
-    let trimmed = url.trim();
-
-    // Convert Google Drive view URLs into direct image render URLs
-    const driveMatch = trimmed.match(/drive\.google\.com\/file\/d\/([^\/]+)/i) || trimmed.match(/drive\.google\.com\/open\?id=([^\&]+)/i);
-    if (driveMatch && driveMatch[1]) {
-        return `https://lh3.googleusercontent.com/d/${driveMatch[1]}`;
-    }
-
-    return trimmed;
 };
 
 const EvidencePhotoThumbnail: React.FC<{
@@ -92,58 +81,7 @@ const EvidencePhotoThumbnail: React.FC<{
 };
 
 const splitEvidenceUrls = (value: any): string[] => {
-    if (!value) return [];
-    let str = typeof value === 'object' ? JSON.stringify(value) : String(value).trim();
-    if (!str || str === 'null' || str === 'undefined') return [];
-
-    // 1. Try parsing JSON array or object
-    if ((str.startsWith('[') && str.endsWith(']')) || (str.startsWith('{') && str.endsWith('}'))) {
-        try {
-            const parsed = JSON.parse(str);
-            if (Array.isArray(parsed)) {
-                return parsed.flatMap(item => splitEvidenceUrls(item)).filter(Boolean);
-            }
-            if (parsed && typeof parsed === 'object') {
-                if (parsed.url) return splitEvidenceUrls(parsed.url);
-                if (parsed.urls) return splitEvidenceUrls(parsed.urls);
-                if (parsed.image) return splitEvidenceUrls(parsed.image);
-                if (parsed.path) return splitEvidenceUrls(parsed.path);
-            }
-        } catch (e) {
-            // Proceed to string cleaning
-        }
-    }
-
-    // 2. Strip surrounding quotes and brackets
-    str = str.replace(/^["'\[]+|["'\]]+$/g, '').trim();
-    if (!str) return [];
-
-    // 3. If contains data:image/, parse without corrupting base64 semicolons and commas
-    if (str.includes('data:image/')) {
-        const parts = str.split(/(?=(?:data:image\/|https?:\/\/))/g);
-        const results: string[] = [];
-        for (let p of parts) {
-            p = p.trim().replace(/^[,;\s"']+|[,;\s"']+$/g, '');
-            if (p && (p.startsWith('data:image/') || p.startsWith('http'))) {
-                if (p.startsWith('data:image/') && !p.includes(';base64,')) {
-                    continue; // Skip truncated header without data
-                }
-                results.push(formatDirectImageUrl(p));
-            }
-        }
-        if (results.length > 0) return results;
-    }
-
-    // 4. Split standard HTTP/HTTPS or document URLs by commas, newlines, or semicolons
-    const rawParts = str.split(/[\n\r,;]+/);
-    const urls: string[] = [];
-    for (let part of rawParts) {
-        part = part.trim().replace(/^["']|["']$/g, '');
-        if (part && (part.startsWith('http://') || part.startsWith('https://') || part.startsWith('/') || part.startsWith('blob:') || part.includes('.'))) {
-            urls.push(formatDirectImageUrl(part));
-        }
-    }
-    return urls.filter(Boolean);
+    return parseEvidenceUrls(value);
 };
 
 const getRoleStyles = (accessLevel: string) => {
@@ -322,15 +260,44 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     const [hotelToReset, setHotelToReset] = useState<Hotel | null>(null);
     const [isResetting, setIsResetting] = useState(false);
 
+    // V2 PIN Protection States
+    const [isV2Unlocked, setIsV2Unlocked] = useState<boolean>(() => {
+        try {
+            return sessionStorage.getItem('v2_unlocked') === 'true';
+        } catch {
+            return false;
+        }
+    });
+    const [isV2PinModalOpen, setIsV2PinModalOpen] = useState(false);
+    const [v2PinValue, setV2PinValue] = useState('');
+    const [v2PinError, setV2PinError] = useState('');
+
+    const handleVerifyV2Pin = () => {
+        if (v2PinValue === '230987') {
+            setIsV2Unlocked(true);
+            try { sessionStorage.setItem('v2_unlocked', 'true'); } catch {}
+            setIsV2PinModalOpen(false);
+            setV2PinValue('');
+            setV2PinError('');
+            setSubView('inspection_v2');
+        } else {
+            setV2PinError('Incorrect Super Admin PIN (230987). Access Denied.');
+            setV2PinValue('');
+        }
+    };
+
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
             if (e.key === 'Escape') {
                 setEnlargedImage(null);
                 setShowSqlModal(false);
                 setIsResetPinModalOpen(false);
+                setIsV2PinModalOpen(false);
                 setStatsModalType(null);
                 setResetPinValue('');
                 setResetPinError('');
+                setV2PinValue('');
+                setV2PinError('');
                 setHotelToReset(null);
                 return;
             }
@@ -345,11 +312,34 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 } else if (e.key === 'Enter') {
                     handleVerifyResetPin();
                 }
+            } else if (isV2PinModalOpen) {
+                if (e.key >= '0' && e.key <= '9') {
+                    setV2PinValue(prev => {
+                        const next = prev.length < 6 ? prev + e.key : prev;
+                        if (next === '230987') {
+                            setTimeout(() => {
+                                setIsV2Unlocked(true);
+                                try { sessionStorage.setItem('v2_unlocked', 'true'); } catch {}
+                                setIsV2PinModalOpen(false);
+                                setV2PinValue('');
+                                setV2PinError('');
+                                setSubView('inspection_v2');
+                            }, 50);
+                        }
+                        return next;
+                    });
+                    setV2PinError('');
+                } else if (e.key === 'Backspace') {
+                    setV2PinValue(prev => prev.slice(0, -1));
+                    setV2PinError('');
+                } else if (e.key === 'Enter') {
+                    handleVerifyV2Pin();
+                }
             }
         };
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [isResetPinModalOpen, resetPinValue, hotelToReset]);
+    }, [isResetPinModalOpen, resetPinValue, hotelToReset, isV2PinModalOpen, v2PinValue]);
 
     const handleVerifyResetPin = async () => {
         if (resetPinValue !== '230987') {
@@ -4899,7 +4889,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                         </button>
                     )}
                     <h1 className="text-xl font-bold text-slate-900 tracking-tight ml-3">
-                        {subView === 'departments' ? 'Audit Departments' : subView === 'hotels' ? 'Master Hotel List' : subView === 'batches' ? 'Audit Batch' : subView === 'categories' ? 'Audit Category' : subView === 'items' ? 'Audit Items' : subView === 'groups' ? 'Audit Groups' : subView === 'users' ? 'User Management' : subView === 'inspection' ? 'Audit Inspection' : subView === 'progress_report' ? 'Audit Progress Report' : 'Admin Dashboard'}
+                        {subView === 'departments' ? 'Audit Departments' : subView === 'hotels' ? 'Master Hotel List' : subView === 'batches' ? 'Audit Batch' : subView === 'categories' ? 'Audit Category' : subView === 'items' ? 'Audit Items' : subView === 'groups' ? 'Audit Groups' : subView === 'users' ? 'User Management' : subView === 'inspection_v2' ? 'Audit Inspection v2' : subView === 'inspection' ? 'Audit Inspection (v1)' : subView === 'progress_report' ? 'Audit Progress Report' : 'Admin Dashboard'}
                     </h1>
                 </div>
                 <div className="flex items-center gap-3">
@@ -5289,7 +5279,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                             </h2>
                             <div className="space-y-6">
                                 <div>
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-fadeIn">
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 animate-fadeIn">
                                         
                                         {/* Audit Progress Report */}
                                         <div 
@@ -5308,22 +5298,54 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                             <ChevronRight className="text-slate-300 group-hover:text-indigo-600 group-hover:translate-x-1 transition-all" size={18} />
                                         </div>
 
-                                            <div 
-                                                onClick={() => { setSubView('inspection'); setSelectedInspectionHotelId(''); setSelectedInspectionCategoryId(''); setSearchQuery(''); }}
-                                                className="flex items-center justify-between p-5 bg-white hover:bg-slate-50/80 rounded-[20px] border border-slate-150/80 cursor-pointer hover:border-indigo-200 active:scale-[0.99] transition-all duration-200 group shadow-[0_4px_24px_rgba(15,23,42,0.01)] hover:shadow-[0_8px_32px_rgba(15,23,42,0.02)]"
-                                            >
-                                                <div className="flex items-center gap-4">
-                                                    <div className="w-11 h-11 rounded-2xl bg-indigo-50 text-indigo-700 flex items-center justify-center shrink-0 transition-transform duration-300 group-hover:scale-105">
-                                                        <Search size={22} />
-                                                    </div>
-                                                    <div>
-                                                        <p className="text-sm font-bold text-slate-800 tracking-tight">Audit Inspection</p>
-                                                        <p className="text-xs text-slate-400 mt-0.5">Review submissions and score all audit criteria</p>
-                                                    </div>
+                                        {/* Audit Inspection v2 */}
+                                        <div 
+                                            onClick={() => { 
+                                                if (isV2Unlocked) {
+                                                    setSubView('inspection_v2'); 
+                                                } else {
+                                                    setIsV2PinModalOpen(true);
+                                                    setV2PinValue('');
+                                                    setV2PinError('');
+                                                }
+                                            }}
+                                            className="flex items-center justify-between p-5 bg-linear-to-r from-indigo-900 via-indigo-800 to-slate-900 text-white rounded-[20px] border border-indigo-700/60 cursor-pointer hover:shadow-xl active:scale-[0.99] transition-all duration-200 group shadow-md"
+                                        >
+                                            <div className="flex items-center gap-4">
+                                                <div className="w-11 h-11 rounded-2xl bg-indigo-500/20 backdrop-blur-md text-amber-300 flex items-center justify-center shrink-0 transition-transform duration-300 group-hover:scale-105 border border-indigo-400/30">
+                                                    <Sparkles size={22} />
                                                 </div>
-                                                <ChevronRight className="text-slate-300 group-hover:text-indigo-600 group-hover:translate-x-1 transition-all" size={18} />
+                                                <div>
+                                                    <div className="flex items-center gap-2">
+                                                        <p className="text-sm font-black tracking-tight text-white">Audit Inspection v2</p>
+                                                        <span className="px-2 py-0.5 rounded bg-emerald-400 text-slate-950 text-[9px] font-black uppercase tracking-wider flex items-center gap-1">
+                                                            {!isV2Unlocked ? <Lock size={10} /> : <Unlock size={10} />}
+                                                            {isV2Unlocked ? 'UNLOCKED' : 'PROTECTED (230987)'}
+                                                        </span>
+                                                    </div>
+                                                    <p className="text-xs text-indigo-200/80 mt-0.5">Direct O(1) Supabase sync, protected with Super Admin PIN</p>
+                                                </div>
                                             </div>
+                                            <ChevronRight className="text-indigo-300 group-hover:text-white group-hover:translate-x-1 transition-all" size={18} />
                                         </div>
+
+                                        {/* Legacy Audit Inspection */}
+                                        <div 
+                                            onClick={() => { setSubView('inspection'); setSelectedInspectionHotelId(''); setSelectedInspectionCategoryId(''); setSearchQuery(''); }}
+                                            className="flex items-center justify-between p-5 bg-white hover:bg-slate-50/80 rounded-[20px] border border-slate-150/80 cursor-pointer hover:border-indigo-200 active:scale-[0.99] transition-all duration-200 group shadow-[0_4px_24px_rgba(15,23,42,0.01)] hover:shadow-[0_8px_32px_rgba(15,23,42,0.02)]"
+                                        >
+                                            <div className="flex items-center gap-4">
+                                                <div className="w-11 h-11 rounded-2xl bg-indigo-50 text-indigo-700 flex items-center justify-center shrink-0 transition-transform duration-300 group-hover:scale-105">
+                                                    <Search size={22} />
+                                                </div>
+                                                <div>
+                                                    <p className="text-sm font-bold text-slate-800 tracking-tight">Audit Inspection (v1)</p>
+                                                    <p className="text-xs text-slate-400 mt-0.5">Legacy submission review tool</p>
+                                                </div>
+                                            </div>
+                                            <ChevronRight className="text-slate-300 group-hover:text-indigo-600 group-hover:translate-x-1 transition-all" size={18} />
+                                        </div>
+                                    </div>
                                     </div>
                                 </div>
                             </section>
@@ -7467,6 +7489,92 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                             </div>
                         </div>
                     </div>
+                ) : subView === 'inspection_v2' ? (
+                    !isV2Unlocked ? (
+                        <div className="max-w-md mx-auto my-12 p-8 bg-white rounded-3xl border border-slate-200 shadow-xl text-center space-y-6 animate-fadeIn">
+                            <div className="w-16 h-16 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center mx-auto border border-indigo-100 shadow-xs">
+                                <Lock size={28} />
+                            </div>
+                            <div>
+                                <h3 className="text-xl font-black text-slate-900 tracking-tight">Audit Inspection V2 Protected</h3>
+                                <p className="text-xs text-indigo-700 font-extrabold uppercase tracking-wider bg-indigo-50 py-1 px-3 rounded-lg border border-indigo-100 inline-block mt-2">
+                                    Super Admin PIN Required
+                                </p>
+                                <p className="text-xs text-slate-500 mt-3">
+                                    Please enter the Super Admin PIN <span className="font-bold text-indigo-600">(230987)</span> to access Audit Inspection V2.
+                                </p>
+                            </div>
+
+                            <button
+                                onClick={() => {
+                                    setIsV2PinModalOpen(true);
+                                    setV2PinValue('');
+                                    setV2PinError('');
+                                }}
+                                className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-sm rounded-2xl shadow-md shadow-indigo-200 transition-all cursor-pointer flex items-center justify-center gap-2"
+                            >
+                                <Lock size={16} /> Enter PIN to Unlock V2
+                            </button>
+
+                            <button
+                                onClick={() => setSubView('dashboard')}
+                                className="text-xs font-bold text-slate-500 hover:text-slate-800 transition-all cursor-pointer"
+                            >
+                                Back to Dashboard
+                            </button>
+                        </div>
+                    ) : (
+                        <div className="space-y-6 animate-fadeIn">
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-slate-200/80">
+                                <div>
+                                    <button 
+                                        onClick={() => { setSubView('dashboard'); setSearchQuery(''); }} 
+                                        className="inline-flex items-center gap-1.5 text-xs font-bold text-indigo-600 bg-indigo-50/50 hover:bg-indigo-100 px-3.5 py-1.5 rounded-full border border-indigo-100/50 hover:shadow-2xs active:scale-95 transition-all outline-none cursor-pointer"
+                                    >
+                                        <ArrowLeft size={12} /> Back to Dashboard
+                                    </button>
+                                    <div className="flex items-center gap-2 mt-2">
+                                        <h2 className="text-2xl font-black text-slate-900 tracking-tight">Audit Inspection v2</h2>
+                                        <span className="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-black uppercase tracking-wider border border-emerald-200 flex items-center gap-1">
+                                            <Unlock size={10} /> Unlocked
+                                        </span>
+                                    </div>
+                                    <p className="text-xs text-slate-500 mt-0.5">
+                                        High-performance direct Supabase synchronization engine with canonical hotel codes.
+                                    </p>
+                                </div>
+                                <div className="flex items-center gap-2 shrink-0">
+                                    <button
+                                        onClick={() => {
+                                            setIsV2Unlocked(false);
+                                            try { sessionStorage.removeItem('v2_unlocked'); } catch {}
+                                            setSubView('dashboard');
+                                        }}
+                                        className="inline-flex items-center gap-1.5 text-xs font-bold text-amber-800 hover:text-amber-950 bg-amber-50 hover:bg-amber-100/80 px-3.5 py-2 rounded-xl border border-amber-200 transition-all cursor-pointer"
+                                        title="Lock V2 access again"
+                                    >
+                                        <Lock size={13} /> Lock V2
+                                    </button>
+                                    <button 
+                                        onClick={() => { setSubView('inspection'); setSelectedInspectionHotelId(''); setSelectedInspectionCategoryId(''); setSearchQuery(''); }} 
+                                        className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-600 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 px-4 py-2 rounded-xl transition-all cursor-pointer"
+                                    >
+                                        Switch to Legacy Inspection (v1)
+                                    </button>
+                                </div>
+                            </div>
+
+                            <AuditInspectionV2 
+                                hotels={hotels} 
+                                categories={catList} 
+                                items={items} 
+                                userProfile={userProfile}
+                                batches={batches}
+                                groups={groups}
+                                auditorCategoryAssignments={auditorCategoryAssignments}
+                            />
+                        </div>
+                    )
                 ) : subView === 'inspection' ? (
                     <div className="space-y-6 animate-fadeIn">
                         {/* Audit Inspection Subview */}
@@ -11779,6 +11887,133 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                     ) : (
                                         "Confirm"
                                     )}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* V2 PROTECTION SUPER ADMIN PIN MODAL */}
+            {isV2PinModalOpen && (
+                <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-slate-950/65 backdrop-blur-md animate-fadeIn">
+                    <div className="bg-white w-full max-w-md p-6 rounded-3xl border border-slate-100 shadow-2xl relative animate-scaleUp">
+                        {/* Close button */}
+                        <button 
+                            onClick={() => {
+                                setIsV2PinModalOpen(false);
+                                setV2PinValue('');
+                                setV2PinError('');
+                            }}
+                            className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-50 rounded-xl transition-all cursor-pointer"
+                        >
+                            <X size={18} />
+                        </button>
+
+                        <div className="text-center space-y-2 mb-6">
+                            <div className="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center mx-auto border border-indigo-100 shadow-xs">
+                                <Lock size={22} />
+                            </div>
+                            <h3 className="text-lg font-black text-slate-900">Protected Audit Inspection V2</h3>
+                            <p className="text-xs text-indigo-700 font-extrabold max-w-sm mx-auto uppercase tracking-wider bg-indigo-50 py-1 px-3 rounded-lg border border-indigo-100/80">
+                                Super Admin PIN Required
+                            </p>
+                            <p className="text-xs text-slate-500 leading-relaxed font-semibold">
+                                Please enter the <span className="text-indigo-600 font-black">Super Admin PIN (230987)</span> to unlock Audit Inspection V2.
+                            </p>
+                        </div>
+
+                        {/* PIN Entry Display */}
+                        <div className="space-y-4">
+                            {v2PinError && (
+                                <p className="text-rose-500 text-xs text-center font-extrabold bg-rose-50/70 border border-rose-100 py-2 rounded-xl animate-pulse">
+                                    {v2PinError}
+                                </p>
+                            )}
+
+                            <div className="flex justify-center gap-2.5">
+                                {[0, 1, 2, 3, 4, 5].map((i) => (
+                                    <div 
+                                        key={i} 
+                                        className={`w-11 h-11 rounded-2xl border-2 flex items-center justify-center text-xl font-bold transition-all ${
+                                            v2PinValue[i] 
+                                                ? 'border-indigo-600 bg-indigo-50/60 text-indigo-900 scale-105 shadow-xs' 
+                                                : 'border-slate-200 bg-slate-50/30'
+                                        }`}
+                                    >
+                                        {v2PinValue[i] ? '•' : ''}
+                                    </div>
+                                ))}
+                            </div>
+
+                            {/* PIN Virtual Keyboard */}
+                            <div className="grid grid-cols-3 gap-2.5 max-w-[280px] mx-auto pt-2">
+                                {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((digit) => (
+                                    <button
+                                        key={digit}
+                                        type="button"
+                                        onClick={() => {
+                                            if (v2PinValue.length < 6) {
+                                                const next = v2PinValue + digit.toString();
+                                                setV2PinValue(next);
+                                                setV2PinError('');
+                                                if (next === '230987') {
+                                                    setIsV2Unlocked(true);
+                                                    try { sessionStorage.setItem('v2_unlocked', 'true'); } catch {}
+                                                    setIsV2PinModalOpen(false);
+                                                    setV2PinValue('');
+                                                    setV2PinError('');
+                                                    setSubView('inspection_v2');
+                                                }
+                                            }
+                                        }}
+                                        className="h-12 bg-slate-50 hover:bg-slate-100/80 active:scale-95 border border-slate-150/40 text-slate-800 font-extrabold text-base rounded-2xl transition-all shadow-3xs cursor-pointer"
+                                    >
+                                        {digit}
+                                    </button>
+                                ))}
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setV2PinValue('');
+                                        setV2PinError('');
+                                    }}
+                                    className="h-12 bg-slate-100/60 hover:bg-slate-200 text-slate-600 hover:text-slate-800 font-extrabold text-[10px] uppercase tracking-wider rounded-2xl transition-all active:scale-95 cursor-pointer"
+                                >
+                                    Clear
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        if (v2PinValue.length < 6) {
+                                            const next = v2PinValue + '0';
+                                            setV2PinValue(next);
+                                            setV2PinError('');
+                                            if (next === '230987') {
+                                                setIsV2Unlocked(true);
+                                                try { sessionStorage.setItem('v2_unlocked', 'true'); } catch {}
+                                                setIsV2PinModalOpen(false);
+                                                setV2PinValue('');
+                                                setV2PinError('');
+                                                setSubView('inspection_v2');
+                                            }
+                                        }
+                                    }}
+                                    className="h-12 bg-slate-50 hover:bg-slate-100/80 active:scale-95 border border-slate-150/40 text-slate-800 font-extrabold text-base rounded-2xl transition-all shadow-3xs cursor-pointer"
+                                >
+                                    0
+                                </button>
+                                <button
+                                    type="button"
+                                    disabled={v2PinValue.length < 6}
+                                    onClick={handleVerifyV2Pin}
+                                    className={`h-12 font-extrabold text-[10px] uppercase tracking-widest rounded-2xl transition-all active:scale-95 flex items-center justify-center cursor-pointer ${
+                                        v2PinValue.length === 6
+                                            ? 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-md shadow-indigo-200'
+                                            : 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                                    }`}
+                                >
+                                    Unlock
                                 </button>
                             </div>
                         </div>
