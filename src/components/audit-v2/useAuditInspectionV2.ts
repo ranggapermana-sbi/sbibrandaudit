@@ -297,11 +297,9 @@ export function useAuditInspectionV2(
     }, [userProfile]);
 
     // Update Score Function (Instant Optimistic + Background Supabase Sync)
-    const updateItemScore = useCallback(async (itemId: string, scoreVal: number | 'N/A' | null) => {
+    // Update Item Score (In-Memory Only - DB Save on Button Press)
+    const updateItemScore = useCallback((itemId: string, scoreVal: number | 'N/A' | null) => {
         if (!canonicalHotelCode) return;
-
-        const targetItem = items.find(i => String(i.id) === String(itemId));
-        const maxPoints = targetItem?.points ?? 5;
 
         const isNA = scoreVal === 'N/A';
         const numScore = isNA || scoreVal === null 
@@ -310,7 +308,7 @@ export function useAuditInspectionV2(
 
         const nowIso = new Date().toISOString();
 
-        // 1. Optimistic local state update
+        // Optimistic local state update
         setSubmissionsMap(prev => {
             const existing = prev[itemId] || {};
             return {
@@ -325,56 +323,16 @@ export function useAuditInspectionV2(
                 }
             };
         });
+    }, [canonicalHotelCode]);
 
-        setIsSavingMap(prev => ({ ...prev, [itemId]: true }));
-
-        // 2. Efficient background database upsert
-        try {
-            const existingSub = submissionsMap[itemId];
-            const existingSubmitter = existingSub?.submitted_by_name || existingSub?.submitted_by;
-            const finalSubmitter = (existingSubmitter && !existingSubmitter.startsWith('Auditor:'))
-                ? existingSubmitter
-                : auditorSubmitterName;
-
-            const payload: any = {
-                hotel_id: canonicalHotelCode,
-                item_id: String(itemId),
-                score: numScore,
-                is_na: isNA,
-                auditor_notes: (existingSub?.auditor_notes || existingSub?.auditor_remarks || '').trim(),
-                auditor_remarks: (existingSub?.auditor_remarks || existingSub?.auditor_notes || '').trim(),
-                submitted_by: finalSubmitter,
-                submitted_by_name: finalSubmitter,
-                updated_at: nowIso
-            };
-
-            if (existingSub?.value) payload.value = existingSub.value;
-            if (existingSub?.input_type) payload.input_type = existingSub.input_type;
-
-            const { error } = await supabase
-                .from('audit_submissions')
-                .upsert(payload, { onConflict: 'hotel_id,item_id' });
-
-            if (error) {
-                console.warn("Audit V2 score upsert warning:", error);
-            }
-
-            setLastSyncedAt(new Date());
-        } catch (e) {
-            console.error("Failed to save audit score in Audit V2:", e);
-        } finally {
-            setIsSavingMap(prev => ({ ...prev, [itemId]: false }));
-        }
-    }, [canonicalHotelCode, items, auditorSubmitterName, submissionsMap]);
-
-    // Update Auditor Remarks / Comment Function (Optimistic + Debounced Supabase Sync)
+    // Update Auditor Remarks / Comment Function (In-Memory Only - DB Save on Button Press)
     const updateItemComment = useCallback((itemId: string, comment: string) => {
         if (!canonicalHotelCode) return;
 
         const trimmedComment = comment.trim();
         const nowIso = new Date().toISOString();
 
-        // 1. Optimistic local state update
+        // Optimistic local state update
         setSubmissionsMap(prev => {
             const existing = prev[itemId] || {};
             return {
@@ -390,51 +348,57 @@ export function useAuditInspectionV2(
             };
         });
 
-        // 2. Debounce database upsert
         if (debounceTimersRef.current[itemId]) {
             clearTimeout(debounceTimersRef.current[itemId]);
+            delete debounceTimersRef.current[itemId];
         }
+    }, [canonicalHotelCode]);
+
+    // Save Item Audit to Database strictly on [SAVE AUDIT TO DB] button click
+    const saveItemAudit = useCallback(async (itemId: string) => {
+        if (!canonicalHotelCode) return;
 
         setIsSavingMap(prev => ({ ...prev, [itemId]: true }));
 
-        debounceTimersRef.current[itemId] = setTimeout(async () => {
-            try {
-                const existingSub = submissionsMap[itemId];
-                const existingSubmitter = existingSub?.submitted_by_name || existingSub?.submitted_by;
-                const finalSubmitter = (existingSubmitter && !existingSubmitter.startsWith('Auditor:'))
-                    ? existingSubmitter
-                    : auditorSubmitterName;
+        try {
+            const existingSub = submissionsMap[itemId];
+            const existingSubmitter = existingSub?.submitted_by_name || existingSub?.submitted_by;
+            const finalSubmitter = (existingSubmitter && !existingSubmitter.startsWith('Auditor:'))
+                ? existingSubmitter
+                : auditorSubmitterName;
 
-                const payload: any = {
-                    hotel_id: canonicalHotelCode,
-                    item_id: String(itemId),
-                    score: existingSub?.score ?? null,
-                    is_na: existingSub?.is_na ?? false,
-                    auditor_notes: trimmedComment,
-                    auditor_remarks: trimmedComment,
-                    submitted_by: finalSubmitter,
-                    submitted_by_name: finalSubmitter,
-                    updated_at: nowIso
-                };
+            const nowIso = new Date().toISOString();
+            const notes = (existingSub?.auditor_notes || existingSub?.auditor_remarks || '').trim();
 
-                if (existingSub?.value) payload.value = existingSub.value;
-                if (existingSub?.input_type) payload.input_type = existingSub.input_type;
+            const payload: any = {
+                hotel_id: canonicalHotelCode,
+                item_id: String(itemId),
+                score: existingSub?.score ?? null,
+                is_na: existingSub?.is_na ?? false,
+                auditor_notes: notes,
+                auditor_remarks: notes,
+                submitted_by: finalSubmitter,
+                submitted_by_name: finalSubmitter,
+                updated_at: nowIso
+            };
 
-                const { error } = await supabase
-                    .from('audit_submissions')
-                    .upsert(payload, { onConflict: 'hotel_id,item_id' });
+            if (existingSub?.value) payload.value = existingSub.value;
+            if (existingSub?.input_type) payload.input_type = existingSub.input_type;
 
-                if (error) {
-                    console.warn("Audit V2 comment upsert warning:", error);
-                }
+            const { error } = await supabase
+                .from('audit_submissions')
+                .upsert(payload, { onConflict: 'hotel_id,item_id' });
 
-                setLastSyncedAt(new Date());
-            } catch (e) {
-                console.error("Failed to save audit comment in Audit V2:", e);
-            } finally {
-                setIsSavingMap(prev => ({ ...prev, [itemId]: false }));
+            if (error) {
+                console.warn("Audit V2 manual save warning:", error);
             }
-        }, 500);
+
+            setLastSyncedAt(new Date());
+        } catch (e) {
+            console.error("Failed to save audit item in Audit V2:", e);
+        } finally {
+            setIsSavingMap(prev => ({ ...prev, [itemId]: false }));
+        }
     }, [canonicalHotelCode, auditorSubmitterName, submissionsMap]);
 
     // Computed Category Stats
@@ -547,6 +511,7 @@ export function useAuditInspectionV2(
         loadSubmissions,
         updateItemScore,
         updateItemComment,
+        saveItemAudit,
         categoryStats,
         overallStats,
         relevantCategories,

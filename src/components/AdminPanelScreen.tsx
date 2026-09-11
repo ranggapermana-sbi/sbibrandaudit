@@ -3039,8 +3039,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             }
         }));
 
-        // Auto-commit directly to Supabase database so score is instantly saved and synced
-        commitInspectionToDatabase(hotelOrId, itemId, score);
+        // Store score in memory - DB save will occur strictly when [SAVE AUDIT TO DB] button is pressed
     };
 
     const saveInspectionComment = (hotelOrId: any, itemId: string, comment: string) => {
@@ -3069,7 +3068,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         if (!comment) delete updated[itemId]; else updated[itemId] = comment;
         setInspectionComments(updated);
 
-        // Update hotelSubmissions state directly in memory
+        // Update hotelSubmissions state directly in memory - DB save occurs strictly on [SAVE AUDIT TO DB] button click
         setHotelSubmissions(prev => ({
             ...prev,
             [itemId]: {
@@ -3082,13 +3081,10 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             }
         }));
 
-        // Debounce auto-commit to Supabase database for smooth typing
         if (commentDebounceTimersRef.current[itemId]) {
             clearTimeout(commentDebounceTimersRef.current[itemId]);
+            delete commentDebounceTimersRef.current[itemId];
         }
-        commentDebounceTimersRef.current[itemId] = setTimeout(() => {
-            commitInspectionToDatabase(hotelOrId, itemId, undefined, trimmed);
-        }, 600);
     };
 
     const commitInspectionToDatabase = async (

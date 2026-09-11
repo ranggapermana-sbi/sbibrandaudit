@@ -55,6 +55,7 @@ export const AuditInspectionV2: React.FC<AuditInspectionV2Props> = ({
         loadSubmissions,
         updateItemScore,
         updateItemComment,
+        saveItemAudit,
         categoryStats,
         overallStats,
         relevantCategories,
@@ -195,6 +196,7 @@ export const AuditInspectionV2: React.FC<AuditInspectionV2Props> = ({
                             submission={submissionsMap[item.id]}
                             onUpdateScore={updateItemScore}
                             onUpdateComment={updateItemComment}
+                            onSaveAudit={saveItemAudit}
                             isSaving={isSavingMap[item.id]}
                         />
                     ))

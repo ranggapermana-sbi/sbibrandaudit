@@ -10,6 +10,7 @@ interface AuditItemCardProps {
     submission?: AuditSubmissionV2;
     onUpdateScore: (itemId: string, score: number | 'N/A' | null) => void;
     onUpdateComment: (itemId: string, comment: string) => void;
+    onSaveAudit: (itemId: string) => Promise<void>;
     isSaving?: boolean;
 }
 
@@ -19,6 +20,7 @@ export const AuditItemCard: React.FC<AuditItemCardProps> = ({
     submission,
     onUpdateScore,
     onUpdateComment,
+    onSaveAudit,
     isSaving
 }) => {
     const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
@@ -240,6 +242,29 @@ export const AuditItemCard: React.FC<AuditItemCardProps> = ({
                                 onChange={e => onUpdateComment(item.id, e.target.value)}
                                 className="w-full bg-white border border-slate-200 rounded-xl p-2.5 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
                             />
+                        </div>
+
+                        {/* Save Audit to DB Button */}
+                        <div className="mt-3">
+                            <button
+                                type="button"
+                                id={`btn-save-audit-v2-${item.id}`}
+                                onClick={() => onSaveAudit(item.id)}
+                                disabled={isSaving}
+                                className="w-full py-2.5 px-3 bg-indigo-600 hover:bg-indigo-700 active:scale-98 text-white rounded-xl font-extrabold text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-md shadow-indigo-100 transition-all cursor-pointer disabled:opacity-50"
+                            >
+                                {isSaving ? (
+                                    <>
+                                        <Clock size={15} className="animate-spin" />
+                                        <span>Saving to Supabase DB...</span>
+                                    </>
+                                ) : (
+                                    <>
+                                        <ShieldCheck size={15} />
+                                        <span>Save Audit to DB</span>
+                                    </>
+                                )}
+                            </button>
                         </div>
                     </div>
                 </div>
