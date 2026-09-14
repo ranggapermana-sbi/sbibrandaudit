@@ -7,6 +7,7 @@ import { Department, Hotel, AuditBatch, AuditCategory, AuditItem, AuditGroup } f
 import { DEFAULT_DEPARTMENTS, DEFAULT_CATEGORIES, DEFAULT_HOTELS, DEFAULT_BATCHES, DEFAULT_GROUPS, DEFAULT_OFFLINE_ITEMS, HARDCODED_TEST_HOTELS } from '../lib/constants';
 import AuditorEvidenceForm from './AuditorEvidenceForm';
 import { AuditInspectionV2 } from './audit-v2/AuditInspectionV2';
+import { EvidenceMediaViewer } from './common/EvidenceMediaViewer';
 import { parseEvidenceUrls, formatDirectImageUrl, sanitizeImageDataUrl } from '../lib/evidenceUtils';
 
 const isImageInput = (type: string) => {
@@ -8666,21 +8667,15 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                                         </div>
                                                                                                     </div>
                                                                                                 ) : (
-                                                                                                    <div className="space-y-3">
-                                                                                                        {/* Visual Evidence with In-App Lightbox */}
-                                                                                                        {splitEvidenceUrls(submission.value).length > 0 && (
-                                                                                                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                                                                                                                {splitEvidenceUrls(submission.value).map((url, urlIdx) => (
-                                                                                                                    <EvidencePhotoThumbnail 
-                                                                                                                        key={`${url}_${urlIdx}`}
-                                                                                                                        url={url}
-                                                                                                                        photoIndex={urlIdx + 1}
-                                                                                                                        itemName={item.name}
-                                                                                                                        hotelName={hotel.name}
-                                                                                                                        onEnlarge={(u, t) => setEnlargedImage({ url: u, title: t })}
-                                                                                                                    />
-                                                                                                                ))}
-                                                                                                            </div>
+                                                                                                     <div className="space-y-3">
+                                                                                                        {/* Rich Evidence with Media & Link Previews */}
+                                                                                                        {submission.value && (
+                                                                                                            <EvidenceMediaViewer 
+                                                                                                                rawEvidence={submission.value}
+                                                                                                                itemName={item.name}
+                                                                                                                hotelName={hotel.name}
+                                                                                                                onEnlarge={(u) => setEnlargedImage({ url: u, title: item.name })}
+                                                                                                            />
                                                                                                         )}
 
                                                                                                          {/* Document Evidence */}

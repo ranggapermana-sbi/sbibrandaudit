@@ -1,8 +1,8 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState } from 'react';
 import { AuditItem } from '../../types';
 import { AuditSubmissionV2 } from './types';
-import { parseEvidenceUrls, isImageEvidence } from '../../lib/evidenceUtils';
-import { CheckCircle2, XCircle, MinusCircle, ShieldCheck, Clock, ExternalLink, Image as ImageIcon, FileText, User, Calendar, Eye, X } from 'lucide-react';
+import { EvidenceMediaViewer } from '../common/EvidenceMediaViewer';
+import { CheckCircle2, XCircle, MinusCircle, ShieldCheck, Clock, FileText, User, Calendar, Image as ImageIcon, X } from 'lucide-react';
 
 interface AuditItemCardProps {
     item: AuditItem;
@@ -34,10 +34,8 @@ export const AuditItemCard: React.FC<AuditItemCardProps> = ({
     const isFail = !isNA && score !== undefined && score !== null && Number(score) === 0;
     const isAudited = isPass || isFail || isNA;
 
-    // Evidence value & parsed image URLs
+    // Evidence value
     const rawEvidenceValue = submission?.value || submission?.photo_url || submission?.evidence_url || submission?.file_url || submission?.image_url || '';
-    const parsedImageUrls = useMemo(() => parseEvidenceUrls(rawEvidenceValue), [rawEvidenceValue]);
-    const hasImageEvidence = parsedImageUrls.length > 0;
 
     return (
         <div id={`audit-item-card-${item.id}`} className="bg-white rounded-2xl border border-slate-200 shadow-xs hover:shadow-md transition-shadow p-4 sm:p-6 mb-4">
@@ -101,42 +99,21 @@ export const AuditItemCard: React.FC<AuditItemCardProps> = ({
                 {/* Left: Property Evidence */}
                 <div className="bg-slate-50/80 rounded-xl border border-slate-200/80 p-4 flex flex-col justify-between">
                     <div>
-                        <div className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2 flex items-center gap-1.5">
+                        <div className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3 flex items-center gap-1.5">
                             <FileText size={14} className="text-indigo-600" />
                             <span>Property Submitted Evidence</span>
                         </div>
 
                         {rawEvidenceValue ? (
-                            <div>
-                                {hasImageEvidence ? (
-                                    <div className="space-y-3 mb-3">
-                                        {parsedImageUrls.map((imgUrl, imgIdx) => (
-                                            <div key={imgIdx} className="relative group rounded-xl overflow-hidden border border-slate-200 bg-black/5 aspect-video">
-                                                <img
-                                                    src={imgUrl}
-                                                    alt={`Property Audit Evidence ${imgIdx + 1}`}
-                                                    className="w-full h-full object-cover"
-                                                    referrerPolicy={imgUrl.startsWith('data:') || imgUrl.startsWith('blob:') ? undefined : 'no-referrer'}
-                                                />
-                                                <button
-                                                    type="button"
-                                                    onClick={() => setLightboxUrl(imgUrl)}
-                                                    className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white font-bold text-xs gap-1.5 cursor-zoom-in"
-                                                >
-                                                    <Eye size={16} />
-                                                    <span>Enlarge Evidence {parsedImageUrls.length > 1 ? `#${imgIdx + 1}` : ''}</span>
-                                                </button>
-                                            </div>
-                                        ))}
-                                    </div>
-                                ) : (
-                                    <div className="p-3 bg-white rounded-xl border border-slate-200 text-xs font-medium text-slate-800 mb-3 whitespace-pre-wrap break-words">
-                                        {rawEvidenceValue}
-                                    </div>
-                                )}
+                            <div className="space-y-3">
+                                <EvidenceMediaViewer 
+                                    rawEvidence={rawEvidenceValue}
+                                    itemName={item.name}
+                                    onEnlarge={(url) => setLightboxUrl(url)}
+                                />
 
                                 {/* Submitter Metadata */}
-                                <div className="text-[11px] text-slate-500 space-y-1 pt-2 border-t border-slate-200/60">
+                                <div className="text-[11px] text-slate-500 space-y-1 pt-3 border-t border-slate-200/60">
                                     {submission?.submitted_by_name && (
                                         <div className="flex items-center gap-1.5">
                                             <User size={12} className="text-slate-400" />
