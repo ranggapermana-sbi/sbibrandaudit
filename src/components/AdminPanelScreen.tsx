@@ -2753,7 +2753,8 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                     const finalNa = rowWithScore?.score !== undefined 
                         ? false 
                         : (rowWithNa ? true : (newestRow?.is_na ?? (prevIsSameHotel ? validPrevSub.is_na : undefined)));
-                    const finalNotes = (rowWithNotes?.auditor_notes || rowWithNotes?.auditor_remarks || (prevIsSameHotel ? validPrevSub.auditor_notes : '') || '').trim();
+                    const dbNotes = (rowWithNotes?.auditor_notes || rowWithNotes?.auditor_remarks || '').trim();
+                    const preservedNotes = validPrevSub.auditor_notes !== undefined ? validPrevSub.auditor_notes : dbNotes;
 
                     return {
                         ...prev,
@@ -2765,8 +2766,8 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                             submitted_by_name: combinedSubmitter || newestRow?.submitted_by_name || (prevIsSameHotel ? validPrevSub.submitted_by_name : undefined),
                             score: finalScore,
                             is_na: finalNa,
-                            auditor_notes: finalNotes,
-                            auditor_remarks: finalNotes,
+                            auditor_notes: preservedNotes,
+                            auditor_remarks: preservedNotes,
                             _isFullyLoaded: true
                         }
                     };
@@ -2783,16 +2784,6 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                     setInspectionScores(prev => {
                         const next = { ...prev, [itemId]: 'N/A' };
                         idList.forEach(hId => { next[`${hId}_${itemId}`] = 'N/A'; });
-                        return next;
-                    });
-                }
-                const noteText = (rowWithNotes?.auditor_notes || rowWithNotes?.auditor_remarks || '').trim();
-                if (noteText) {
-                    setInspectionComments(prev => {
-                        const alreadyHas = prev[itemId] !== undefined || idList.some(hId => prev[`${hId}_${itemId}`] !== undefined);
-                        if (alreadyHas) return prev;
-                        const next = { ...prev, [itemId]: noteText };
-                        idList.forEach(hId => { next[`${hId}_${itemId}`] = noteText; });
                         return next;
                     });
                 }
@@ -2879,7 +2870,8 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
 
                         const prevSubValue = extractValidValueCat(validPrevSub) || validPrevSub.value || '';
                         const finalValue = extractedVal || prevSubValue || extractValidValueCat(newestRow) || newestRow?.value || '';
-                        const finalNotes = (rowWithNotes?.auditor_notes || rowWithNotes?.auditor_remarks || validPrevSub.auditor_notes || '').trim();
+                        const dbNotes = (rowWithNotes?.auditor_notes || rowWithNotes?.auditor_remarks || '').trim();
+                        const preservedNotes = validPrevSub.auditor_notes !== undefined ? validPrevSub.auditor_notes : dbNotes;
 
                         next[itemId] = {
                             ...validPrevSub,
@@ -2888,8 +2880,8 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                             value: finalValue,
                             score: rowWithScore?.score !== undefined ? rowWithScore.score : validPrevSub.score,
                             is_na: rowWithScore?.score !== undefined ? false : (rowWithNa ? true : (newestRow?.is_na || validPrevSub.is_na)),
-                            auditor_notes: finalNotes,
-                            auditor_remarks: finalNotes,
+                            auditor_notes: preservedNotes,
+                            auditor_remarks: preservedNotes,
                             _isFullyLoaded: true
                         };
 
@@ -2904,15 +2896,6 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                             setInspectionScores(s => {
                                 const next = { ...s, [itemId]: 'N/A' };
                                 idList.forEach(hId => { next[`${hId}_${itemId}`] = 'N/A'; });
-                                return next;
-                            });
-                        }
-                        if (finalNotes) {
-                            setInspectionComments(c => {
-                                const alreadyHas = c[itemId] !== undefined || idList.some(hId => c[`${hId}_${itemId}`] !== undefined);
-                                if (alreadyHas) return c;
-                                const next = { ...c, [itemId]: finalNotes };
-                                idList.forEach(hId => { next[`${hId}_${itemId}`] = finalNotes; });
                                 return next;
                             });
                         }
@@ -3065,7 +3048,11 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             String(primaryId),
             hotelObj?.id ? String(hotelObj.id) : '',
             hotelObj?.code ? String(hotelObj.code) : '',
-            subHotelId ? String(subHotelId) : ''
+            hotelObj?.code ? String(hotelObj.code).toLowerCase() : '',
+            hotelObj?.code ? String(hotelObj.code).toUpperCase() : '',
+            subHotelId ? String(subHotelId) : '',
+            subHotelId ? String(subHotelId).toLowerCase() : '',
+            subHotelId ? String(subHotelId).toUpperCase() : ''
         ].filter(Boolean)));
 
         const rawComment = comment !== undefined ? comment : '';
@@ -3073,6 +3060,12 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         // Store comment directly in local state - never delete the key when typing or clearing so local state stays authorative!
         setInspectionComments(prev => {
             const updated = { ...prev };
+            // Update all matching alias keys that end with _itemId
+            Object.keys(updated).forEach(k => {
+                if (k === itemId || k.endsWith(`_${itemId}`)) {
+                    updated[k] = rawComment;
+                }
+            });
             possibleHotelIds.forEach(hId => {
                 updated[`${hId}_${itemId}`] = rawComment;
             });
@@ -8413,18 +8406,22 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                 }
 
                                                                 let currentComment: string | undefined = undefined;
-                                                                for (const k of scoreKeysToTry) {
-                                                                    if (inspectionComments[k] !== undefined) {
-                                                                        currentComment = inspectionComments[k];
-                                                                        break;
+                                                                if (inspectionComments[item.id] !== undefined) {
+                                                                    currentComment = inspectionComments[item.id];
+                                                                } else {
+                                                                    for (const k of scoreKeysToTry) {
+                                                                        if (inspectionComments[k] !== undefined) {
+                                                                            currentComment = inspectionComments[k];
+                                                                            break;
+                                                                        }
                                                                     }
                                                                 }
 
                                                                 if (currentComment === undefined && submission) {
-                                                                    if (submission.auditor_notes && typeof submission.auditor_notes === 'string') {
-                                                                        currentComment = submission.auditor_notes;
-                                                                    } else if (submission.auditor_remarks && typeof submission.auditor_remarks === 'string') {
-                                                                        currentComment = submission.auditor_remarks;
+                                                                    if (submission.auditor_notes !== undefined && submission.auditor_notes !== null) {
+                                                                        currentComment = String(submission.auditor_notes);
+                                                                    } else if (submission.auditor_remarks !== undefined && submission.auditor_remarks !== null) {
+                                                                        currentComment = String(submission.auditor_remarks);
                                                                     }
                                                                 }
 
