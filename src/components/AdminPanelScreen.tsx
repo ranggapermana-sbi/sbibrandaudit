@@ -2518,7 +2518,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         return Array.from(ids).filter(id => id && id.length > 0);
     };
 
-    const fetchHotelSubmissionsForAuditor = async () => {
+    const fetchHotelSubmissionsForAuditor = async (isInitialLoad = false) => {
         if (!selectedInspectionHotelId) {
             setHotelSubmissions({});
             return;
@@ -2636,8 +2636,11 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             });
 
             setInspectionScores(prev => ({ ...prev, ...dbScores }));
-            setInspectionComments(prev => ({ ...prev, ...dbComments }));
-            // Safely merge submissionsMap ensuring fresh DB scores/remarks take precedence over stale local memory
+            // CRITICAL: Only populate comments on INITIAL hotel load. Background polling / realtime intervals NEVER overwrite active auditor typing!
+            if (isInitialLoad) {
+                setInspectionComments(prev => ({ ...prev, ...dbComments }));
+            }
+            // Safely merge submissionsMap ensuring fresh DB scores take precedence while preserving active typing
             setHotelSubmissions(prev => {
                 const next: Record<string, any> = { ...submissionsMap };
                 Object.keys(prev).forEach(k => {
@@ -2649,14 +2652,14 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                         );
                         if (belongs) {
                             if (next[k]) {
-                                // DB record exists: DB row takes precedence over prevItem for scores and remarks!
+                                // DB record exists: DB row updates scores/evidence, while preserving in-memory auditor notes
                                 next[k] = {
                                     ...prevItem,
                                     ...next[k],
                                     score: next[k].score !== undefined ? next[k].score : prevItem.score,
                                     is_na: next[k].is_na !== undefined ? next[k].is_na : prevItem.is_na,
-                                    auditor_notes: (next[k].auditor_notes || next[k].auditor_remarks || prevItem.auditor_notes || prevItem.auditor_remarks || '').trim(),
-                                    auditor_remarks: (next[k].auditor_remarks || next[k].auditor_notes || prevItem.auditor_remarks || prevItem.auditor_notes || '').trim(),
+                                    auditor_notes: prevItem.auditor_notes !== undefined ? prevItem.auditor_notes : (next[k].auditor_notes || next[k].auditor_remarks || '').trim(),
+                                    auditor_remarks: prevItem.auditor_remarks !== undefined ? prevItem.auditor_remarks : (next[k].auditor_remarks || next[k].auditor_notes || '').trim(),
                                     value: next[k].value || prevItem.value,
                                     photo_url: next[k].photo_url || prevItem.photo_url,
                                     _isFullyLoaded: prevItem._isFullyLoaded || next[k]._isFullyLoaded || false,
@@ -2786,6 +2789,8 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 const noteText = (rowWithNotes?.auditor_notes || rowWithNotes?.auditor_remarks || '').trim();
                 if (noteText) {
                     setInspectionComments(prev => {
+                        const alreadyHas = prev[itemId] !== undefined || idList.some(hId => prev[`${hId}_${itemId}`] !== undefined);
+                        if (alreadyHas) return prev;
                         const next = { ...prev, [itemId]: noteText };
                         idList.forEach(hId => { next[`${hId}_${itemId}`] = noteText; });
                         return next;
@@ -2904,6 +2909,8 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                         }
                         if (finalNotes) {
                             setInspectionComments(c => {
+                                const alreadyHas = c[itemId] !== undefined || idList.some(hId => c[`${hId}_${itemId}`] !== undefined);
+                                if (alreadyHas) return c;
                                 const next = { ...c, [itemId]: finalNotes };
                                 idList.forEach(hId => { next[`${hId}_${itemId}`] = finalNotes; });
                                 return next;
@@ -2929,20 +2936,22 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         let active = true;
         
         // Reset inspection-specific states ONLY when switching to a different hotel
-        if (previousInspectionHotelIdRef.current !== selectedInspectionHotelId) {
+        const isSwitchingHotel = previousInspectionHotelIdRef.current !== selectedInspectionHotelId;
+        if (isSwitchingHotel) {
             previousInspectionHotelIdRef.current = selectedInspectionHotelId;
             setHotelSubmissions({});
             setExpandedInspectionItems({});
             setLoadingItemIds({});
+            setInspectionComments({});
         }
 
-        const fetchSubmissionsLocal = async () => {
+        const fetchSubmissionsLocal = async (isInitial = false) => {
             if (!selectedInspectionHotelId) {
                 return;
             }
-            await fetchHotelSubmissionsForAuditor();
+            await fetchHotelSubmissionsForAuditor(isInitial);
         };
-        fetchSubmissionsLocal();
+        fetchSubmissionsLocal(isSwitchingHotel);
 
         if (!selectedInspectionHotelId) return;
 
@@ -2955,13 +2964,13 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 table: 'audit_submissions'
             }, (payload) => {
                 console.log('Real-time database submission event:', payload);
-                fetchSubmissionsLocal();
+                fetchSubmissionsLocal(false);
             })
             .subscribe();
 
         // 120-second background polling interval to conserve Supabase database resources
         const interval = setInterval(() => {
-            fetchSubmissionsLocal();
+            fetchSubmissionsLocal(false);
         }, 120000);
 
         return () => {
@@ -3059,15 +3068,17 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             subHotelId ? String(subHotelId) : ''
         ].filter(Boolean)));
 
-        const rawComment = comment || '';
+        const rawComment = comment !== undefined ? comment : '';
 
-        const updated = { ...inspectionComments };
-        possibleHotelIds.forEach(hId => {
-            const k = `${hId}_${itemId}`;
-            if (!comment) delete updated[k]; else updated[k] = comment;
+        // Store comment directly in local state - never delete the key when typing or clearing so local state stays authorative!
+        setInspectionComments(prev => {
+            const updated = { ...prev };
+            possibleHotelIds.forEach(hId => {
+                updated[`${hId}_${itemId}`] = rawComment;
+            });
+            updated[itemId] = rawComment;
+            return updated;
         });
-        if (!comment) delete updated[itemId]; else updated[itemId] = comment;
-        setInspectionComments(updated);
 
         // Update hotelSubmissions state directly in memory - DB save occurs strictly on [SAVE AUDIT TO DB] button click
         setHotelSubmissions(prev => ({
@@ -3129,16 +3140,16 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             scoreVal = sub?.score ?? (sub?.is_na ? 'N/A' : undefined);
         }
 
-        let commentVal = overrideComment !== undefined ? overrideComment : '';
-        if (!commentVal) {
+        let commentVal: string | undefined = overrideComment !== undefined ? overrideComment : undefined;
+        if (commentVal === undefined) {
             for (const k of keysToTry) {
-                if (inspectionComments[k]) {
+                if (inspectionComments[k] !== undefined) {
                     commentVal = inspectionComments[k];
                     break;
                 }
             }
         }
-        if (!commentVal) {
+        if (commentVal === undefined) {
             commentVal = sub?.auditor_notes || sub?.auditor_remarks || '';
         }
 
@@ -8401,21 +8412,23 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                     }
                                                                 }
 
-                                                                let currentComment = '';
+                                                                let currentComment: string | undefined = undefined;
                                                                 for (const k of scoreKeysToTry) {
-                                                                    if (inspectionComments[k]) {
+                                                                    if (inspectionComments[k] !== undefined) {
                                                                         currentComment = inspectionComments[k];
                                                                         break;
                                                                     }
                                                                 }
 
-                                                                if (!currentComment && submission) {
+                                                                if (currentComment === undefined && submission) {
                                                                     if (submission.auditor_notes && typeof submission.auditor_notes === 'string') {
                                                                         currentComment = submission.auditor_notes;
                                                                     } else if (submission.auditor_remarks && typeof submission.auditor_remarks === 'string') {
                                                                         currentComment = submission.auditor_remarks;
                                                                     }
                                                                 }
+
+                                                                const displayComment = currentComment !== undefined ? currentComment : '';
 
                                                                 const isSavedToDb = !!submission && (submission.score !== undefined || submission.is_na === true || !!submission.auditor_notes || !!submission.auditor_remarks || !!submission.value);
                                                                 const isSaving = savingInspectionItemId === item.id;
@@ -8822,7 +8835,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                     <div className="space-y-1">
                                                                                         <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">AUDITOR NOTES/REMARKS</label>
                                                                                         <textarea 
-                                                                                            value={currentComment}
+                                                                                            value={displayComment}
                                                                                             onChange={(e) => saveInspectionComment(hotel.id, item.id, e.target.value)}
                                                                                             placeholder="Describe non-compliance or specific findings..."
                                                                                             className="w-full h-20 bg-white border border-slate-200 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 rounded-xl p-2.5 text-xs text-slate-700 outline-none transition-all resize-none placeholder:text-slate-300"
