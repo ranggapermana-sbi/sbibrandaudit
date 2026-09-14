@@ -427,7 +427,7 @@ export function useAuditInspectionV2(
                         totalMaxPoints += maxPts;
                         if (sub.score > 0) {
                             passCount++;
-                            totalEarnedPoints += Number(sub.score);
+                            totalEarnedPoints += maxPts > 0 ? Math.min(Number(sub.score), maxPts) : 0;
                         } else {
                             failCount++;
                         }
@@ -477,7 +477,7 @@ export function useAuditInspectionV2(
                     totalMaxPoints += maxPts;
                     if (sub.score > 0) {
                         passCount++;
-                        totalEarnedPoints += Number(sub.score);
+                        totalEarnedPoints += maxPts > 0 ? Math.min(Number(sub.score), maxPts) : 0;
                     } else {
                         failCount++;
                     }

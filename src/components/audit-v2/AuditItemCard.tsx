@@ -30,8 +30,8 @@ export const AuditItemCard: React.FC<AuditItemCardProps> = ({
     const isNA = submission?.is_na === true;
 
     // Derived states
-    const isPass = !isNA && score !== undefined && score !== null && score > 0;
-    const isFail = !isNA && score !== undefined && score !== null && score === 0;
+    const isPass = !isNA && score !== undefined && score !== null && Number(score) > 0;
+    const isFail = !isNA && score !== undefined && score !== null && Number(score) === 0;
     const isAudited = isPass || isFail || isNA;
 
     // Evidence value & parsed image URLs
@@ -59,7 +59,7 @@ export const AuditItemCard: React.FC<AuditItemCardProps> = ({
                     {isPass && (
                         <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 text-xs font-black">
                             <CheckCircle2 size={14} className="text-emerald-600" />
-                            <span>PASSED (+{score} PTS)</span>
+                            <span>PASSED (+{maxPoints} PTS)</span>
                         </span>
                     )}
                     {isFail && (
@@ -187,7 +187,7 @@ export const AuditItemCard: React.FC<AuditItemCardProps> = ({
                             <button
                                 type="button"
                                 id={`btn-audit-pass-${item.id}`}
-                                onClick={() => onUpdateScore(item.id, isPass ? null : maxPoints)}
+                                onClick={() => onUpdateScore(item.id, isPass ? null : (maxPoints > 0 ? maxPoints : 1))}
                                 className={`py-2.5 px-2 rounded-xl text-xs font-extrabold flex flex-col items-center justify-center gap-1 transition-all border ${
                                     isPass 
                                         ? 'bg-emerald-600 text-white border-emerald-700 shadow-sm ring-2 ring-emerald-500/30' 
