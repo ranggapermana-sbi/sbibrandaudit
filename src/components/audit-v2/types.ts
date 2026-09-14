@@ -20,6 +20,7 @@ export interface AuditSubmissionV2 {
     submitted_by_name?: string;
     updated_at?: string;
     created_at?: string;
+    is_saved_in_db?: boolean;
 }
 
 export interface CategoryStats {

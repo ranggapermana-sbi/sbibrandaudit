@@ -251,6 +251,8 @@ export function useAuditInspectionV2(
                     const rowVal = row.value || row.photo_url || row.evidence_url || row.file_url || row.image_url || '';
                     const existingVal = existing?.value || existing?.photo_url || existing?.evidence_url || existing?.file_url || existing?.image_url || '';
 
+                    const isSaved = (row.score !== undefined && row.score !== null) || row.is_na === true;
+
                     // Priority rule: if existing row has canonical hotel_id or has valid value, don't overwrite with empty
                     if (!existing || row.hotel_id === canonicalHotelCode || (rowVal && !existingVal)) {
                         newMap[itemIdStr] = {
@@ -258,7 +260,8 @@ export function useAuditInspectionV2(
                             ...row,
                             value: rowVal || existingVal,
                             item_id: itemIdStr,
-                            hotel_id: String(row.hotel_id || canonicalHotelCode)
+                            hotel_id: String(row.hotel_id || canonicalHotelCode),
+                            is_saved_in_db: isSaved
                         };
                     } else {
                         // Merge score and notes onto existing row
@@ -269,7 +272,8 @@ export function useAuditInspectionV2(
                             is_na: row.is_na !== undefined ? row.is_na : existing.is_na,
                             auditor_notes: (row.auditor_notes || row.auditor_remarks || existing.auditor_notes || existing.auditor_remarks || '').trim(),
                             auditor_remarks: (row.auditor_remarks || row.auditor_notes || existing.auditor_remarks || existing.auditor_notes || '').trim(),
-                            updated_at: row.updated_at || existing.updated_at
+                            updated_at: row.updated_at || existing.updated_at,
+                            is_saved_in_db: isSaved || existing.is_saved_in_db
                         };
                     }
                 }
@@ -391,6 +395,15 @@ export function useAuditInspectionV2(
 
             if (error) {
                 console.warn("Audit V2 manual save warning:", error);
+            } else {
+                // Mark item as successfully saved to DB
+                setSubmissionsMap(prev => ({
+                    ...prev,
+                    [itemId]: {
+                        ...prev[itemId],
+                        is_saved_in_db: true
+                    }
+                }));
             }
 
             setLastSyncedAt(new Date());
@@ -418,7 +431,7 @@ export function useAuditInspectionV2(
                 const sub = submissionsMap[item.id];
                 const maxPts = item.points ?? 5;
 
-                if (sub) {
+                if (sub && sub.is_saved_in_db === true) {
                     if (sub.is_na) {
                         auditedCount++;
                         naCount++;
@@ -468,7 +481,7 @@ export function useAuditInspectionV2(
             const sub = submissionsMap[item.id];
             const maxPts = item.points ?? 5;
 
-            if (sub) {
+            if (sub && sub.is_saved_in_db === true) {
                 if (sub.is_na) {
                     auditedCount++;
                     naCount++;

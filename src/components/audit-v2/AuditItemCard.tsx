@@ -150,11 +150,15 @@ export const AuditItemCard: React.FC<AuditItemCardProps> = ({
                                 <span className="text-[10px] text-indigo-600 font-bold flex items-center gap-1 animate-pulse">
                                     <Clock size={11} /> Saving to DB...
                                 </span>
-                            ) : (
+                            ) : submission?.is_saved_in_db ? (
                                 <span className="text-[10px] text-emerald-600 font-bold flex items-center gap-1">
                                     <CheckCircle2 size={11} /> DB Synced
                                 </span>
-                            )}
+                            ) : (score !== undefined && score !== null) || isNA ? (
+                                <span className="text-[10px] text-amber-600 font-bold flex items-center gap-1 animate-pulse">
+                                    <Clock size={11} /> Pending DB Save
+                                </span>
+                            ) : null}
                         </div>
 
                         {/* Pass / Fail / N/A Action Buttons */}
@@ -228,17 +232,30 @@ export const AuditItemCard: React.FC<AuditItemCardProps> = ({
                                 id={`btn-save-audit-v2-${item.id}`}
                                 onClick={() => onSaveAudit(item.id)}
                                 disabled={isSaving}
-                                className="w-full py-2.5 px-3 bg-indigo-600 hover:bg-indigo-700 active:scale-98 text-white rounded-xl font-extrabold text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-md shadow-indigo-100 transition-all cursor-pointer disabled:opacity-50"
+                                className={`w-full py-2.5 px-3 rounded-xl font-extrabold text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-50 ${
+                                    isSaving
+                                        ? 'bg-indigo-600 text-white'
+                                        : !submission?.is_saved_in_db && ((score !== undefined && score !== null) || isNA)
+                                        ? 'bg-amber-600 hover:bg-amber-700 text-white shadow-md shadow-amber-200 ring-2 ring-amber-400/50'
+                                        : submission?.is_saved_in_db
+                                        ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200'
+                                        : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-md shadow-indigo-100'
+                                }`}
                             >
                                 {isSaving ? (
                                     <>
                                         <Clock size={15} className="animate-spin" />
                                         <span>Saving to Supabase DB...</span>
                                     </>
-                                ) : (
+                                ) : !submission?.is_saved_in_db && ((score !== undefined && score !== null) || isNA) ? (
                                     <>
                                         <ShieldCheck size={15} />
                                         <span>Save Audit to DB</span>
+                                    </>
+                                ) : (
+                                    <>
+                                        <ShieldCheck size={15} />
+                                        <span>{submission?.is_saved_in_db ? 'Saved to DB' : 'Save Audit to DB'}</span>
                                     </>
                                 )}
                             </button>

@@ -261,14 +261,8 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     const [hotelToReset, setHotelToReset] = useState<Hotel | null>(null);
     const [isResetting, setIsResetting] = useState(false);
 
-    // V2 PIN Protection States
-    const [isV2Unlocked, setIsV2Unlocked] = useState<boolean>(() => {
-        try {
-            return sessionStorage.getItem('v2_unlocked') === 'true';
-        } catch {
-            return false;
-        }
-    });
+    // V2 Protection States (Released - PIN disabled)
+    const [isV2Unlocked, setIsV2Unlocked] = useState<boolean>(true);
     const [isV2PinModalOpen, setIsV2PinModalOpen] = useState(false);
     const [v2PinValue, setV2PinValue] = useState('');
     const [v2PinError, setV2PinError] = useState('');
@@ -5302,13 +5296,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                         {/* Audit Inspection v2 */}
                                         <div 
                                             onClick={() => { 
-                                                if (isV2Unlocked) {
-                                                    setSubView('inspection_v2'); 
-                                                } else {
-                                                    setIsV2PinModalOpen(true);
-                                                    setV2PinValue('');
-                                                    setV2PinError('');
-                                                }
+                                                setSubView('inspection_v2'); 
                                             }}
                                             className="flex items-center justify-between p-5 bg-linear-to-r from-indigo-900 via-indigo-800 to-slate-900 text-white rounded-[20px] border border-indigo-700/60 cursor-pointer hover:shadow-xl active:scale-[0.99] transition-all duration-200 group shadow-md"
                                         >
@@ -5320,11 +5308,11 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                     <div className="flex items-center gap-2">
                                                         <p className="text-sm font-black tracking-tight text-white">Audit Inspection v2</p>
                                                         <span className="px-2 py-0.5 rounded bg-emerald-400 text-slate-950 text-[9px] font-black uppercase tracking-wider flex items-center gap-1">
-                                                            {!isV2Unlocked ? <Lock size={10} /> : <Unlock size={10} />}
-                                                            {isV2Unlocked ? 'UNLOCKED' : 'PROTECTED (230987)'}
+                                                            <Sparkles size={10} />
+                                                            RELEASED ENGINE
                                                         </span>
                                                     </div>
-                                                    <p className="text-xs text-indigo-200/80 mt-0.5">Direct O(1) Supabase sync, protected with Super Admin PIN</p>
+                                                    <p className="text-xs text-indigo-200/80 mt-0.5">High-performance direct Supabase sync engine</p>
                                                 </div>
                                             </div>
                                             <ChevronRight className="text-indigo-300 group-hover:text-white group-hover:translate-x-1 transition-all" size={18} />
@@ -9803,8 +9791,10 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                             </button>
                                                                             <button
                                                                                 onClick={() => {
-                                                                                    setSelectedInspectionHotelId(h.id);
-                                                                                    setSubView('inspection');
+                                                                                    const targetCode = h.code || h.id;
+                                                                                    setSelectedInspectionHotelId(targetCode);
+                                                                                    localStorage.setItem('sbi_audit_v2_selected_hotel', targetCode);
+                                                                                    setSubView('inspection_v2');
                                                                                 }}
                                                                                 className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-indigo-600 hover:text-indigo-800 bg-indigo-50/50 hover:bg-indigo-100/80 px-3.5 py-2 rounded-xl border border-indigo-100/60 active:scale-95 transition-all shadow-2xs"
                                                                             >

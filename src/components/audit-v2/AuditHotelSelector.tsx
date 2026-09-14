@@ -57,7 +57,7 @@ export const AuditHotelSelector: React.FC<AuditHotelSelectorProps> = ({
     }, [hotels, selectedHotelCode]);
 
     return (
-        <div id="audit-v2-hotel-selector" className="bg-white rounded-2xl border border-slate-200 shadow-xs p-4 sm:p-5 mb-6 relative z-30">
+        <div id="audit-v2-hotel-selector" className="sticky top-0 z-40 bg-white/95 backdrop-blur-md rounded-2xl border border-slate-200 shadow-md p-4 sm:p-5 mb-6 transition-all">
             <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
                 
                 {/* Left: Hotel Selection Trigger */}

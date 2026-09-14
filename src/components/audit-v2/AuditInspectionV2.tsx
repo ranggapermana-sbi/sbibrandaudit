@@ -34,6 +34,13 @@ export const AuditInspectionV2: React.FC<AuditInspectionV2Props> = ({
         return initialHotelCode || localStorage.getItem('sbi_audit_v2_selected_hotel') || (hotels[0]?.code || hotels[0]?.id || '');
     });
 
+    React.useEffect(() => {
+        if (initialHotelCode) {
+            setSelectedHotelCode(initialHotelCode);
+            localStorage.setItem('sbi_audit_v2_selected_hotel', initialHotelCode);
+        }
+    }, [initialHotelCode]);
+
     const handleSelectHotelCode = (code: string) => {
         setSelectedHotelCode(code);
         localStorage.setItem('sbi_audit_v2_selected_hotel', code);
@@ -99,17 +106,18 @@ export const AuditInspectionV2: React.FC<AuditInspectionV2Props> = ({
 
             // Status filter
             const sub = submissionsMap[item.id];
+            const isSavedInDb = sub?.is_saved_in_db === true;
             const isNA = sub?.is_na === true;
             const hasScore = sub?.score !== undefined && sub?.score !== null;
             const isPass = !isNA && hasScore && Number(sub.score) > 0;
             const isFail = !isNA && hasScore && Number(sub.score) === 0;
-            const isAudited = isPass || isFail || isNA;
+            const isAuditedInDb = isSavedInDb && (isPass || isFail || isNA);
 
-            if (activeFilter === 'unscored') return !isAudited;
-            if (activeFilter === 'audited') return isAudited;
-            if (activeFilter === 'pass') return isPass;
-            if (activeFilter === 'fail') return isFail;
-            if (activeFilter === 'na') return isNA;
+            if (activeFilter === 'unscored') return !isAuditedInDb;
+            if (activeFilter === 'audited') return isAuditedInDb;
+            if (activeFilter === 'pass') return isSavedInDb && isPass;
+            if (activeFilter === 'fail') return isSavedInDb && isFail;
+            if (activeFilter === 'na') return isSavedInDb && isNA;
 
             return true;
         });
