@@ -1054,7 +1054,7 @@ export const EvaluationReportView: React.FC<EvaluationReportViewProps> = ({
                                                         ? 'bg-amber-100 text-amber-800' 
                                                         : 'bg-slate-200 text-slate-600'
                                                 }`}>
-                                                    {catProgress === 100 ? 'Completed' : catProgress > 0 ? 'In Progress' : 'Unstarted'}
+                                                    {catProgress === 100 ? 'Completed' : catProgress > 0 ? 'In Progress' : 'Not Started'}
                                                 </span>
                                             </div>
 
