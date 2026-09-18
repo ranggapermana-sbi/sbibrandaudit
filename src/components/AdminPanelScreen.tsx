@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { ArrowLeft, CheckCircle, Clock, Building, BarChart3, ChevronRight, ChevronLeft, ChevronsLeft, ChevronsRight, ArrowUpDown, Plus, Trash2, Edit, Search, X, AlertCircle, MapPin, Settings2, Calendar, Star, Briefcase, ClipboardList, FileCheck, Layers, Package, Camera, ImageIcon, FileText, Hash, Type, CheckSquare, Users, ShieldCheck, Percent, GripVertical, ChevronUp, ChevronDown, Eye, User, RefreshCw, CheckCircle2, Maximize2, ExternalLink, ZoomIn, Database, Copy, Check, Lock, Unlock, Upload, UploadCloud, Loader2, Sparkles } from 'lucide-react';
+import { ArrowLeft, CheckCircle, Clock, Building, BarChart3, ChevronRight, ChevronLeft, ChevronsLeft, ChevronsRight, ArrowUpDown, Plus, Trash2, Edit, Search, X, AlertCircle, MapPin, Settings2, Calendar, Star, Briefcase, ClipboardList, FileCheck, Layers, Package, Camera, ImageIcon, FileText, Hash, Type, CheckSquare, Users, ShieldCheck, Percent, GripVertical, ChevronUp, ChevronDown, Eye, User, RefreshCw, CheckCircle2, Maximize2, ExternalLink, ZoomIn, Database, Copy, Check, Lock, Unlock, Upload, UploadCloud, Loader2, Sparkles, FolderCheck, ClipboardCheck } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { apiCache } from '../lib/cache';
 
@@ -9,6 +9,7 @@ import AuditorEvidenceForm from './AuditorEvidenceForm';
 import { AuditInspectionV2 } from './audit-v2/AuditInspectionV2';
 import { EvidenceMediaViewer } from './common/EvidenceMediaViewer';
 import { parseEvidenceUrls, formatDirectImageUrl, sanitizeImageDataUrl } from '../lib/evidenceUtils';
+import { EvaluationReportView } from './EvaluationReportView';
 
 const isImageInput = (type: string) => {
     const t = (type || '').toLowerCase().trim();
@@ -149,7 +150,7 @@ const getAlignedMainUrl = (rawUrl: string, key: string): string => {
 const MAIN_URL = getAlignedMainUrl(MAIN_URL_RAW, MAIN_KEY);
 
 export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { userProfile: any, onBack: () => void, onLogout: () => void }) {
-    const [subView, setSubView] = useState<'dashboard' | 'departments' | 'hotels' | 'batches' | 'categories' | 'items' | 'groups' | 'users' | 'access' | 'inspection' | 'auditor_assignment' | 'progress_report'>('dashboard');
+    const [subView, setSubView] = useState<'dashboard' | 'departments' | 'hotels' | 'batches' | 'categories' | 'items' | 'groups' | 'users' | 'access' | 'inspection' | 'inspection_v2' | 'auditor_assignment' | 'progress_report' | 'evaluation_report'>('dashboard');
     const [progressRegionFilter, setProgressRegionFilter] = useState<string>('');
     const [progressCountryFilter, setProgressCountryFilter] = useState<string>('');
     const [progressBrandFilter, setProgressBrandFilter] = useState<string>('');
@@ -1189,7 +1190,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     const [allSubmissions, setAllSubmissions] = useState<any[]>([]);
 
     useEffect(() => {
-        if (subView !== 'inspection' && subView !== 'progress_report') return;
+        if (subView !== 'inspection' && subView !== 'progress_report' && subView !== 'evaluation_report') return;
 
         let active = true;
         const fetchAllSubmissions = async () => {
@@ -1316,16 +1317,19 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                     .select('*');
 
                 return (groupsData || []).map((g: any) => {
-                    const hotelIds = (groupHotels || [])
-                        .filter((gh: any) => gh.group_id === g.id)
-                        .map((gh: any) => String(gh.hotel_id));
+                    const joinHotelIds = (groupHotels || [])
+                        .filter((gh: any) => String(gh.group_id).trim() === String(g.id).trim())
+                        .map((gh: any) => String(gh.hotel_id).trim());
+                    const directHotelIds = (g.hotel_ids || g.hotelIds || (g.hotel_id ? [g.hotel_id] : [])).map((id: any) => String(id).trim());
+                    const hotelIds = Array.from(new Set([...joinHotelIds, ...directHotelIds]));
+
                     return {
                         id: String(g.id),
                         name: g.name,
                         description: g.description || '',
                         hotelIds,
-                        categoryIds: g.category_ids || [],
-                        itemIds: g.item_ids || []
+                        categoryIds: (g.category_ids || g.categoryIds || []).map((id: any) => String(id)),
+                        itemIds: (g.item_ids || g.itemIds || []).map((id: any) => String(id))
                     };
                 });
             }, { forceRefresh });
@@ -2093,7 +2097,13 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         if (subView === 'hotels' || subView === 'progress_report' || subView === 'inspection') {
             fetchFinalizedStatuses();
         }
-        if (subView === 'hotels') {
+        if (subView === 'progress_report') {
+            fetchHotelsFromSupabase();
+            fetchDepartmentsFromSupabase();
+            fetchCategoriesFromSupabase();
+            fetchItemsFromSupabase();
+            fetchGroupsFromSupabase();
+        } else if (subView === 'hotels') {
             fetchHotelsFromSupabase();
         } else if (subView === 'batches') {
             fetchHotelsFromSupabase();
@@ -4884,7 +4894,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                         </button>
                     )}
                     <h1 className="text-xl font-bold text-slate-900 tracking-tight ml-3">
-                        {subView === 'departments' ? 'Audit Departments' : subView === 'hotels' ? 'Master Hotel List' : subView === 'batches' ? 'Audit Batch' : subView === 'categories' ? 'Audit Category' : subView === 'items' ? 'Audit Items' : subView === 'groups' ? 'Audit Groups' : subView === 'users' ? 'User Management' : subView === 'inspection_v2' ? 'Audit Inspection v2' : subView === 'inspection' ? 'Audit Inspection (v1)' : subView === 'progress_report' ? 'Audit Progress Report' : 'Admin Dashboard'}
+                        {subView === 'departments' ? 'Audit Departments' : subView === 'hotels' ? 'Master Hotel List' : subView === 'batches' ? 'Audit Batch' : subView === 'categories' ? 'Audit Category' : subView === 'items' ? 'Audit Items' : subView === 'groups' ? 'Audit Groups' : subView === 'users' ? 'User Management' : subView === 'inspection_v2' ? 'Audit Inspection v2' : subView === 'inspection' ? 'Audit Inspection (v1)' : subView === 'progress_report' ? 'Audit Progress Report' : subView === 'evaluation_report' ? 'Evaluation Report' : 'Admin Dashboard'}
                     </h1>
                 </div>
                 <div className="flex items-center gap-3">
@@ -5276,6 +5286,23 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                 <div>
                                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4 animate-fadeIn">
                                         
+                                        {/* Evaluation Report */}
+                                        <div 
+                                            onClick={() => { setSubView('evaluation_report'); }}
+                                            className="flex items-center justify-between p-5 bg-white hover:bg-slate-50/80 rounded-[20px] border border-slate-150/80 cursor-pointer hover:border-indigo-200 active:scale-[0.99] transition-all duration-200 group shadow-[0_4px_24px_rgba(15,23,42,0.01)] hover:shadow-[0_8px_32px_rgba(15,23,42,0.02)]"
+                                        >
+                                            <div className="flex items-center gap-4">
+                                                <div className="w-11 h-11 rounded-2xl bg-indigo-50 text-indigo-700 flex items-center justify-center shrink-0 transition-transform duration-300 group-hover:scale-105">
+                                                    <ClipboardCheck size={20} />
+                                                </div>
+                                                <div>
+                                                    <p className="text-sm font-bold text-slate-800 tracking-tight">Evaluation Report</p>
+                                                    <p className="text-xs text-slate-400 mt-0.5">Item evaluation progress &amp; hotel scores</p>
+                                                </div>
+                                            </div>
+                                            <ChevronRight className="text-slate-300 group-hover:text-indigo-600 group-hover:translate-x-1 transition-all" size={18} />
+                                        </div>
+
                                         {/* Audit Progress Report */}
                                         <div 
                                             onClick={() => { setSubView('progress_report'); setProgressSearchQuery(''); }}
@@ -5316,23 +5343,6 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                 </div>
                                             </div>
                                             <ChevronRight className="text-indigo-300 group-hover:text-white group-hover:translate-x-1 transition-all" size={18} />
-                                        </div>
-
-                                        {/* Legacy Audit Inspection */}
-                                        <div 
-                                            onClick={() => { setSubView('inspection'); setSelectedInspectionHotelId(''); setSelectedInspectionCategoryId(''); setSearchQuery(''); }}
-                                            className="flex items-center justify-between p-5 bg-white hover:bg-slate-50/80 rounded-[20px] border border-slate-150/80 cursor-pointer hover:border-indigo-200 active:scale-[0.99] transition-all duration-200 group shadow-[0_4px_24px_rgba(15,23,42,0.01)] hover:shadow-[0_8px_32px_rgba(15,23,42,0.02)]"
-                                        >
-                                            <div className="flex items-center gap-4">
-                                                <div className="w-11 h-11 rounded-2xl bg-indigo-50 text-indigo-700 flex items-center justify-center shrink-0 transition-transform duration-300 group-hover:scale-105">
-                                                    <Search size={22} />
-                                                </div>
-                                                <div>
-                                                    <p className="text-sm font-bold text-slate-800 tracking-tight">Audit Inspection (v1)</p>
-                                                    <p className="text-xs text-slate-400 mt-0.5">Legacy submission review tool</p>
-                                                </div>
-                                            </div>
-                                            <ChevronRight className="text-slate-300 group-hover:text-indigo-600 group-hover:translate-x-1 transition-all" size={18} />
                                         </div>
                                     </div>
                                     </div>
@@ -7544,12 +7554,6 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                     >
                                         <Lock size={13} /> Lock V2
                                     </button>
-                                    <button 
-                                        onClick={() => { setSubView('inspection'); setSelectedInspectionHotelId(''); setSelectedInspectionCategoryId(''); setSearchQuery(''); }} 
-                                        className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-600 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 px-4 py-2 rounded-xl transition-all cursor-pointer"
-                                    >
-                                        Switch to Legacy Inspection (v1)
-                                    </button>
                                 </div>
                             </div>
 
@@ -8987,16 +8991,19 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                             const progressSubmissionsByHotelMap = new Map<string, { submitted: Set<string>; na: Set<string> }>();
                             (allSubmissions || []).forEach((sub: any) => {
                                 if (sub.item_id !== undefined && sub.item_id !== null && sub.hotel_id) {
-                                    const hKey = String(sub.hotel_id).trim().toLowerCase();
-                                    let entry = progressSubmissionsByHotelMap.get(hKey);
-                                    if (!entry) {
-                                        entry = { submitted: new Set(), na: new Set() };
-                                        progressSubmissionsByHotelMap.set(hKey, entry);
-                                    }
-                                    const itemIdStr = String(sub.item_id);
-                                    entry.submitted.add(itemIdStr);
-                                    if (sub.is_na === true || String(sub.is_na) === 'true') {
-                                        entry.na.add(itemIdStr);
+                                    const isAudited = (sub.score !== undefined && sub.score !== null) || sub.is_na === true || String(sub.is_na) === 'true';
+                                    if (isAudited) {
+                                        const hKey = String(sub.hotel_id).trim().toLowerCase();
+                                        let entry = progressSubmissionsByHotelMap.get(hKey);
+                                        if (!entry) {
+                                            entry = { submitted: new Set(), na: new Set() };
+                                            progressSubmissionsByHotelMap.set(hKey, entry);
+                                        }
+                                        const itemIdStr = String(sub.item_id);
+                                        entry.submitted.add(itemIdStr);
+                                        if (sub.is_na === true || String(sub.is_na) === 'true') {
+                                            entry.na.add(itemIdStr);
+                                        }
                                     }
                                 }
                             });
@@ -9018,7 +9025,8 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                             const keyItemId = parts.slice(1).join('_');
                                             try {
                                                 const parsed = JSON.parse(raw);
-                                                if (parsed.value !== undefined || parsed.is_na || (parsed.evidence_urls && parsed.evidence_urls.length > 0) || parsed.isSubmitted) {
+                                                const isAuditedLocal = (parsed.score !== undefined && parsed.score !== null) || parsed.is_na === true || parsed.isAudited === true;
+                                                if (isAuditedLocal) {
                                                     let entry = progressLocalAuditByHotelMap.get(keyHotelId);
                                                     if (!entry) {
                                                         entry = { submitted: new Set(), na: new Set() };
@@ -9037,6 +9045,85 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                 console.warn("Could not pre-scan localStorage:", e);
                             }
 
+                            // Pre-compute hotel assigned items Map for performance and category summary calculations
+                            const hotelAssignedItemsMap = new Map<string, AuditItem[]>();
+                            const getHotelAssignedItems = (hotel: Hotel) => {
+                                if (!hotel) return [];
+                                const hKey = String(hotel.id || '').toLowerCase();
+                                if (hKey && hotelAssignedItemsMap.has(hKey)) {
+                                    return hotelAssignedItemsMap.get(hKey)!;
+                                }
+
+                                const hotelIdLower = hotel?.id ? String(hotel.id).trim().toLowerCase() : '';
+                                const hotelCodeLower = hotel?.code ? String(hotel.code).trim().toLowerCase() : '';
+                                const hotelNameLower = hotel?.name ? String(hotel.name).trim().toLowerCase() : '';
+                                const idsSet = hotel?.id ? hotelAssociatedIdsMap.get(String(hotel.id)) : null;
+
+                                const allHotelIdentifiers = new Set<string>();
+                                if (hotelIdLower) allHotelIdentifiers.add(hotelIdLower);
+                                if (hotelCodeLower) allHotelIdentifiers.add(hotelCodeLower);
+                                if (hotelNameLower) allHotelIdentifiers.add(hotelNameLower);
+                                if (idsSet) idsSet.forEach(id => allHotelIdentifiers.add(String(id).trim().toLowerCase()));
+
+                                const matchingGroups = (groups || []).filter(g => {
+                                    if (!g) return false;
+                                    const gHotelIds = (g.hotelIds || (g as any).hotel_ids || []).map((id: any) => String(id).trim().toLowerCase());
+                                    return gHotelIds.some((hId: string) => allHotelIdentifiers.has(hId));
+                                });
+
+                                let groupCatIds: Set<string> | null = null;
+                                let groupItemIds: Set<string> | null = null;
+
+                                if (matchingGroups.length > 0) {
+                                    const catSet = new Set<string>();
+                                    const itemSet = new Set<string>();
+                                    matchingGroups.forEach((g: any) => {
+                                        const cids = g.categoryIds || g.category_ids || [];
+                                        const iids = g.itemIds || g.item_ids || [];
+                                        cids.forEach((id: any) => catSet.add(String(id).trim().toLowerCase()));
+                                        iids.forEach((id: any) => itemSet.add(String(id).trim().toLowerCase()));
+                                    });
+                                    if (catSet.size > 0) groupCatIds = catSet;
+                                    if (itemSet.size > 0) groupItemIds = itemSet;
+                                }
+
+                                let hotelCatIds: Set<string> | null = null;
+                                const directHotelCats = (hotel as any)?.assignedCategoryIds || (hotel as any)?.assigned_category_ids;
+                                if (Array.isArray(directHotelCats) && directHotelCats.length > 0) {
+                                    hotelCatIds = new Set(directHotelCats.map((id: any) => String(id).trim().toLowerCase()));
+                                }
+
+                                let batchCatIds: Set<string> | null = null;
+                                const hotelBatchId = (hotel as any)?.batchId || (hotel as any)?.batch_id;
+                                if (hotelBatchId && batches && batches.length > 0) {
+                                    const matchingBatch = batches.find(b => String(b.id).trim().toLowerCase() === String(hotelBatchId).trim().toLowerCase());
+                                    const bCatIds = (matchingBatch as any)?.categoryIds || (matchingBatch as any)?.category_ids;
+                                    if (Array.isArray(bCatIds) && bCatIds.length > 0) {
+                                        batchCatIds = new Set(bCatIds.map((id: any) => String(id).trim().toLowerCase()));
+                                    }
+                                }
+
+                                const effectiveCatIds = groupCatIds || hotelCatIds || batchCatIds;
+
+                                const res = items.filter((item: any) => {
+                                    const itemCatId = String(item.categoryId || item.category_id || '').trim().toLowerCase();
+                                    const itemIdStr = String(item.id).trim().toLowerCase();
+
+                                    if (effectiveCatIds && !effectiveCatIds.has(itemCatId)) {
+                                        return false;
+                                    }
+                                    if (groupItemIds && groupItemIds.size > 0 && !groupItemIds.has(itemIdStr)) {
+                                        return false;
+                                    }
+                                    return true;
+                                });
+
+                                if (hKey) {
+                                    hotelAssignedItemsMap.set(hKey, res);
+                                }
+                                return res;
+                            };
+
                             // 1. Helper to calculate progress for a single hotel
                             const getHotelProgress = (hotelId: string) => {
                                 const hIdLower = String(hotelId).toLowerCase();
@@ -9049,36 +9136,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                 const idsSet = currentHotel?.id ? hotelAssociatedIdsMap.get(String(currentHotel.id)) : null;
                                 const possibleIds = idsSet ? Array.from(idsSet) : [hIdLower];
 
-                                const assignedGroups = groups.filter(g => {
-                                    const hotelIds = g.hotelIds || g.hotel_id || [];
-                                    return hotelIds.some((hId: any) => possibleIds.includes(String(hId).toLowerCase()));
-                                });
-
-                                let assignedCategoryIds: string[] | null = null;
-                                let assignedItemIds: string[] | null = null;
-
-                                if (assignedGroups.length > 0) {
-                                    const allCatIds = new Set<string>();
-                                    const allItemIds = new Set<string>();
-                                    assignedGroups.forEach((g: any) => {
-                                        const cids = g.categoryIds || g.category_ids || [];
-                                        const iids = g.itemIds || g.item_ids || [];
-                                        cids.forEach((id: any) => allCatIds.add(String(id)));
-                                        iids.forEach((id: any) => allItemIds.add(String(id)));
-                                    });
-                                    if (allCatIds.size > 0) assignedCategoryIds = Array.from(allCatIds);
-                                    if (allItemIds.size > 0) assignedItemIds = Array.from(allItemIds);
-                                }
-
-                                const hotelItems = items.filter((item: any) => {
-                                    if (assignedCategoryIds && assignedCategoryIds.length > 0 && !assignedCategoryIds.includes(String(item.categoryId || item.category_id))) {
-                                        return false;
-                                    }
-                                    if (assignedItemIds && assignedItemIds.length > 0 && !assignedItemIds.includes(String(item.id))) {
-                                        return false;
-                                    }
-                                    return item.filled_by_hotel !== false && item.filled_by_hotel !== 'false';
-                                });
+                                const hotelItems = getHotelAssignedItems(currentHotel);
 
                                 const submittedItemIdsForHotel = new Set<string>();
                                 const naItemIdsForHotel = new Set<string>();
@@ -9128,20 +9186,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                 });
 
                                 const finalInfo = getHotelFinalizedInfo(currentHotel || hotelId);
-                                let percentage = totalT > 0 ? Math.round((completedT / totalT) * 100) : (hotelItems.length > 0 && naItemIdsForHotel.size === hotelItems.length ? 100 : 0);
-
-                                if (finalInfo.is_finalized) {
-                                    percentage = 100;
-                                    if (totalT > 0) {
-                                        completedT = totalT;
-                                    } else if (submittedItemIdsForHotel.size > 0) {
-                                        completedT = submittedItemIdsForHotel.size;
-                                        totalT = submittedItemIdsForHotel.size;
-                                    } else {
-                                        completedT = 1;
-                                        totalT = 1;
-                                    }
-                                }
+                                const percentage = totalT > 0 ? Math.round((completedT / totalT) * 100) : (hotelItems.length > 0 && naItemIdsForHotel.size === hotelItems.length ? 100 : 0);
 
                                 return { completed: completedT, total: totalT, percentage, isFinalized: finalInfo.is_finalized };
                             };
@@ -9339,7 +9384,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                             return (
                                 <div className="space-y-6">
                                     {/* PROGRESS CARDS ROW (Region, Country, Brand) */}
-                                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                                         {/* Region Progress Column */}
                                         <div className="bg-slate-50/60 p-5 rounded-3xl border border-slate-150/50 shadow-[0_4px_20px_rgba(15,23,42,0.01)] flex flex-col h-[320px]">
                                             <h3 className="text-xs font-black uppercase text-slate-500 tracking-wider mb-4 flex items-center gap-1.5 shrink-0">
@@ -9512,7 +9557,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                     >
                                                         <option value="">All Regions</option>
                                                         {uniqueRegions.map(r => (
-                                                            <option key={r} value={r}>{r}</option>
+                                                             <option key={r} value={r}>{r}</option>
                                                         ))}
                                                     </select>
                                                 </div>
@@ -9687,7 +9732,8 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                 <tbody className="divide-y divide-slate-100 text-xs text-slate-700">
                                                     {paginatedHotels.length > 0 ? (
                                                         paginatedHotels.map((h, i) => {
-                                                            const { completed, total, percentage, statusText } = getHotelProgressCached(h.id);
+                                                            const effProg = getHotelProgressCached(h.id);
+                                                            const { completed, total, percentage, statusText } = effProg;
                                                             const finalInfo = getHotelFinalizedInfo(h);
                                                             
                                                             let statusStyle = "bg-slate-50 text-slate-600 border-slate-200/50";
@@ -9739,10 +9785,10 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                         </div>
                                                                     </td>
                                                                     <td className="px-6 py-4">
-                                                                        <div className="w-[180px]">
+                                                                        <div className="w-[190px]">
                                                                             <div className="flex items-center justify-between text-[10px] font-black text-slate-500 mb-1">
                                                                                 <span>{completed} / {total} Tasks</span>
-                                                                                <span className="text-indigo-600">{percentage}%</span>
+                                                                                <span className="text-indigo-600 font-extrabold">{percentage}%</span>
                                                                             </div>
                                                                             <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden border border-slate-200/20">
                                                                                 <div 
@@ -9914,6 +9960,25 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                             );
                         })()}
                     </div>
+                ) : subView === 'evaluation_report' ? (
+                    <EvaluationReportView
+                        hotels={hotels}
+                        departments={departments}
+                        categories={catList}
+                        items={items}
+                        groups={groups}
+                        batches={batches}
+                        allSubmissions={allSubmissions}
+                        onBack={() => { setSubView('dashboard'); setSearchQuery(''); }}
+                        onInspectHotel={(hotelId, categoryId) => {
+                            setSelectedInspectionHotelId(hotelId);
+                            if (categoryId) {
+                                setSelectedInspectionCategoryId(categoryId);
+                            }
+                            setSubView('inspection_v2');
+                            localStorage.setItem('sbi_audit_v2_selected_hotel', hotelId);
+                        }}
+                    />
                 ) : (
                     <div className="space-y-6">
                         {/* Hotels Layout */}
