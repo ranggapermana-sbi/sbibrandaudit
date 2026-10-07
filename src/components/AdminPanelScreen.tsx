@@ -1189,21 +1189,22 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     // Fetch categories function
     const [allSubmissions, setAllSubmissions] = useState<any[]>([]);
 
-    const fetchAllSubmissions = useCallback(async () => {
-        try {
-            const { data, error } = await supabase
-                .from('audit_submissions')
-                .select('hotel_id, item_id, is_na, score, value, updated_at');
-            if (!error && data) {
-                setAllSubmissions(data);
-            }
-        } catch (e) {
-            console.error("Error fetching all submissions:", e);
-        }
-    }, []);
-
     useEffect(() => {
         if (subView !== 'inspection' && subView !== 'progress_report' && subView !== 'evaluation_report') return;
+
+        let active = true;
+        const fetchAllSubmissions = async () => {
+            try {
+                const { data, error } = await supabase
+                    .from('audit_submissions')
+                    .select('hotel_id, item_id, is_na, score, updated_at');
+                if (!error && data && active) {
+                    setAllSubmissions(data);
+                }
+            } catch (e) {
+                console.error("Error fetching all submissions:", e);
+            }
+        };
 
         fetchAllSubmissions();
 
@@ -1224,10 +1225,11 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         }, 120000);
 
         return () => {
+            active = false;
             supabase.removeChannel(channel);
             clearInterval(interval);
         };
-    }, [subView, fetchAllSubmissions]);
+    }, [subView]);
 
     const fetchCategoriesFromSupabase = async (forceRefresh = false) => {
         setIsSupabaseLoading(true);
@@ -9976,7 +9978,6 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                             setSubView('inspection_v2');
                             localStorage.setItem('sbi_audit_v2_selected_hotel', hotelId);
                         }}
-                        onRefreshSubmissions={fetchAllSubmissions}
                     />
                 ) : (
                     <div className="space-y-6">
