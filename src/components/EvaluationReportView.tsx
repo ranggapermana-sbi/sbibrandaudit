@@ -18,7 +18,10 @@ import {
     Eye,
     TrendingUp,
     ShieldAlert,
-    Clock
+    Clock,
+    RefreshCw,
+    Check,
+    Sparkles
 } from 'lucide-react';
 import { Department, Hotel, AuditCategory, AuditItem, AuditGroup, AuditBatch } from '../types';
 import { supabase } from '../lib/supabase';
@@ -33,6 +36,7 @@ interface EvaluationReportViewProps {
     allSubmissions: any[];
     onBack: () => void;
     onInspectHotel?: (hotelId: string, categoryId?: string) => void;
+    onRefreshSubmissions?: () => Promise<void> | void;
 }
 
 export const EvaluationReportView: React.FC<EvaluationReportViewProps> = ({
@@ -44,7 +48,8 @@ export const EvaluationReportView: React.FC<EvaluationReportViewProps> = ({
     batches = [],
     allSubmissions,
     onBack,
-    onInspectHotel
+    onInspectHotel,
+    onRefreshSubmissions
 }) => {
     // Dynamic Filter states
     const [selectedDepartmentId, setSelectedDepartmentId] = useState<string>('all');
@@ -63,45 +68,132 @@ export const EvaluationReportView: React.FC<EvaluationReportViewProps> = ({
     // Selected hotel for detailed modal breakdown
     const [selectedHotelForDetail, setSelectedHotelForDetail] = useState<Hotel | null>(null);
 
+    // Live submissions state for fresh real-time database sync
+    const [liveSubmissions, setLiveSubmissions] = useState<any[]>(allSubmissions || []);
+
+    // Sync state & 60-second cooldown preservation
+    const [isSyncing, setIsSyncing] = useState(false);
+    const [cooldownSeconds, setCooldownSeconds] = useState<number>(() => {
+        try {
+            const stored = localStorage.getItem('sbi_eval_last_sync_timestamp');
+            if (stored) {
+                const elapsed = Math.floor((Date.now() - Number(stored)) / 1000);
+                if (elapsed < 60 && elapsed >= 0) {
+                    return 60 - elapsed;
+                }
+            }
+        } catch (e) {}
+        return 0;
+    });
+    const [lastSyncTime, setLastSyncTime] = useState<Date | null>(() => {
+        try {
+            const stored = localStorage.getItem('sbi_eval_last_sync_timestamp');
+            if (stored) {
+                return new Date(Number(stored));
+            }
+        } catch (e) {}
+        return null;
+    });
+    const [showSyncSuccess, setShowSyncSuccess] = useState(false);
+
+    // Synchronize incoming allSubmissions prop if updated externally
+    useEffect(() => {
+        if (allSubmissions) {
+            setLiveSubmissions(allSubmissions);
+        }
+    }, [allSubmissions]);
+
+    // Active Cooldown countdown timer
+    useEffect(() => {
+        if (cooldownSeconds <= 0) return;
+        const timer = setInterval(() => {
+            setCooldownSeconds(prev => {
+                if (prev <= 1) {
+                    clearInterval(timer);
+                    return 0;
+                }
+                return prev - 1;
+            });
+        }, 1000);
+        return () => clearInterval(timer);
+    }, [cooldownSeconds]);
+
     // Live fetched groups state
     const [loadedGroups, setLoadedGroups] = useState<AuditGroup[]>([]);
 
-    useEffect(() => {
-        let isMounted = true;
-        const fetchGroups = async () => {
-            try {
-                const { data: groupsData } = await supabase
-                    .from('audit_checklist_groups')
-                    .select('*');
+    const fetchGroups = useCallback(async () => {
+        try {
+            const { data: groupsData } = await supabase
+                .from('audit_checklist_groups')
+                .select('*');
 
-                const { data: groupHotelsData } = await supabase
-                    .from('audit_group_hotels')
-                    .select('*');
+            const { data: groupHotelsData } = await supabase
+                .from('audit_group_hotels')
+                .select('*');
 
-                if (groupsData && isMounted) {
-                    const mapped: AuditGroup[] = groupsData.map((g: any) => {
-                        const hotelIds = (groupHotelsData || [])
-                            .filter((gh: any) => String(gh.group_id) === String(g.id))
-                            .map((gh: any) => String(gh.hotel_id));
+            if (groupsData) {
+                const mapped: AuditGroup[] = groupsData.map((g: any) => {
+                    const hotelIds = (groupHotelsData || [])
+                        .filter((gh: any) => String(gh.group_id) === String(g.id))
+                        .map((gh: any) => String(gh.hotel_id));
 
-                        return {
-                            id: String(g.id),
-                            name: g.name,
-                            description: g.description || '',
-                            hotelIds,
-                            categoryIds: g.category_ids || [],
-                            itemIds: g.item_ids || []
-                        };
-                    });
-                    setLoadedGroups(mapped);
-                }
-            } catch (e) {
-                console.warn("EvaluationReportView: Exception fetching checklist groups from Supabase:", e);
+                    return {
+                        id: String(g.id),
+                        name: g.name,
+                        description: g.description || '',
+                        hotelIds,
+                        categoryIds: g.category_ids || [],
+                        itemIds: g.item_ids || []
+                    };
+                });
+                setLoadedGroups(mapped);
             }
-        };
-        fetchGroups();
-        return () => { isMounted = false; };
+        } catch (e) {
+            console.warn("EvaluationReportView: Exception fetching checklist groups from Supabase:", e);
+        }
     }, []);
+
+    useEffect(() => {
+        fetchGroups();
+    }, [fetchGroups]);
+
+    // Fresh data sync handler with strict 60s cooldown to preserve egress
+    const handleSyncData = async () => {
+        if (cooldownSeconds > 0 || isSyncing) return;
+        setIsSyncing(true);
+        try {
+            // 1. Fetch fresh submissions from Supabase
+            const { data: freshSubmissions, error: subError } = await supabase
+                .from('audit_submissions')
+                .select('hotel_id, item_id, is_na, score, value, updated_at');
+            
+            if (!subError && freshSubmissions) {
+                setLiveSubmissions(freshSubmissions);
+            }
+
+            // 2. Fetch fresh groups & hotel associations
+            await fetchGroups();
+
+            // 3. Trigger parent callback if passed
+            if (onRefreshSubmissions) {
+                await onRefreshSubmissions();
+            }
+
+            const now = Date.now();
+            try {
+                localStorage.setItem('sbi_eval_last_sync_timestamp', String(now));
+            } catch (e) {}
+            
+            setCooldownSeconds(60);
+            setLastSyncTime(new Date(now));
+            setShowSyncSuccess(true);
+            setTimeout(() => setShowSyncSuccess(false), 4500);
+        } catch (e) {
+            console.error("Error syncing evaluation report data:", e);
+        } finally {
+            setIsSyncing(false);
+        }
+    };
 
     const effectiveGroups = useMemo(() => {
         return loadedGroups.length > 0 ? loadedGroups : (groups || []);
@@ -197,7 +289,7 @@ export const EvaluationReportView: React.FC<EvaluationReportViewProps> = ({
     const evaluatedSubmissionsByHotel = useMemo(() => {
         const map = new Map<string, { evaluatedItemIds: Set<string>; naItemIds: Set<string> }>();
 
-        (allSubmissions || []).forEach(sub => {
+        (liveSubmissions || []).forEach(sub => {
             if (!sub || !sub.item_id || !sub.hotel_id) return;
             const itemIdStr = String(sub.item_id);
 
@@ -224,7 +316,7 @@ export const EvaluationReportView: React.FC<EvaluationReportViewProps> = ({
         });
 
         return map;
-    }, [allSubmissions, targetItemIdsSet]);
+    }, [liveSubmissions, targetItemIdsSet]);
 
     // Helper function to calculate assigned items for a specific hotel
     const getHotelAssignedTargetItems = useCallback((hotel: Hotel) => {
@@ -282,7 +374,7 @@ export const EvaluationReportView: React.FC<EvaluationReportViewProps> = ({
         const hKey = String(hotel.id).trim().toLowerCase();
         const hCodeKey = hotel.code ? String(hotel.code).trim().toLowerCase() : '';
         const evaluatedItemIds = new Set<string>();
-        (allSubmissions || []).forEach(s => {
+        (liveSubmissions || []).forEach(s => {
             if (!s || !s.item_id || !s.hotel_id) return;
             const subHId = String(s.hotel_id).trim().toLowerCase();
             if (subHId === hKey || (hCodeKey && subHId === hCodeKey)) {
@@ -318,7 +410,7 @@ export const EvaluationReportView: React.FC<EvaluationReportViewProps> = ({
 
             return true;
         });
-    }, [targetItems, effectiveGroups, batches, allSubmissions]);
+    }, [targetItems, effectiveGroups, batches, liveSubmissions]);
 
     // Build evaluations stats per hotel based on assigned items
     const hotelEvaluationStats = useMemo(() => {
@@ -487,7 +579,7 @@ export const EvaluationReportView: React.FC<EvaluationReportViewProps> = ({
                 <div>
                     <button 
                         onClick={onBack} 
-                        className="inline-flex items-center gap-1.5 text-xs font-bold text-indigo-600 bg-indigo-50/70 hover:bg-indigo-100 px-3.5 py-1.5 rounded-full border border-indigo-100/80 mb-3 hover:shadow-xs active:scale-95 transition-all outline-none"
+                        className="inline-flex items-center gap-1.5 text-xs font-bold text-indigo-600 bg-indigo-50/70 hover:bg-indigo-100 px-3.5 py-1.5 rounded-full border border-indigo-100/80 mb-3 hover:shadow-xs active:scale-95 transition-all outline-none cursor-pointer"
                     >
                         <ArrowLeft size={13} /> Back to Dashboard
                     </button>
@@ -504,18 +596,74 @@ export const EvaluationReportView: React.FC<EvaluationReportViewProps> = ({
                     </div>
                 </div>
 
-                {/* Scope pill indicator */}
-                <div className="flex flex-wrap items-center gap-2">
-                    <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 text-slate-700 text-xs font-bold border border-slate-200">
-                        <Briefcase size={14} className="text-indigo-600" />
-                        <span>Dept: <strong className="text-slate-900">{selectedDepartmentId === 'all' ? 'All Departments' : (selectedDepartmentObj?.name || selectedDepartmentId)}</strong></span>
-                    </span>
-                    <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-50 text-indigo-800 text-xs font-bold border border-indigo-100">
-                        <Layers size={14} className="text-indigo-600" />
-                        <span>Category: <strong className="text-indigo-950">{selectedCategoryId === 'all' ? 'All Categories' : (selectedCategoryObj?.name || selectedCategoryId)}</strong></span>
-                    </span>
+                {/* Right controls: Scope pills & Sync Button */}
+                <div className="flex flex-col sm:items-end gap-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 text-slate-700 text-xs font-bold border border-slate-200">
+                            <Briefcase size={14} className="text-indigo-600" />
+                            <span>Dept: <strong className="text-slate-900">{selectedDepartmentId === 'all' ? 'All Departments' : (selectedDepartmentObj?.name || selectedDepartmentId)}</strong></span>
+                        </span>
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-50 text-indigo-800 text-xs font-bold border border-indigo-100">
+                            <Layers size={14} className="text-indigo-600" />
+                            <span>Category: <strong className="text-indigo-950">{selectedCategoryId === 'all' ? 'All Categories' : (selectedCategoryObj?.name || selectedCategoryId)}</strong></span>
+                        </span>
+
+                        {/* Primary Sync Data Button with 60s cooldown */}
+                        <button
+                            onClick={handleSyncData}
+                            disabled={isSyncing || cooldownSeconds > 0}
+                            title={cooldownSeconds > 0 ? `Please wait ${cooldownSeconds}s before syncing again (preserving egress)` : 'Pull fresh data from database'}
+                            className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl font-bold text-xs transition-all shadow-xs active:scale-95 outline-none cursor-pointer select-none border ${
+                                isSyncing 
+                                    ? 'bg-indigo-100 text-indigo-700 border-indigo-200 cursor-wait' 
+                                    : cooldownSeconds > 0
+                                    ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
+                                    : 'bg-indigo-600 hover:bg-indigo-700 text-white border-indigo-600 shadow-md shadow-indigo-100 hover:shadow-indigo-200'
+                            }`}
+                        >
+                            <RefreshCw size={13} className={isSyncing ? 'animate-spin text-indigo-700' : (cooldownSeconds === 0 ? 'text-white' : 'text-slate-400')} />
+                            <span>
+                                {isSyncing ? 'Syncing...' : cooldownSeconds > 0 ? `Sync Data (${cooldownSeconds}s)` : 'Sync Data'}
+                            </span>
+                        </button>
+                    </div>
+
+                    {/* Cooldown or Last Sync subtext */}
+                    <div className="text-[10px] font-semibold text-right">
+                        {cooldownSeconds > 0 ? (
+                            <span className="text-amber-600 font-bold flex items-center justify-end gap-1">
+                                <Clock size={11} /> Cooldown active to preserve egress ({cooldownSeconds}s remaining)
+                            </span>
+                        ) : lastSyncTime ? (
+                            <span className="text-slate-400">
+                                Last synced {lastSyncTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })} • Ready to sync
+                            </span>
+                        ) : (
+                            <span className="text-slate-400">
+                                Pull fresh inspection data from Supabase (60s cooldown)
+                            </span>
+                        )}
+                    </div>
                 </div>
             </div>
+
+            {/* Sync Success Alert Banner */}
+            {showSyncSuccess && (
+                <div className="bg-emerald-50/90 border border-emerald-200 text-emerald-900 px-4 py-3 rounded-2xl flex items-center justify-between text-xs font-bold animate-fadeIn shadow-xs">
+                    <div className="flex items-center gap-2.5">
+                        <div className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
+                            <Check size={14} />
+                        </div>
+                        <span>Fresh inspection results and category submissions successfully pulled from the database!</span>
+                    </div>
+                    <button 
+                        onClick={() => setShowSyncSuccess(false)}
+                        className="text-emerald-600 hover:text-emerald-800 p-1 rounded-lg hover:bg-emerald-100/60 transition-colors"
+                    >
+                        <X size={14} />
+                    </button>
+                </div>
+            )}
 
             {/* Overview Metrics Cards */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -572,7 +720,7 @@ export const EvaluationReportView: React.FC<EvaluationReportViewProps> = ({
                         <p className="text-[11px] font-black uppercase tracking-wider text-slate-400">In Progress / Pending</p>
                         <div className="flex items-baseline gap-2 mt-1">
                             <h3 className="text-2xl font-black text-amber-600">{overallMetrics.partialCount}</h3>
-                            <span className="text-xs text-slate-500 font-medium">+ {overallMetrics.notStartedCount} unstarted</span>
+                            <span className="text-xs text-slate-500 font-medium">+ {overallMetrics.notStartedCount} not started</span>
                         </div>
                         <p className="text-[11px] text-amber-600 font-bold mt-1">
                             Active evaluation underway
@@ -747,8 +895,25 @@ export const EvaluationReportView: React.FC<EvaluationReportViewProps> = ({
                             {filteredHotelStats.length} properties
                         </span>
                     </div>
-                    <div className="text-xs text-slate-500 font-semibold">
-                        Showing scope: <span className="font-bold text-slate-800">{targetItems.length} total items</span> per property
+                    <div className="flex items-center gap-3">
+                        <div className="text-xs text-slate-500 font-semibold hidden md:block">
+                            Showing scope: <span className="font-bold text-slate-800">{targetItems.length} total items</span> per property
+                        </div>
+                        <button
+                            onClick={handleSyncData}
+                            disabled={isSyncing || cooldownSeconds > 0}
+                            title={cooldownSeconds > 0 ? `Please wait ${cooldownSeconds}s before syncing again (preserving egress)` : 'Pull fresh evaluation & inspection results from Supabase'}
+                            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all border outline-none select-none cursor-pointer ${
+                                isSyncing
+                                    ? 'bg-indigo-50 text-indigo-700 border-indigo-200 cursor-wait'
+                                    : cooldownSeconds > 0
+                                    ? 'bg-slate-50 text-slate-400 border-slate-200 cursor-not-allowed'
+                                    : 'bg-white hover:bg-indigo-50 text-indigo-600 hover:text-indigo-700 border-indigo-200/80 hover:border-indigo-300 shadow-2xs active:scale-95'
+                            }`}
+                        >
+                            <RefreshCw size={12} className={isSyncing ? 'animate-spin text-indigo-600' : (cooldownSeconds === 0 ? 'text-indigo-600' : 'text-slate-400')} />
+                            <span>{isSyncing ? 'Syncing...' : cooldownSeconds > 0 ? `Sync (${cooldownSeconds}s)` : 'Sync Database'}</span>
+                        </button>
                     </div>
                 </div>
 
@@ -1007,12 +1172,29 @@ export const EvaluationReportView: React.FC<EvaluationReportViewProps> = ({
                                         Code: {selectedHotelForDetail.code || 'N/A'} • {selectedHotelForDetail.brandClass} • {selectedHotelForDetail.location}
                                     </p>
                                 </div>
-                                <button
-                                    onClick={() => setSelectedHotelForDetail(null)}
-                                    className="p-2 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100 transition-colors"
-                                >
-                                    <X size={20} />
-                                </button>
+                                <div className="flex items-center gap-2">
+                                    <button
+                                        onClick={handleSyncData}
+                                        disabled={isSyncing || cooldownSeconds > 0}
+                                        title={cooldownSeconds > 0 ? `Please wait ${cooldownSeconds}s before syncing again (preserving egress)` : 'Pull fresh evaluation results from database'}
+                                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all border outline-none select-none cursor-pointer ${
+                                            isSyncing
+                                                ? 'bg-indigo-50 text-indigo-700 border-indigo-200 cursor-wait'
+                                                : cooldownSeconds > 0
+                                                ? 'bg-slate-50 text-slate-400 border-slate-200 cursor-not-allowed'
+                                                : 'bg-white hover:bg-indigo-50 text-indigo-600 hover:text-indigo-700 border-indigo-200 shadow-2xs active:scale-95'
+                                        }`}
+                                    >
+                                        <RefreshCw size={12} className={isSyncing ? 'animate-spin text-indigo-600' : (cooldownSeconds === 0 ? 'text-indigo-600' : 'text-slate-400')} />
+                                        <span>{isSyncing ? 'Syncing...' : cooldownSeconds > 0 ? `Sync (${cooldownSeconds}s)` : 'Sync Data'}</span>
+                                    </button>
+                                    <button
+                                        onClick={() => setSelectedHotelForDetail(null)}
+                                        className="p-2 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100 transition-colors cursor-pointer"
+                                    >
+                                        <X size={20} />
+                                    </button>
+                                </div>
                             </div>
 
                             <div className="p-6 overflow-y-auto space-y-4">
@@ -1023,7 +1205,7 @@ export const EvaluationReportView: React.FC<EvaluationReportViewProps> = ({
                                     const hotelKey = String(selectedHotelForDetail.id).trim().toLowerCase();
                                     const hotelCodeKey = selectedHotelForDetail.code ? String(selectedHotelForDetail.code).trim().toLowerCase() : '';
 
-                                    const hSubs = (allSubmissions || []).filter(s => {
+                                    const hSubs = (liveSubmissions || []).filter(s => {
                                         const subHId = String(s.hotel_id || '').trim().toLowerCase();
                                         return subHId === hotelKey || (hotelCodeKey && subHId === hotelCodeKey);
                                     });
