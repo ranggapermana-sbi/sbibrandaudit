@@ -9,7 +9,6 @@ import AuditorEvidenceForm from './AuditorEvidenceForm';
 import { AuditInspectionV2 } from './audit-v2/AuditInspectionV2';
 import { EvidenceMediaViewer } from './common/EvidenceMediaViewer';
 import { parseEvidenceUrls, formatDirectImageUrl, sanitizeImageDataUrl } from '../lib/evidenceUtils';
-import { EvaluationReportView } from './EvaluationReportView';
 
 const isImageInput = (type: string) => {
     const t = (type || '').toLowerCase().trim();
@@ -150,7 +149,7 @@ const getAlignedMainUrl = (rawUrl: string, key: string): string => {
 const MAIN_URL = getAlignedMainUrl(MAIN_URL_RAW, MAIN_KEY);
 
 export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { userProfile: any, onBack: () => void, onLogout: () => void }) {
-    const [subView, setSubView] = useState<'dashboard' | 'departments' | 'hotels' | 'batches' | 'categories' | 'items' | 'groups' | 'users' | 'access' | 'inspection' | 'inspection_v2' | 'auditor_assignment' | 'progress_report' | 'evaluation_report'>('dashboard');
+    const [subView, setSubView] = useState<'dashboard' | 'departments' | 'hotels' | 'batches' | 'categories' | 'items' | 'groups' | 'users' | 'access' | 'inspection' | 'inspection_v2' | 'auditor_assignment' | 'progress_report'>('dashboard');
     const [progressRegionFilter, setProgressRegionFilter] = useState<string>('');
     const [progressCountryFilter, setProgressCountryFilter] = useState<string>('');
     const [progressBrandFilter, setProgressBrandFilter] = useState<string>('');
@@ -1189,22 +1188,48 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     // Fetch categories function
     const [allSubmissions, setAllSubmissions] = useState<any[]>([]);
 
-    useEffect(() => {
-        if (subView !== 'inspection' && subView !== 'progress_report' && subView !== 'evaluation_report') return;
+    const fetchAllSubmissions = useCallback(async () => {
+        try {
+            let allFetched: any[] = [];
+            let from = 0;
+            const pageSize = 1000;
+            let hasMore = true;
 
-        let active = true;
-        const fetchAllSubmissions = async () => {
-            try {
+            while (hasMore) {
                 const { data, error } = await supabase
                     .from('audit_submissions')
-                    .select('hotel_id, item_id, is_na, score, updated_at');
-                if (!error && data && active) {
-                    setAllSubmissions(data);
+                    .select('*')
+                    .range(from, from + pageSize - 1);
+
+                if (error) {
+                    console.warn("Error fetching all submissions batch:", error);
+                    break;
                 }
-            } catch (e) {
-                console.error("Error fetching all submissions:", e);
+
+                if (data && data.length > 0) {
+                    allFetched = allFetched.concat(data);
+                    if (data.length < pageSize) {
+                        hasMore = false;
+                    } else {
+                        from += pageSize;
+                    }
+                } else {
+                    hasMore = false;
+                }
+
+                if (from >= 50000) break;
             }
-        };
+
+            if (allFetched.length > 0) {
+                setAllSubmissions(allFetched);
+            }
+        } catch (e) {
+            console.error("Error fetching all submissions:", e);
+        }
+    }, []);
+
+    useEffect(() => {
+        if (subView !== 'inspection' && subView !== 'progress_report') return;
 
         fetchAllSubmissions();
 
@@ -1225,11 +1250,10 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         }, 120000);
 
         return () => {
-            active = false;
             supabase.removeChannel(channel);
             clearInterval(interval);
         };
-    }, [subView]);
+    }, [subView, fetchAllSubmissions]);
 
     const fetchCategoriesFromSupabase = async (forceRefresh = false) => {
         setIsSupabaseLoading(true);
@@ -5284,25 +5308,8 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                             </h2>
                             <div className="space-y-6">
                                 <div>
-                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 animate-fadeIn">
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-fadeIn">
                                         
-                                        {/* Evaluation Report */}
-                                        <div 
-                                            onClick={() => { setSubView('evaluation_report'); }}
-                                            className="flex items-center justify-between p-5 bg-white hover:bg-slate-50/80 rounded-[20px] border border-slate-150/80 cursor-pointer hover:border-indigo-200 active:scale-[0.99] transition-all duration-200 group shadow-[0_4px_24px_rgba(15,23,42,0.01)] hover:shadow-[0_8px_32px_rgba(15,23,42,0.02)]"
-                                        >
-                                            <div className="flex items-center gap-4">
-                                                <div className="w-11 h-11 rounded-2xl bg-indigo-50 text-indigo-700 flex items-center justify-center shrink-0 transition-transform duration-300 group-hover:scale-105">
-                                                    <ClipboardCheck size={20} />
-                                                </div>
-                                                <div>
-                                                    <p className="text-sm font-bold text-slate-800 tracking-tight">Evaluation Report</p>
-                                                    <p className="text-xs text-slate-400 mt-0.5">Item evaluation progress &amp; hotel scores</p>
-                                                </div>
-                                            </div>
-                                            <ChevronRight className="text-slate-300 group-hover:text-indigo-600 group-hover:translate-x-1 transition-all" size={18} />
-                                        </div>
-
                                         {/* Audit Progress Report */}
                                         <div 
                                             onClick={() => { setSubView('progress_report'); setProgressSearchQuery(''); }}
@@ -9960,25 +9967,6 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                             );
                         })()}
                     </div>
-                ) : subView === 'evaluation_report' ? (
-                    <EvaluationReportView
-                        hotels={hotels}
-                        departments={departments}
-                        categories={catList}
-                        items={items}
-                        groups={groups}
-                        batches={batches}
-                        allSubmissions={allSubmissions}
-                        onBack={() => { setSubView('dashboard'); setSearchQuery(''); }}
-                        onInspectHotel={(hotelId, categoryId) => {
-                            setSelectedInspectionHotelId(hotelId);
-                            if (categoryId) {
-                                setSelectedInspectionCategoryId(categoryId);
-                            }
-                            setSubView('inspection_v2');
-                            localStorage.setItem('sbi_audit_v2_selected_hotel', hotelId);
-                        }}
-                    />
                 ) : (
                     <div className="space-y-6">
                         {/* Hotels Layout */}

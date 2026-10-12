@@ -5,7 +5,7 @@ import { AuditHotelSelector } from './AuditHotelSelector';
 import { AuditSummaryHeader } from './AuditSummaryHeader';
 import { AuditCategoryProgress } from './AuditCategoryProgress';
 import { AuditItemCard } from './AuditItemCard';
-import { AuditItemFilter } from './types';
+import { AuditItemFilter, isSubmissionChanged } from './types';
 import { ShieldAlert, Sparkles, Building2, Layers } from 'lucide-react';
 
 interface AuditInspectionV2Props {
@@ -56,6 +56,7 @@ export const AuditInspectionV2: React.FC<AuditInspectionV2Props> = ({
         currentHotel,
         canonicalHotelCode,
         submissionsMap,
+        originalsMap,
         isLoading,
         isSavingMap,
         lastSyncedAt,
@@ -77,6 +78,20 @@ export const AuditInspectionV2: React.FC<AuditInspectionV2Props> = ({
         groups,
         auditorCategoryAssignments
     );
+
+    // Number of changed items within the categories current auditor can see
+    const updatedCount = useMemo(() => {
+        return relevantItems.filter(item => 
+            isSubmissionChanged(originalsMap[item.id], submissionsMap[item.id])
+        ).length;
+    }, [relevantItems, originalsMap, submissionsMap]);
+
+    // Reset activeFilter to 'all' if 'updated' was active but no items are updated
+    React.useEffect(() => {
+        if (activeFilter === 'updated' && updatedCount === 0) {
+            setActiveFilter('all');
+        }
+    }, [activeFilter, updatedCount]);
 
     // Map categories by ID for quick category name lookup
     const categoryNameMap = useMemo(() => {
@@ -112,7 +127,9 @@ export const AuditInspectionV2: React.FC<AuditInspectionV2Props> = ({
             const isPass = !isNA && hasScore && Number(sub.score) > 0;
             const isFail = !isNA && hasScore && Number(sub.score) === 0;
             const isAuditedInDb = isSavedInDb && (isPass || isFail || isNA);
+            const isChanged = isSubmissionChanged(originalsMap[item.id], sub);
 
+            if (activeFilter === 'updated') return isChanged;
             if (activeFilter === 'unscored') return !isAuditedInDb;
             if (activeFilter === 'audited') return isAuditedInDb;
             if (activeFilter === 'pass') return isSavedInDb && isPass;
@@ -121,7 +138,7 @@ export const AuditInspectionV2: React.FC<AuditInspectionV2Props> = ({
 
             return true;
         });
-    }, [relevantItems, selectedCategoryId, searchQuery, submissionsMap, activeFilter, categoryNameMap]);
+    }, [relevantItems, selectedCategoryId, searchQuery, submissionsMap, originalsMap, activeFilter, categoryNameMap]);
 
     return (
         <div id="audit-inspection-v2-container" className="w-full max-w-7xl mx-auto px-4 sm:px-6 py-6">
@@ -169,6 +186,7 @@ export const AuditInspectionV2: React.FC<AuditInspectionV2Props> = ({
                 onSelectFilter={setActiveFilter}
                 searchQuery={searchQuery}
                 onSearchChange={setSearchQuery}
+                updatedCount={updatedCount}
             />
 
             {/* Category Progress Tabs */}
@@ -202,6 +220,7 @@ export const AuditInspectionV2: React.FC<AuditInspectionV2Props> = ({
                             item={item}
                             categoryName={categoryNameMap.get(item.categoryId)}
                             submission={submissionsMap[item.id]}
+                            original={originalsMap[item.id]}
                             onUpdateScore={updateItemScore}
                             onUpdateComment={updateItemComment}
                             onSaveAudit={saveItemAudit}

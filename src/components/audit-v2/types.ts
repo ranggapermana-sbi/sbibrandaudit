@@ -1,5 +1,20 @@
 import { Hotel, AuditCategory, AuditItem } from '../../types';
 
+export interface AuditSubmissionOriginal {
+    hotel_id: string;
+    item_id: string;
+    input_type?: string | null;
+    value?: string | null;
+    is_na?: boolean | null;
+    na_reason?: string | null;
+    submitted_by_name?: string | null;
+    submitted_at?: string | null;
+    score?: number | null;
+    auditor_notes?: string | null;
+    auditor_remarks?: string | null;
+    captured_at?: string | null;
+}
+
 export interface AuditSubmissionV2 {
     id?: string;
     hotel_id: string;
@@ -48,4 +63,35 @@ export interface OverallAuditStats {
     overallPercentage: number;
 }
 
-export type AuditItemFilter = 'all' | 'unscored' | 'audited' | 'pass' | 'fail' | 'na';
+export type AuditItemFilter = 'all' | 'unscored' | 'audited' | 'pass' | 'fail' | 'na' | 'updated';
+
+export function isSubmissionChanged(
+    original?: AuditSubmissionOriginal | null,
+    current?: AuditSubmissionV2 | null
+): boolean {
+    if (!original) return false;
+
+    // 1. value (trimmed; null equals "")
+    const origValue = String(original.value ?? '').trim();
+    const currentValue = String(current?.value ?? '').trim();
+    if (origValue !== currentValue) {
+        return true;
+    }
+
+    // 2. is_na (null = false)
+    const normalizeIsNa = (val: any) => val === true || val === 'true';
+    const origIsNa = normalizeIsNa(original.is_na);
+    const currentIsNa = normalizeIsNa(current?.is_na);
+    if (origIsNa !== currentIsNa) {
+        return true;
+    }
+
+    // 3. N/A reason (na_reason, falling back to notes)
+    const origNaReason = String(original.na_reason ?? (original as any).notes ?? '').trim();
+    const currentNaReason = String(current?.na_reason ?? current?.notes ?? '').trim();
+    if (origNaReason !== currentNaReason) {
+        return true;
+    }
+
+    return false;
+}

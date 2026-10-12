@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { supabase } from '../../lib/supabase';
 import { Hotel, AuditCategory, AuditItem, AuditBatch, AuditGroup } from '../../types';
-import { AuditSubmissionV2, CategoryStats, OverallAuditStats } from './types';
+import { AuditSubmissionV2, AuditSubmissionOriginal, CategoryStats, OverallAuditStats } from './types';
 
 const LIGHTWEIGHT_COLUMNS = '*';
 
@@ -16,6 +16,7 @@ export function useAuditInspectionV2(
     auditorCategoryAssignments?: any[]
 ) {
     const [submissionsMap, setSubmissionsMap] = useState<Record<string, AuditSubmissionV2>>({});
+    const [originalsMap, setOriginalsMap] = useState<Record<string, AuditSubmissionOriginal>>({});
     const [isLoading, setIsLoading] = useState<boolean>(false);
     const [isSavingMap, setIsSavingMap] = useState<Record<string, boolean>>({});
     const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
@@ -202,6 +203,7 @@ export function useAuditInspectionV2(
     const loadSubmissions = useCallback(async () => {
         if (!canonicalHotelCode) {
             setSubmissionsMap({});
+            setOriginalsMap({});
             return;
         }
 
@@ -279,7 +281,36 @@ export function useAuditInspectionV2(
                 }
             });
 
+            // Read-only query for original submissions
+            const newOriginalsMap: Record<string, AuditSubmissionOriginal> = {};
+            try {
+                const { data: origData, error: origError } = await supabase
+                    .from('audit_submission_originals')
+                    .select('*')
+                    .in('hotel_id', possibleHotelIds);
+
+                if (origError) {
+                    console.warn("Supabase audit_submission_originals query error in Audit V2:", origError);
+                } else if (origData && Array.isArray(origData)) {
+                    const possibleLower = new Set(possibleHotelIds.map(id => id.toLowerCase()));
+                    origData.forEach((row: any) => {
+                        if (row && row.item_id !== undefined && row.item_id !== null) {
+                            const rowHotelLower = String(row.hotel_id || '').toLowerCase();
+                            if (possibleLower.has(rowHotelLower)) {
+                                const itemIdStr = String(row.item_id);
+                                if (!newOriginalsMap[itemIdStr] || row.hotel_id === canonicalHotelCode) {
+                                    newOriginalsMap[itemIdStr] = row as AuditSubmissionOriginal;
+                                }
+                            }
+                        }
+                    });
+                }
+            } catch (origErr) {
+                console.warn("Supabase audit_submission_originals exception in Audit V2:", origErr);
+            }
+
             setSubmissionsMap(newMap);
+            setOriginalsMap(newOriginalsMap);
             setLastSyncedAt(new Date());
         } catch (err) {
             console.error("Failed to load submissions in Audit V2:", err);
@@ -518,6 +549,7 @@ export function useAuditInspectionV2(
         currentHotel,
         canonicalHotelCode,
         submissionsMap,
+        originalsMap,
         isLoading,
         isSavingMap,
         lastSyncedAt,

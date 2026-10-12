@@ -8,6 +8,7 @@ interface AuditSummaryHeaderProps {
     onSelectFilter: (filter: AuditItemFilter) => void;
     searchQuery: string;
     onSearchChange: (q: string) => void;
+    updatedCount?: number;
 }
 
 export const AuditSummaryHeader: React.FC<AuditSummaryHeaderProps> = ({
@@ -15,7 +16,8 @@ export const AuditSummaryHeader: React.FC<AuditSummaryHeaderProps> = ({
     activeFilter,
     onSelectFilter,
     searchQuery,
-    onSearchChange
+    onSearchChange,
+    updatedCount = 0
 }) => {
     const percentage = stats.overallPercentage || 0;
 
@@ -132,8 +134,8 @@ export const AuditSummaryHeader: React.FC<AuditSummaryHeaderProps> = ({
                         Filter:
                     </span>
 
-                    {(['all', 'unscored', 'audited', 'pass', 'fail', 'na'] as AuditItemFilter[]).map(f => {
-                        const labels: Record<AuditItemFilter, string> = {
+                    {(['all', 'unscored', 'audited', 'pass', 'fail', 'na'] as const).map(f => {
+                        const labels: Record<'all' | 'unscored' | 'audited' | 'pass' | 'fail' | 'na', string> = {
                             all: `All Items (${stats.totalItems})`,
                             unscored: `Unscored (${stats.unscoredCount})`,
                             audited: `Audited (${stats.auditedCount})`,
@@ -159,6 +161,23 @@ export const AuditSummaryHeader: React.FC<AuditSummaryHeaderProps> = ({
                             </button>
                         );
                     })}
+
+                    {/* Updated after unlock filter chip: hidden when n = 0 */}
+                    {updatedCount > 0 && (
+                        <button
+                            type="button"
+                            id="filter-chip-updated-after-unlock"
+                            onClick={() => onSelectFilter(activeFilter === 'updated' ? 'all' : 'updated')}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-colors flex items-center gap-1.5 ${
+                                activeFilter === 'updated'
+                                    ? 'bg-amber-600 text-white shadow-xs'
+                                    : 'bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300'
+                            }`}
+                        >
+                            <span className="w-1.5 h-1.5 rounded-full bg-amber-500 inline-block animate-pulse" />
+                            Updated after unlock ({updatedCount})
+                        </button>
+                    )}
                 </div>
 
                 {/* Search Field */}
