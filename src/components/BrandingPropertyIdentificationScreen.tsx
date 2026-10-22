@@ -270,14 +270,16 @@ const AuditItemCard: React.FC<{
     onAcquireLock?: () => void,
     onReleaseLock?: () => void,
     existingSubmission?: any,
-    onClose?: () => void
-}> = ({ item, hotelId, userProfile, locked, activeLock, onAcquireLock, onReleaseLock, existingSubmission, onClose }) => {
+    onClose?: () => void,
+    onSubmissionSaved?: (savedData: any) => void
+}> = ({ item, hotelId, userProfile, locked, activeLock, onAcquireLock, onReleaseLock, existingSubmission, onClose, onSubmissionSaved }) => {
     const [isExpanded, setIsExpanded] = useState<boolean>(!!onClose);
     const [value, setValue] = useState<string>('');
     const [isNa, setIsNa] = useState<boolean>(false);
     const [naReason, setNaReason] = useState<string>('');
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [isSubmitted, setIsSubmitted] = useState(false);
+    const [saveSuccess, setSaveSuccess] = useState(false);
     const [submittedBy, setSubmittedBy] = useState<string>('');
     const [previewUrl, setPreviewUrl] = useState<string | null>(null);
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -783,6 +785,11 @@ const AuditItemCard: React.FC<{
             setValue(finalValue);
             setIsSubmitted(true);
             setSubmittedBy(submitterName);
+            setSaveSuccess(true);
+            setTimeout(() => setSaveSuccess(false), 4000);
+            if (onSubmissionSaved) {
+                onSubmissionSaved(fullSubmissionData);
+            }
             if (onReleaseLock) {
                 onReleaseLock();
             }
@@ -1248,6 +1255,13 @@ const AuditItemCard: React.FC<{
                         disabled={isFieldDisabled}
                     />
                 </div>
+
+                {saveSuccess && (
+                    <div className="mb-3.5 p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center gap-2 text-emerald-800 text-xs font-bold animate-fadeIn">
+                        <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
+                        <span>Submission saved successfully!</span>
+                    </div>
+                )}
 
                 {/* Submit Button */}
                 {!isSubmitted ? (
@@ -1894,6 +1908,12 @@ export default function BrandingPropertyIdentificationScreen({ selectedCategory,
                                 onReleaseLock={() => handleReleaseLock(selectedInspectionItem.id)}
                                 existingSubmission={submissionsMap[selectedInspectionItem.id]}
                                 onClose={() => setSelectedInspectionItem(null)}
+                                onSubmissionSaved={(savedData) => {
+                                    setSubmissionsMap(prev => ({
+                                        ...prev,
+                                        [savedData.item_id || selectedInspectionItem.id]: savedData
+                                    }));
+                                }}
                             />
                         </div>
                     </div>
