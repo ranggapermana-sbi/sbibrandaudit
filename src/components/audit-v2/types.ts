@@ -36,6 +36,8 @@ export interface AuditSubmissionV2 {
     updated_at?: string;
     created_at?: string;
     is_saved_in_db?: boolean;
+    saved_score?: number | null;
+    saved_is_na?: boolean | null;
 }
 
 export interface CategoryStats {

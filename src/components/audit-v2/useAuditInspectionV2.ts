@@ -254,6 +254,8 @@ export function useAuditInspectionV2(
                     const existingVal = existing?.value || existing?.photo_url || existing?.evidence_url || existing?.file_url || existing?.image_url || '';
 
                     const isSaved = (row.score !== undefined && row.score !== null) || row.is_na === true;
+                    const rowScore = row.score !== undefined && row.score !== null ? Number(row.score) : null;
+                    const rowIsNa = row.is_na === true || String(row.is_na) === 'true';
 
                     // Priority rule: if existing row has canonical hotel_id or has valid value, don't overwrite with empty
                     if (!existing || row.hotel_id === canonicalHotelCode || (rowVal && !existingVal)) {
@@ -263,19 +265,25 @@ export function useAuditInspectionV2(
                             value: rowVal || existingVal,
                             item_id: itemIdStr,
                             hotel_id: String(row.hotel_id || canonicalHotelCode),
-                            is_saved_in_db: isSaved
+                            is_saved_in_db: isSaved,
+                            saved_score: rowScore !== null ? rowScore : (existing?.saved_score ?? null),
+                            saved_is_na: row.is_na !== undefined ? rowIsNa : (existing?.saved_is_na ?? false)
                         };
                     } else {
                         // Merge score and notes onto existing row
+                        const mergedScore = row.score !== undefined && row.score !== null ? Number(row.score) : existing.score;
+                        const mergedIsNa = row.is_na !== undefined ? rowIsNa : existing.is_na;
                         newMap[itemIdStr] = {
                             ...existing,
                             value: existingVal || rowVal,
-                            score: row.score !== undefined && row.score !== null ? row.score : existing.score,
-                            is_na: row.is_na !== undefined ? row.is_na : existing.is_na,
+                            score: mergedScore,
+                            is_na: mergedIsNa,
                             auditor_notes: (row.auditor_notes || row.auditor_remarks || existing.auditor_notes || existing.auditor_remarks || '').trim(),
                             auditor_remarks: (row.auditor_remarks || row.auditor_notes || existing.auditor_remarks || existing.auditor_notes || '').trim(),
                             updated_at: row.updated_at || existing.updated_at,
-                            is_saved_in_db: isSaved || existing.is_saved_in_db
+                            is_saved_in_db: isSaved || existing.is_saved_in_db,
+                            saved_score: mergedScore !== undefined && mergedScore !== null ? Number(mergedScore) : (existing.saved_score ?? null),
+                            saved_is_na: mergedIsNa !== undefined ? Boolean(mergedIsNa) : (existing.saved_is_na ?? false)
                         };
                     }
                 }
@@ -346,6 +354,10 @@ export function useAuditInspectionV2(
         // Optimistic local state update
         setSubmissionsMap(prev => {
             const existing = prev[itemId] || {};
+            const isScoreSameAsSaved = existing.saved_score !== undefined &&
+                existing.saved_score === numScore &&
+                Boolean(existing.saved_is_na) === Boolean(isNA);
+
             return {
                 ...prev,
                 [itemId]: {
@@ -354,6 +366,9 @@ export function useAuditInspectionV2(
                     item_id: String(itemId),
                     score: numScore,
                     is_na: isNA,
+                    is_saved_in_db: isScoreSameAsSaved ? ((existing.saved_score !== null && existing.saved_score !== undefined) || existing.saved_is_na === true) : false,
+                    saved_score: existing.saved_score !== undefined ? existing.saved_score : null,
+                    saved_is_na: existing.saved_is_na !== undefined ? existing.saved_is_na : false,
                     updated_at: nowIso
                 }
             };
@@ -378,6 +393,7 @@ export function useAuditInspectionV2(
                     item_id: String(itemId),
                     auditor_notes: rawComment,
                     auditor_remarks: rawComment,
+                    is_saved_in_db: false,
                     updated_at: nowIso
                 }
             };
@@ -427,14 +443,19 @@ export function useAuditInspectionV2(
             if (error) {
                 console.warn("Audit V2 manual save warning:", error);
             } else {
-                // Mark item as successfully saved to DB
-                setSubmissionsMap(prev => ({
-                    ...prev,
-                    [itemId]: {
-                        ...prev[itemId],
-                        is_saved_in_db: true
-                    }
-                }));
+                // Mark item as successfully saved to DB and update saved_score & saved_is_na
+                setSubmissionsMap(prev => {
+                    const current = prev[itemId];
+                    return {
+                        ...prev,
+                        [itemId]: {
+                            ...current,
+                            is_saved_in_db: true,
+                            saved_score: current?.score ?? null,
+                            saved_is_na: current?.is_na ?? false
+                        }
+                    };
+                });
             }
 
             setLastSyncedAt(new Date());
@@ -462,16 +483,20 @@ export function useAuditInspectionV2(
                 const sub = submissionsMap[item.id];
                 const maxPts = item.points ?? 5;
 
-                if (sub && sub.is_saved_in_db === true) {
-                    if (sub.is_na) {
+                const savedScore = sub?.saved_score !== undefined ? sub.saved_score : (sub?.is_saved_in_db ? sub.score : null);
+                const savedNA = sub?.saved_is_na !== undefined ? sub.saved_is_na : (sub?.is_saved_in_db ? sub.is_na : false);
+                const hasSavedRecord = (savedScore !== undefined && savedScore !== null) || savedNA === true;
+
+                if (hasSavedRecord) {
+                    if (savedNA) {
                         auditedCount++;
                         naCount++;
-                    } else if (sub.score !== undefined && sub.score !== null) {
+                    } else if (savedScore !== undefined && savedScore !== null) {
                         auditedCount++;
                         totalMaxPoints += maxPts;
-                        if (sub.score > 0) {
+                        if (Number(savedScore) > 0) {
                             passCount++;
-                            totalEarnedPoints += maxPts > 0 ? Math.min(Number(sub.score), maxPts) : 0;
+                            totalEarnedPoints += maxPts > 0 ? Math.min(Number(savedScore), maxPts) : 0;
                         } else {
                             failCount++;
                         }
@@ -512,16 +537,20 @@ export function useAuditInspectionV2(
             const sub = submissionsMap[item.id];
             const maxPts = item.points ?? 5;
 
-            if (sub && sub.is_saved_in_db === true) {
-                if (sub.is_na) {
+            const savedScore = sub?.saved_score !== undefined ? sub.saved_score : (sub?.is_saved_in_db ? sub.score : null);
+            const savedNA = sub?.saved_is_na !== undefined ? sub.saved_is_na : (sub?.is_saved_in_db ? sub.is_na : false);
+            const hasSavedRecord = (savedScore !== undefined && savedScore !== null) || savedNA === true;
+
+            if (hasSavedRecord) {
+                if (savedNA) {
                     auditedCount++;
                     naCount++;
-                } else if (sub.score !== undefined && sub.score !== null) {
+                } else if (savedScore !== undefined && savedScore !== null) {
                     auditedCount++;
                     totalMaxPoints += maxPts;
-                    if (sub.score > 0) {
+                    if (Number(savedScore) > 0) {
                         passCount++;
-                        totalEarnedPoints += maxPts > 0 ? Math.min(Number(sub.score), maxPts) : 0;
+                        totalEarnedPoints += maxPts > 0 ? Math.min(Number(savedScore), maxPts) : 0;
                     } else {
                         failCount++;
                     }

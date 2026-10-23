@@ -119,22 +119,23 @@ export const AuditInspectionV2: React.FC<AuditInspectionV2Props> = ({
                 if (!matchesName && !matchesDesc && !matchesCat) return false;
             }
 
-            // Status filter
+            // Status filter: Filter based on persisted DB status so draft edits don't prematurely disappear
             const sub = submissionsMap[item.id];
-            const isSavedInDb = sub?.is_saved_in_db === true;
-            const isNA = sub?.is_na === true;
-            const hasScore = sub?.score !== undefined && sub?.score !== null;
-            const isPass = !isNA && hasScore && Number(sub.score) > 0;
-            const isFail = !isNA && hasScore && Number(sub.score) === 0;
-            const isAuditedInDb = isSavedInDb && (isPass || isFail || isNA);
+            const savedScore = sub?.saved_score !== undefined ? sub.saved_score : (sub?.is_saved_in_db ? sub.score : null);
+            const savedNA = sub?.saved_is_na !== undefined ? sub.saved_is_na : (sub?.is_saved_in_db ? sub.is_na : false);
+            const hasSavedRecord = (savedScore !== undefined && savedScore !== null) || savedNA === true;
+
+            const isSavedPass = !savedNA && savedScore !== undefined && savedScore !== null && Number(savedScore) > 0;
+            const isSavedFail = !savedNA && savedScore !== undefined && savedScore !== null && Number(savedScore) === 0;
+            const isAuditedInDb = hasSavedRecord && (isSavedPass || isSavedFail || savedNA);
             const isChanged = isSubmissionChanged(originalsMap[item.id], sub);
 
             if (activeFilter === 'updated') return isChanged;
             if (activeFilter === 'unscored') return !isAuditedInDb;
             if (activeFilter === 'audited') return isAuditedInDb;
-            if (activeFilter === 'pass') return isSavedInDb && isPass;
-            if (activeFilter === 'fail') return isSavedInDb && isFail;
-            if (activeFilter === 'na') return isSavedInDb && isNA;
+            if (activeFilter === 'pass') return isSavedPass;
+            if (activeFilter === 'fail') return isSavedFail;
+            if (activeFilter === 'na') return savedNA;
 
             return true;
         });
