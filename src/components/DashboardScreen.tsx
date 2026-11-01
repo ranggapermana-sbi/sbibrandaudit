@@ -4,7 +4,7 @@ import {
   LayoutDashboard, History, User, LogOut, FileText, Folder, Layers, Maximize2, Minimize2, 
   RefreshCw, Search, X, ChevronLeft, ChevronsLeft, ChevronsRight, CheckCircle2, AlertCircle, 
   XCircle, MinusCircle, MessageSquare, MessageSquareText, Eye, ExternalLink, ZoomIn, Copy, 
-  Check, ShieldCheck, Download, AlertTriangle
+  Check, ShieldCheck, Download, AlertTriangle, Lock
 } from 'lucide-react';
 import { supabase, HOTELS_URL, HOTELS_KEY } from '../lib/supabase';
 import { apiCache } from '../lib/cache';

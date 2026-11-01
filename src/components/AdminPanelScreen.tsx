@@ -1865,6 +1865,45 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         setTimeout(() => setToastMessage(null), 4000);
     };
 
+    // Locks or unlocks the audit for every auditable hotel (test and corporate entries are skipped)
+    const handleSetAuditLockForAll = async (lock: boolean) => {
+        const targetIds = Array.from(new Set(
+            hotels
+                .filter(h => h.id && h.id !== 'sbi-test' && h.id !== 'sbi-dummy' && h.brandClass !== 'Corporate')
+                .map(h => h.id)
+        ));
+        if (targetIds.length === 0) return;
+
+        const confirmed = window.confirm(
+            lock
+                ? `Lock the self-audit for all ${targetIds.length} hotels? No hotel will be able to continue or upload evidence.`
+                : `Unlock the self-audit for all ${targetIds.length} hotels?`
+        );
+        if (!confirmed) return;
+
+        try {
+            const now = new Date().toISOString();
+            const { error } = await supabase
+                .from('hotel_audit_status')
+                .upsert(targetIds.map(hotelId => ({
+                    hotel_id: hotelId,
+                    is_locked: lock,
+                    updated_at: now
+                })), { onConflict: 'hotel_id' });
+
+            if (error) {
+                throw error;
+            }
+
+            await fetchFinalizedStatuses();
+            setToastMessage(lock ? `Audit locked for all ${targetIds.length} hotels.` : `Audit unlocked for all ${targetIds.length} hotels.`);
+        } catch (err) {
+            console.error("Error updating audit lock for all hotels:", err);
+            setToastMessage('Could not update the audit lock. Run the is_locked SQL shown in the database setup.');
+        }
+        setTimeout(() => setToastMessage(null), 4000);
+    };
+
     const handleUnlockHotel = async (hotelId: string) => {
         try {
             const { error } = await supabase
@@ -9072,7 +9111,27 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                 >
                                     <ArrowLeft size={12} /> Back to Dashboard
                                 </button>
-                                <h2 className="text-2xl font-extrabold text-slate-900 tracking-tight">Audit Progress Report</h2>
+                                <div className="flex flex-wrap items-center justify-between gap-3">
+                                    <h2 className="text-2xl font-extrabold text-slate-900 tracking-tight">Audit Progress Report</h2>
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        <button
+                                            onClick={() => handleSetAuditLockForAll(true)}
+                                            className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-rose-700 hover:text-rose-800 bg-rose-50 hover:bg-rose-100/80 px-3.5 py-2 rounded-xl border border-rose-200/60 active:scale-95 transition-all shadow-2xs"
+                                            title="Lock the self-audit for every hotel"
+                                        >
+                                            <Lock size={12} />
+                                            <span>Lock All Audits</span>
+                                        </button>
+                                        <button
+                                            onClick={() => handleSetAuditLockForAll(false)}
+                                            className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-emerald-700 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100/80 px-3.5 py-2 rounded-xl border border-emerald-200/60 active:scale-95 transition-all shadow-2xs"
+                                            title="Unlock the self-audit for every hotel"
+                                        >
+                                            <Unlock size={12} />
+                                            <span>Unlock All Audits</span>
+                                        </button>
+                                    </div>
+                                </div>
                                 <p className="text-xs text-slate-500 mt-1">
                                     Real-time monitoring of self-audit checklist compliance across all properties.
                                 </p>
