@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { ChevronRight, FolderOpen, Loader2, CheckCircle2, Lock, Unlock, Send, Clock } from 'lucide-react';
 import { supabase, HOTELS_URL, HOTELS_KEY } from '../lib/supabase';
 import { DEFAULT_CATEGORIES, DEFAULT_OFFLINE_ITEMS } from '../lib/constants';
+import { isExcludedHotel } from '../lib/hotelExclusion';
 
 interface PendingCategoriesProps {
   onBack: () => void;
@@ -41,7 +42,7 @@ export default function PendingCategoriesScreen({ onBack, onNavigate, userProfil
                 if (response.ok) {
                     const data = await response.json();
                     if (Array.isArray(data)) {
-                        const mapped = data.map((item: any) => {
+                        const mapped = data.filter((item: any) => !isExcludedHotel({ stars: item.stars ?? item.star_rating })).map((item: any) => {
                             const rawId = item.id !== undefined && item.id !== null ? String(item.id) : '';
                             const fallbackId = item.hotel_id !== undefined && item.hotel_id !== null ? String(item.hotel_id) : '';
                             const finalId = rawId || fallbackId || item.code || String(item.name || '').replace(/\s+/g, '-').toLowerCase();

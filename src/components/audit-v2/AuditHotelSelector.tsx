@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Building2, Search, MapPin, Globe, Star, ShieldCheck, ChevronDown, RefreshCw } from 'lucide-react';
 import { Hotel } from '../../types';
+import { withoutExcludedHotels } from '../../lib/hotelExclusion';
 
 interface AuditHotelSelectorProps {
     hotels: Hotel[];
@@ -26,7 +27,7 @@ export const AuditHotelSelector: React.FC<AuditHotelSelectorProps> = ({
     // Get unique list of countries
     const countries = useMemo(() => {
         const set = new Set<string>();
-        hotels.forEach(h => {
+        withoutExcludedHotels<Hotel>(hotels).forEach(h => {
             if (h.country) set.add(h.country);
         });
         return Array.from(set).sort();
@@ -34,7 +35,7 @@ export const AuditHotelSelector: React.FC<AuditHotelSelectorProps> = ({
 
     // Filter hotels
     const filteredHotels = useMemo(() => {
-        return hotels.filter(h => {
+        return withoutExcludedHotels<Hotel>(hotels).filter(h => {
             const matchesCountry = selectedCountry === 'all' || h.country === selectedCountry;
             const q = searchQuery.trim().toLowerCase();
             const matchesSearch = !q || (

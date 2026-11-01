@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { ArrowLeft, CheckCircle, Clock, Building, BarChart3, ChevronRight, ChevronLeft, ChevronsLeft, ChevronsRight, ArrowUpDown, Plus, Trash2, Edit, Search, X, AlertCircle, MapPin, Settings2, Calendar, Star, Briefcase, ClipboardList, FileCheck, Layers, Package, Camera, ImageIcon, FileText, Hash, Type, CheckSquare, Users, ShieldCheck, Percent, GripVertical, ChevronUp, ChevronDown, Eye, User, RefreshCw, CheckCircle2, Maximize2, ExternalLink, ZoomIn, Database, Copy, Check, Lock, Unlock, Upload, UploadCloud, Loader2, Sparkles, FolderCheck, ClipboardCheck } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { supabase, HOTELS_URL, HOTELS_KEY } from '../lib/supabase';
 import { apiCache } from '../lib/cache';
+import { withoutExcludedHotels } from '../lib/hotelExclusion';
 
 import { Department, Hotel, AuditBatch, AuditCategory, AuditItem, AuditGroup } from '../types';
 import { DEFAULT_DEPARTMENTS, DEFAULT_CATEGORIES, DEFAULT_HOTELS, DEFAULT_BATCHES, DEFAULT_GROUPS, DEFAULT_OFFLINE_ITEMS, HARDCODED_TEST_HOTELS } from '../lib/constants';
@@ -118,9 +119,6 @@ const HOTEL_BRANDS = [
     'Swiss-Belvillas',
     'Zest'
 ];
-
-const HOTELS_URL = (import.meta as any).env.HOTELS_SUPABASE_URL || 'https://kjqnkrmmbintlhalubrf.supabase.co/rest/v1/';
-const HOTELS_KEY = (import.meta as any).env.HOTELS_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtqcW5rcm1tYmludGxoYWx1YnJmIiwicm9sZSI6ImFub24iLCJpYXQiOjcxNzAwMDc2MTAsImV4cCI6MjA4NTU4MzYxMH0.oSMFcsvmx-VLvH3o9iX0Sn1XbZblcFbicOHzs-kTtdc';
 
 const MAIN_URL_RAW = (import.meta as any).env.MAIN_SUPABASE_URL || 'https://gvnwxrejgdkixbszhxkw.supabase.co/rest/v1/';
 const MAIN_KEY = (import.meta as any).env.MAIN_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd2bnd4cmVqZ2RraXhic3poeGt3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkxNTE2ODcsImV4cCI6MjA5NDcyNzY4N30.Pvv9rgR_Vr9McwxLrYfELeSpWYLNH2NPw0nkeGD6ZXo';
@@ -384,6 +382,9 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
 
             // 4. Update local states so that UI updates instantly
             setAllSubmissions(prev => prev.filter(sub => String(sub.hotel_id).toLowerCase() !== String(hId).toLowerCase()));
+            // Reload from the database so the report shows what was actually deleted, not the local guess
+            fetchProgressSubmissions();
+            fetchAllSubmissions();
             setFinalizedStatuses(prev => {
                 const updated = { ...prev };
                 delete updated[hId];
@@ -1196,14 +1197,18 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             let hasMore = true;
 
             while (hasMore) {
+                // Stable order is required for range pagination; (hotel_id, item_id) is unique per upsert
                 const { data, error } = await supabase
                     .from('audit_submissions')
                     .select('*')
+                    .order('hotel_id', { ascending: true })
+                    .order('item_id', { ascending: true })
                     .range(from, from + pageSize - 1);
 
                 if (error) {
+                    // Keep the previous complete data rather than replacing it with a partial load
                     console.warn("Error fetching all submissions batch:", error);
-                    break;
+                    return;
                 }
 
                 if (data && data.length > 0) {
@@ -1228,10 +1233,50 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         }
     }, []);
 
+    // Progress report input. Only the columns the report reads: full rows carry embedded images in `value`,
+    // which makes each page tens of megabytes and lets transfers fail. A failed load keeps the previous data.
+    const [progressSubmissions, setProgressSubmissions] = useState<any[]>([]);
+
+    const fetchProgressSubmissions = useCallback(async () => {
+        const pageSize = 1000;
+        const maxAttempts = 3;
+        const fetched: any[] = [];
+        try {
+            for (let from = 0; from < 50000; from += pageSize) {
+                let page: any[] | null = null;
+                let lastError: any = null;
+                for (let attempt = 1; attempt <= maxAttempts && page === null; attempt++) {
+                    const { data, error } = await supabase
+                        .from('audit_submissions')
+                        .select('hotel_id,item_id,score,is_na')
+                        .order('hotel_id', { ascending: true })
+                        .order('item_id', { ascending: true })
+                        .range(from, from + pageSize - 1);
+                    if (error) {
+                        lastError = error;
+                    } else {
+                        page = data || [];
+                    }
+                }
+                if (page === null) {
+                    throw lastError;
+                }
+                fetched.push(...page);
+                if (page.length < pageSize) break;
+            }
+            setProgressSubmissions(fetched);
+        } catch (e: any) {
+            console.error("Error fetching progress submissions:", e);
+            setSupabaseErrorMsg(`Audit progress data not loaded: ${e?.message || 'request failed'}. Showing last loaded values.`);
+        }
+    }, []);
+
     useEffect(() => {
         if (subView !== 'inspection' && subView !== 'progress_report') return;
 
-        fetchAllSubmissions();
+        // The progress report only needs the light progress columns; inspection still needs full rows
+        const refreshSubmissions = subView === 'progress_report' ? fetchProgressSubmissions : fetchAllSubmissions;
+        refreshSubmissions();
 
         const channel = supabase
             .channel('all-submissions-realtime')
@@ -1240,20 +1285,20 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 schema: 'public',
                 table: 'audit_submissions'
             }, () => {
-                fetchAllSubmissions();
+                refreshSubmissions();
             })
             .subscribe();
 
         // Background fallback polling interval set to 120 seconds (real-time channels handle instant sync)
         const interval = setInterval(() => {
-            fetchAllSubmissions();
+            refreshSubmissions();
         }, 120000);
 
         return () => {
             supabase.removeChannel(channel);
             clearInterval(interval);
         };
-    }, [subView, fetchAllSubmissions]);
+    }, [subView, fetchAllSubmissions, fetchProgressSubmissions]);
 
     const fetchCategoriesFromSupabase = async (forceRefresh = false) => {
         setIsSupabaseLoading(true);
@@ -1336,9 +1381,12 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 }
 
                 // Fetch join table associations
-                const { data: groupHotels } = await supabase
+                const { data: groupHotels, error: groupHotelsError } = await supabase
                     .from('audit_group_hotels')
                     .select('*');
+                if (groupHotelsError) {
+                    throw groupHotelsError;
+                }
 
                 return (groupsData || []).map((g: any) => {
                     const joinHotelIds = (groupHotels || [])
@@ -1755,6 +1803,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 data.forEach((row: any) => {
                     const info = {
                         is_finalized: !!row.is_finalized,
+                        is_locked: row.is_locked === true,
                         finalized_by: row.finalized_by,
                         finalized_at: row.finalized_at
                     };
@@ -1792,6 +1841,30 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         }
     };
 
+    // Audit lock: while locked, the hotel's Self-Audit Continue button is disabled and no new evidence can be uploaded
+    const handleSetAuditLock = async (hotel: Hotel, lock: boolean) => {
+        try {
+            const { error } = await supabase
+                .from('hotel_audit_status')
+                .upsert({
+                    hotel_id: hotel.id,
+                    is_locked: lock,
+                    updated_at: new Date().toISOString()
+                }, { onConflict: 'hotel_id' });
+
+            if (error) {
+                throw error;
+            }
+
+            await fetchFinalizedStatuses();
+            setToastMessage(lock ? 'Audit locked. The hotel can no longer upload evidence.' : 'Audit unlocked. The hotel can upload evidence again.');
+        } catch (err) {
+            console.error("Error updating audit lock:", err);
+            setToastMessage('Could not update the audit lock. Run the is_locked SQL shown in the database setup.');
+        }
+        setTimeout(() => setToastMessage(null), 4000);
+    };
+
     const handleUnlockHotel = async (hotelId: string) => {
         try {
             const { error } = await supabase
@@ -1823,6 +1896,14 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             setTimeout(() => setToastMessage(null), 3000);
         }
     };
+
+    // Hotels used for auditor assignment, calculations and reports (1-star hotels are excluded).
+    // The master hotel list keeps every hotel so an admin can still change a rating.
+    const includedHotels = useMemo(() => withoutExcludedHotels(hotels), [hotels]);
+
+    // True once the hotel list has been loaded from the database in this session.
+    // Until then, the saved list must not be overwritten by the in-memory state.
+    const hotelsSyncedRef = useRef(false);
 
     // Fetch hotels function
     const fetchHotelsFromSupabase = async (forceRefresh = false) => {
@@ -1915,6 +1996,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 return [...filteredMapped, ...HARDCODED_TEST_HOTELS];
             }, { forceRefresh });
 
+            hotelsSyncedRef.current = true;
             setHotels(finalHotels);
             localStorage.setItem('sbi_audit_hotels_v2', JSON.stringify(finalHotels));
             setSupabaseConnected(true);
@@ -1922,7 +2004,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         } catch (err: any) {
             console.warn("Supabase fetch error, using fallback:", err);
             setSupabaseConnected(false);
-            setSupabaseErrorMsg(null);
+            setSupabaseErrorMsg(`Hotel list not loaded from database: ${err?.message || 'request failed'}. Showing last saved list.`);
             
             const saved = localStorage.setItem ? localStorage.getItem('sbi_audit_hotels_v2') : null;
             let parsed: Hotel[] = [];
@@ -2042,6 +2124,8 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     };
 
     useEffect(() => {
+        // Never persist before a successful database load, so a failed fetch cannot replace the saved list
+        if (!hotelsSyncedRef.current) return;
         localStorage.setItem('sbi_audit_hotels_v2', JSON.stringify(hotels));
     }, [hotels]);
 
@@ -2122,11 +2206,12 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             fetchFinalizedStatuses();
         }
         if (subView === 'progress_report') {
-            fetchHotelsFromSupabase();
+            // Force refresh: the report must not use cached reference data (hotels, groups, items, categories)
+            fetchHotelsFromSupabase(true);
             fetchDepartmentsFromSupabase();
-            fetchCategoriesFromSupabase();
-            fetchItemsFromSupabase();
-            fetchGroupsFromSupabase();
+            fetchCategoriesFromSupabase(true);
+            fetchItemsFromSupabase(true);
+            fetchGroupsFromSupabase(true);
         } else if (subView === 'hotels') {
             fetchHotelsFromSupabase();
         } else if (subView === 'batches') {
@@ -2241,7 +2326,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     };
 
     const moveAllToAssigned = () => {
-        const availableHotels = hotels.filter(h => !assignedHotelIds.includes(h.id));
+        const availableHotels = includedHotels.filter(h => !assignedHotelIds.includes(h.id));
         const filteredAvailable = availableHotels.filter(h => 
             h.name.toLowerCase().includes(availableSearchQuery.toLowerCase()) ||
             (h.brandClass && h.brandClass.toLowerCase().includes(availableSearchQuery.toLowerCase()))
@@ -2252,7 +2337,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     };
 
     const moveAllToAvailable = () => {
-        const assignedHotels = hotels.filter(h => assignedHotelIds.includes(h.id));
+        const assignedHotels = includedHotels.filter(h => assignedHotelIds.includes(h.id));
         const filteredAssigned = assignedHotels.filter(h => 
             h.name.toLowerCase().includes(assignedSearchQuery.toLowerCase()) ||
             (h.brandClass && h.brandClass.toLowerCase().includes(assignedSearchQuery.toLowerCase()))
@@ -2454,6 +2539,12 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         }
         return { is_finalized: false };
     }, [hotels, hotelAssociatedIdsMap, finalizedStatuses]);
+
+    const isHotelAuditLocked = useCallback((hotel: Hotel): boolean => {
+        const idsSet = hotelAssociatedIdsMap.get(String(hotel.id));
+        const possibleIds = idsSet ? Array.from(idsSet) : [String(hotel.id).trim().toLowerCase()];
+        return possibleIds.some(pid => finalizedStatuses[pid]?.is_locked === true);
+    }, [hotelAssociatedIdsMap, finalizedStatuses]);
 
     const getSubmitterName = (sub: any, currentHotel?: any) => {
         if (!sub) return 'Property User';
@@ -4330,7 +4421,8 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                             code: hotelCode.trim().toUpperCase(),
                             name: hotelName.trim(),
                             brand: hotelBrandClass,
-                            country: hotelLocation.trim() || hotelCountry.trim() || 'Indonesia'
+                            country: hotelLocation.trim() || hotelCountry.trim() || 'Indonesia',
+                            star_rating: Number(hotelStars)
                         };
                         const fallbackResponse = await fetch(`${HOTELS_URL}hotels?code=eq.${targetCode}`, {
                             method: 'PATCH',
@@ -4367,7 +4459,8 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                             code: hotelCode.trim().toUpperCase(),
                             name: hotelName.trim(),
                             brand: hotelBrandClass,
-                            country: hotelLocation.trim() || hotelCountry.trim() || 'Indonesia'
+                            country: hotelLocation.trim() || hotelCountry.trim() || 'Indonesia',
+                            star_rating: Number(hotelStars)
                         };
                         const fallbackResponse = await fetch(`${HOTELS_URL}hotels`, {
                             method: 'POST',
@@ -4962,7 +5055,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                         {(userProfile?.access_level === 'admin' || userProfile?.access_level === 'auditor') && (
                             <section className="grid grid-cols-1 md:grid-cols-3 gap-5">
                                 {(() => {
-                                    const activeHotels = hotels.filter(h => h.id !== 'sbi-test' && h.id !== 'sbi-dummy');
+                                    const activeHotels = includedHotels.filter(h => h.id !== 'sbi-test' && h.id !== 'sbi-dummy');
                                     const hotelsWithoutAuditees = activeHotels.filter(hotel => {
                                         const hasAuditee = profilesList.some(p => {
                                             const isAuditee = p.access_level !== 'admin' && p.access_level !== 'auditor';
@@ -6317,7 +6410,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                         </div>
 
                                         <div className="flex-1 overflow-y-auto pr-1 space-y-2">
-                                            {hotels.filter(h => {
+                                            {includedHotels.filter(h => {
                                                 if (!groupSearchQuery) return true;
                                                 const q = groupSearchQuery.toLowerCase();
                                                 return h.name.toLowerCase().includes(q) ||
@@ -6328,7 +6421,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                     No matching hotels found.
                                                 </div>
                                             ) : (
-                                                hotels.filter(h => {
+                                                includedHotels.filter(h => {
                                                     if (!groupSearchQuery) return true;
                                                     const q = groupSearchQuery.toLowerCase();
                                                     return h.name.toLowerCase().includes(q) ||
@@ -6688,7 +6781,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                         <div className="flex items-center gap-2">
                                             <button
                                                 onClick={() => {
-                                                    const filtered = hotels.filter(h => {
+                                                    const filtered = includedHotels.filter(h => {
                                                         if (!hotelAssignmentSearch) return true;
                                                         const term = hotelAssignmentSearch.toLowerCase();
                                                         return (
@@ -6812,7 +6905,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                 >
                                                                     <option value="all">All Countries ({availableCountries.length})</option>
                                                                     {availableCountries.map(c => {
-                                                                        const count = hotels.filter(h => (h.country || 'Unspecified Country') === c).length;
+                                                                        const count = includedHotels.filter(h => (h.country || 'Unspecified Country') === c).length;
                                                                         return (
                                                                             <option key={c} value={c}>{c} ({count})</option>
                                                                         );
@@ -6839,7 +6932,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
 
                                                 {/* HOTEL LIST / ACCORDION DISPLAY */}
                                                 {(() => {
-                                                    const filteredHotels = hotels.filter(hotel => {
+                                                    const filteredHotels = includedHotels.filter(hotel => {
                                                         const hotelCountry = hotel.country || 'Unspecified Country';
                                                         if (hotelCountryFilter !== 'all' && hotelCountry !== hotelCountryFilter) return false;
                                                         if (!hotelAssignmentSearch) return true;
@@ -7653,7 +7746,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
 
                                     {/* Hotels List */}
                                     {(() => {
-                                        const inspectionHotelsFiltered = hotels.filter(h => {
+                                        const inspectionHotelsFiltered = includedHotels.filter(h => {
                                             const isMatchSearch = !searchQuery || h.name.toLowerCase().includes(searchQuery.toLowerCase()) || (h.code && h.code.toLowerCase().includes(searchQuery.toLowerCase()));
                                             
                                             // Check if finalized & submitted
@@ -8988,7 +9081,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
 
                         {(() => {
                             // Filter out corporate hotels/properties at the start of progress report calculations
-                            const nonCorporateHotels = hotels.filter(h => {
+                            const nonCorporateHotels = includedHotels.filter(h => {
                                 const bClass = (h.brandClass || '').toLowerCase();
                                 const hType = (h as any).type ? String((h as any).type).toLowerCase() : '';
                                 return bClass !== 'corporate' && hType !== 'corporate';
@@ -8996,7 +9089,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
 
                             // Pre-index Supabase submissions by hotel_id once (O(Submissions) instead of O(Hotels * Submissions))
                             const progressSubmissionsByHotelMap = new Map<string, { submitted: Set<string>; na: Set<string> }>();
-                            (allSubmissions || []).forEach((sub: any) => {
+                            (progressSubmissions || []).forEach((sub: any) => {
                                 if (sub.item_id !== undefined && sub.item_id !== null && sub.hotel_id) {
                                     const isAudited = (sub.score !== undefined && sub.score !== null) || sub.is_na === true || String(sub.is_na) === 'true';
                                     if (isAudited) {
@@ -9819,6 +9912,25 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                     </td>
                                                                     <td className="px-6 py-4 text-right">
                                                                         <div className="flex items-center justify-end gap-2">
+                                                                            {isHotelAuditLocked(h) ? (
+                                                                                <button
+                                                                                    onClick={() => handleSetAuditLock(h, false)}
+                                                                                    className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-rose-700 hover:text-rose-800 bg-rose-50 hover:bg-rose-100/80 px-3 py-2 rounded-xl border border-rose-200/60 active:scale-95 transition-all shadow-2xs"
+                                                                                    title="Audit is locked: the hotel cannot upload evidence or continue. Click to unlock."
+                                                                                >
+                                                                                    <Lock size={11} />
+                                                                                    <span>Locked</span>
+                                                                                </button>
+                                                                            ) : (
+                                                                                <button
+                                                                                    onClick={() => handleSetAuditLock(h, true)}
+                                                                                    className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-slate-700 hover:text-slate-900 bg-slate-50 hover:bg-slate-100/80 px-3 py-2 rounded-xl border border-slate-200/60 active:scale-95 transition-all shadow-2xs"
+                                                                                    title="Lock audit: the hotel's Continue button is disabled and no new evidence can be uploaded."
+                                                                                >
+                                                                                    <Lock size={11} />
+                                                                                    <span>Lock Audit</span>
+                                                                                </button>
+                                                                            )}
                                                                             {finalInfo.is_finalized && (
                                                                                 <button
                                                                                     onClick={() => handleUnlockHotel(h.id)}
@@ -10382,8 +10494,8 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
 
             {/* Batch Form Dialog */}
             {isBatchFormOpen && (() => {
-                const availableHotels = hotels.filter(h => !assignedHotelIds.includes(h.id));
-                const assignedHotels = hotels.filter(h => assignedHotelIds.includes(h.id));
+                const availableHotels = includedHotels.filter(h => !assignedHotelIds.includes(h.id));
+                const assignedHotels = includedHotels.filter(h => assignedHotelIds.includes(h.id));
 
                 const filteredAvailable = availableHotels.filter(h => 
                     h.name.toLowerCase().includes(availableSearchQuery.toLowerCase()) ||
@@ -11543,7 +11655,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                     
                                     {/* Scrollable multi-select container */}
                                     <div className="max-h-[160px] overflow-y-auto border border-slate-200 rounded-xl p-2.5 space-y-1 bg-slate-50 divide-y divide-slate-100">
-                                        {hotels.filter(h => 
+                                        {includedHotels.filter(h => 
                                             h.name.toLowerCase().includes(adminHotelSearch.toLowerCase()) ||
                                             (h.code && h.code.toLowerCase().includes(adminHotelSearch.toLowerCase()))
                                         ).map(h => {
@@ -11574,7 +11686,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                 </label>
                                             );
                                         })}
-                                        {hotels.filter(h => 
+                                        {includedHotels.filter(h => 
                                             h.name.toLowerCase().includes(adminHotelSearch.toLowerCase()) ||
                                             (h.code && h.code.toLowerCase().includes(adminHotelSearch.toLowerCase()))
                                         ).length === 0 && (
@@ -11585,7 +11697,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                     {/* Tag pills */}
                                     {userFormHotelIds.length > 0 && (
                                         <div className="flex flex-wrap gap-1.5 pt-1.5">
-                                            {hotels.filter(h => userFormHotelIds.includes(h.id)).map(h => (
+                                            {includedHotels.filter(h => userFormHotelIds.includes(h.id)).map(h => (
                                                 <span 
                                                     key={h.id}
                                                     className="inline-flex items-center gap-1 pl-2 pr-1.5 py-0.5 bg-indigo-50 border border-indigo-100 rounded-md text-[10px] font-bold text-indigo-950"
@@ -12343,7 +12455,8 @@ CREATE POLICY "Allow public delete auditor_category_assignments" ON auditor_cate
                                     <div className="relative bg-slate-950 border border-slate-800 rounded-2xl p-4 font-mono text-[11px] text-emerald-300 overflow-x-auto leading-relaxed">
                                         <button
                                             onClick={() => {
-                                                const sqlText = `CREATE TABLE IF NOT EXISTS hotel_audit_status (\n    hotel_id VARCHAR(100) PRIMARY KEY,\n    is_finalized BOOLEAN DEFAULT false,\n    finalized_by VARCHAR(255),\n    finalized_at TIMESTAMP WITH TIME ZONE,\n    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL\n);\n\nALTER TABLE hotel_audit_status ENABLE ROW LEVEL SECURITY;\n\nCREATE POLICY "Allow public read hotel_audit_status" ON hotel_audit_status FOR SELECT USING (true);\nCREATE POLICY "Allow public insert/update hotel_audit_status" ON hotel_audit_status FOR ALL USING (true);`;
+                                                const sqlText = `CREATE TABLE IF NOT EXISTS hotel_audit_status (\n    hotel_id VARCHAR(100) PRIMARY KEY,\n    is_finalized BOOLEAN DEFAULT false,\n    finalized_by VARCHAR(255),\n    finalized_at TIMESTAMP WITH TIME ZONE,\n    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL\n);\n\nALTER TABLE hotel_audit_status ADD COLUMN IF NOT EXISTS is_locked BOOLEAN DEFAULT false;
+ALTER TABLE hotel_audit_status ENABLE ROW LEVEL SECURITY;\n\nCREATE POLICY "Allow public read hotel_audit_status" ON hotel_audit_status FOR SELECT USING (true);\nCREATE POLICY "Allow public insert/update hotel_audit_status" ON hotel_audit_status FOR ALL USING (true);`;
                                                 navigator.clipboard.writeText(sqlText);
                                                 setCopiedSql(true);
                                                 setTimeout(() => setCopiedSql(false), 2500);
@@ -12373,6 +12486,7 @@ CREATE TABLE IF NOT EXISTS hotel_audit_status (
 );
 
 -- Enable Row Level Security & set access policies
+ALTER TABLE hotel_audit_status ADD COLUMN IF NOT EXISTS is_locked BOOLEAN DEFAULT false;
 ALTER TABLE hotel_audit_status ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "Allow public read hotel_audit_status" ON hotel_audit_status FOR SELECT USING (true);
@@ -12687,7 +12801,7 @@ CREATE POLICY "Public Delete" ON storage.objects FOR DELETE USING ( bucket_id = 
                             <div className="flex justify-end">
                                 <button
                                     onClick={() => {
-                                        const matchingHotels = hotels.filter(hotel => {
+                                        const matchingHotels = includedHotels.filter(hotel => {
                                             if (hotel.id === 'sbi-test' || hotel.id === 'sbi-dummy') return false;
                                             const matches = statsModalType === 'auditees' ? !profilesList.some(p => {
                                                 const isAuditee = p.access_level !== 'admin' && p.access_level !== 'auditor';
@@ -12759,7 +12873,7 @@ CREATE POLICY "Public Delete" ON storage.objects FOR DELETE USING ( bucket_id = 
                             {/* Hotel list container */}
                             <div className="border border-slate-100 rounded-2xl bg-slate-50/50 max-h-[300px] overflow-y-auto divide-y divide-slate-100">
                                 {(() => {
-                                    const filteredList = hotels.filter(hotel => {
+                                    const filteredList = includedHotels.filter(hotel => {
                                         if (hotel.id === 'sbi-test' || hotel.id === 'sbi-dummy') return false;
                                         const matches = statsModalType === 'auditees' ? !profilesList.some(p => {
                                             const isAuditee = p.access_level !== 'admin' && p.access_level !== 'auditor';

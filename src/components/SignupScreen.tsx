@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { User, Building2, Briefcase, ChevronDown, Check, Search, Sparkles, Building, LogOut, Loader2, X } from 'lucide-react';
 import { supabase, HOTELS_URL, HOTELS_KEY } from '../lib/supabase';
+import { withoutExcludedHotels } from '../lib/hotelExclusion';
 
 interface Hotel {
     id: string;
@@ -126,7 +127,7 @@ export default function SignupScreen({ onComplete, onLogout }: SignupScreenProps
                                 brandClass: item.brandClass || item.brand_class || item.brand || 'Swiss-Belhotel',
                                 region: region,
                                 country: country,
-                                stars: item.stars ? Number(item.stars) : 4
+                                stars: Number(item.stars ?? item.star_rating) || 4
                             };
                         });
 
@@ -139,7 +140,7 @@ export default function SignupScreen({ onComplete, onLogout }: SignupScreenProps
                             h.id !== 'sbi-dummy'
                         );
 
-                        setHotels(filtered);
+                        setHotels(withoutExcludedHotels(filtered));
                     } else {
                         setHotels(FALLBACK_HOTELS);
                     }

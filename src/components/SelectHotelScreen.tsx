@@ -4,6 +4,7 @@ import { Hotel } from '../types';
 import { HARDCODED_TEST_HOTELS } from '../lib/constants';
 import { Building, Building2, Search, LogOut, ArrowRight, Sparkles, Loader2, RefreshCw } from 'lucide-react';
 import { apiCache } from '../lib/cache';
+import { withoutExcludedHotels } from '../lib/hotelExclusion';
 
 interface SelectHotelScreenProps {
     userProfile: any;
@@ -71,7 +72,7 @@ export default function SelectHotelScreen({ userProfile, onSelectHotel, onLogout
                                 brandClass: item.brandClass || item.brand_class || item.brand || 'Swiss-Belhotel',
                                 region: region,
                                 country: country,
-                                stars: item.stars ? Number(item.stars) : 4
+                                stars: Number(item.stars ?? item.star_rating) || 4
                             };
                         });
 
@@ -95,7 +96,7 @@ export default function SelectHotelScreen({ userProfile, onSelectHotel, onLogout
 
                 // Filter to only those assigned to current user
                 const filtered = fullList.filter(h => assignedHotelIds.includes(h.id));
-                setHotels(filtered);
+                setHotels(withoutExcludedHotels(filtered));
             } catch (err: any) {
                 console.error("Error loading assigned hotels:", err);
                 setError(err.message || 'Unable to connect to Swiss-Belhotel database. Please refresh or retry.');

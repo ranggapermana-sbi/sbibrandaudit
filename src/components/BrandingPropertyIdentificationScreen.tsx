@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronRight, Camera, Loader2, CheckCircle2, Image as ImageIcon, FileUp, Hash, Type, CheckSquare, UploadCloud, X, AlertCircle, RefreshCw, User, Lock, Unlock, Eye, Check, ExternalLink } from 'lucide-react';
 import { supabase, HOTELS_URL, HOTELS_KEY } from '../lib/supabase';
+import { isExcludedHotel } from '../lib/hotelExclusion';
 
 interface BrandingPropertyProps {
   selectedCategory: any;
@@ -1552,7 +1553,7 @@ export default function BrandingPropertyIdentificationScreen({ selectedCategory,
                 if (response.ok) {
                     const data = await response.json();
                     if (Array.isArray(data)) {
-                        const mapped = data.map((item: any) => {
+                        const mapped = data.filter((item: any) => !isExcludedHotel({ stars: item.stars ?? item.star_rating })).map((item: any) => {
                             const rawCode = item.code ? String(item.code).trim().toUpperCase() : '';
                             const rawId = item.id !== undefined && item.id !== null ? String(item.id) : '';
                             const fallbackId = item.hotel_id !== undefined && item.hotel_id !== null ? String(item.hotel_id) : '';

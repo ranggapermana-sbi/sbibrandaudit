@@ -36,6 +36,8 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
   const [submissionsMap, setSubmissionsMap] = useState<Record<string, any>>({});
   const [inspectionScores, setInspectionScores] = useState<Record<string, number | string>>({});
   const [inspectionComments, setInspectionComments] = useState<Record<string, string>>({});
+  // Set by an administrator: the self-audit can no longer be continued or evidence uploaded
+  const [isAuditLocked, setIsAuditLocked] = useState(false);
 
   // Toggle single audit item expansion
   const toggleAuditItem = (itemId: string | number) => {
@@ -371,6 +373,19 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
         userProfile?.hotel_id ? String(userProfile.hotel_id) : null,
         userProfile?.hotel_code ? String(userProfile.hotel_code) : null
       ].filter(Boolean) as string[]));
+
+      // Audit lock from the admin panel (hotel_audit_status.is_locked); if the column is missing, the hotel stays unlocked
+      try {
+        const { data: statusRows, error: statusError } = await supabase
+          .from('hotel_audit_status')
+          .select('hotel_id, is_locked')
+          .in('hotel_id', possibleHotelIds);
+        if (statusError) throw statusError;
+        setIsAuditLocked((statusRows || []).some((row: any) => row.is_locked === true));
+      } catch (lockErr) {
+        console.warn("Could not read audit lock status:", lockErr);
+        setIsAuditLocked(false);
+      }
 
       const targetHotelIdsLower = new Set(possibleHotelIds.map(id => String(id).toLowerCase()));
 
@@ -952,9 +967,9 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
 
         <section className="mb-6 sm:mb-10">
             <div 
-              onClick={onViewPending} 
-              className="bg-gradient-to-br from-emerald-50/80 via-emerald-50/30 to-white p-5 sm:p-7 rounded-2xl sm:rounded-3xl border-2 border-emerald-500/60 shadow-md cursor-pointer hover:border-emerald-600 hover:shadow-xl hover:scale-[1.005] transition-all duration-300 group relative overflow-hidden flex flex-col md:flex-row md:items-center justify-between gap-6"
-              title="Click to perform self-audit and upload evidence photos"
+              onClick={isAuditLocked ? undefined : onViewPending} 
+              className={`bg-gradient-to-br from-emerald-50/80 via-emerald-50/30 to-white p-5 sm:p-7 rounded-2xl sm:rounded-3xl border-2 border-emerald-500/60 shadow-md ${isAuditLocked ? 'cursor-not-allowed opacity-80' : 'cursor-pointer hover:border-emerald-600 hover:shadow-xl hover:scale-[1.005]'} transition-all duration-300 group relative overflow-hidden flex flex-col md:flex-row md:items-center justify-between gap-6`}
+              title={isAuditLocked ? 'Audit locked by the administrator. Evidence uploads are closed.' : 'Click to perform self-audit and upload evidence photos'}
             >
                 {/* Decorative background element */}
                 <div className="absolute right-0 bottom-0 w-36 h-36 bg-emerald-100/50 rounded-full blur-3xl -z-10 group-hover:bg-emerald-100/70 transition-all duration-300" />
@@ -967,6 +982,11 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
                         <div>
                             <span className="text-[10px] font-black tracking-widest text-emerald-600 uppercase">Self-Audit Portal</span>
                             <h3 className="text-base sm:text-lg font-extrabold text-slate-900 tracking-tight leading-tight mt-0.5">Checklist Progress</h3>
+                            {isAuditLocked && (
+                                <p className="text-xs font-bold text-rose-600 mt-1 flex items-center gap-1.5">
+                                    <Lock size={12} /> Audit locked by the administrator. Evidence uploads are closed.
+                                </p>
+                            )}
                         </div>
                     </div>
 
@@ -1032,8 +1052,13 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
                         </p>
                     </div>
                     
-                    <button className="bg-emerald-600 group-hover:bg-emerald-700 text-white font-extrabold px-5 py-2.5 rounded-xl text-xs sm:text-sm flex items-center gap-1.5 shadow-md shadow-emerald-500/10 group-hover:translate-x-1 transition-all">
-                        <span>Continue</span>
+                    <button
+                        type="button"
+                        disabled={isAuditLocked}
+                        className={`${isAuditLocked ? 'bg-slate-300 text-slate-600 cursor-not-allowed' : 'bg-emerald-600 group-hover:bg-emerald-700 text-white shadow-md shadow-emerald-500/10 group-hover:translate-x-1'} font-extrabold px-5 py-2.5 rounded-xl text-xs sm:text-sm flex items-center gap-1.5 transition-all`}
+                    >
+                        {isAuditLocked ? <Lock size={14} /> : null}
+                        <span>{isAuditLocked ? 'Audit Locked' : 'Continue'}</span>
                         <ChevronRight size={14} />
                     </button>
                 </div>
