@@ -21,13 +21,32 @@ export interface CertificateCategoryScore {
     percentage: number | null;
 }
 
+export interface CertificateBonusRow {
+    label: string;
+    passed: number;
+    rate: number;
+    points: number;
+}
+
 export interface CertificateInput {
     hotelName: string;
     hotelCode: string;
     status: 'passed' | 'failed' | 'not_audited';
+    // Final score: audit percentage plus bonus, capped at 100
     overallPercentage: number | null;
+    basePercentage: number | null;
+    bonusRows: CertificateBonusRow[];
+    bonusTotal: number;
     categories: CertificateCategoryScore[];
     weightedTotal: number;
+}
+
+export interface CertificateResult {
+    status: 'passed' | 'failed' | 'not_audited';
+    percentage: number | null;
+    basePercentage: number | null;
+    bonusRows: CertificateBonusRow[];
+    bonusTotal: number;
 }
 
 interface ResultCategory {
@@ -45,8 +64,7 @@ interface DepartmentRef {
 // Builds the certificate figures from one hotel's audit result. Bonus categories carry no points and are left out.
 export const buildCertificateInput = (
     hotel: { name: string; code: string },
-    status: 'passed' | 'failed' | 'not_audited',
-    overallPercentage: number | null,
+    result: CertificateResult,
     resultCategories: ResultCategory[],
     departments: DepartmentRef[]
 ): CertificateInput => {
@@ -72,8 +90,11 @@ export const buildCertificateInput = (
     return {
         hotelName: hotel.name,
         hotelCode: hotel.code,
-        status,
-        overallPercentage,
+        status: result.status,
+        overallPercentage: result.percentage,
+        basePercentage: result.basePercentage,
+        bonusRows: result.bonusRows,
+        bonusTotal: result.bonusTotal,
         categories,
         weightedTotal: Math.round(weightedTotal * 10) / 10
     };
@@ -213,7 +234,17 @@ const drawSummaryPage = (doc: jsPDF, input: CertificateInput, logo: string | nul
     const passed = input.status === 'passed';
     const statusWord = passed ? 'PASSED' : 'FAILED';
     const statusColor = passed ? PASS_GREEN : FAIL_RED;
-    const statusY = totalY + 22;
+    // Bonus addition: each passed bonus item adds its department's rate on top of the audit score
+    const bonusY = totalY + 18;
+    const bonusText = input.bonusRows
+        .map(row => `${row.label} +${row.points}% (${row.passed} passed)`)
+        .join('   |   ');
+    drawCentered(doc, `Bonus addition:  ${bonusText}`, bonusY, 'helvetica', 'normal', 8.5, MUTED);
+    const baseText = input.basePercentage !== null ? `${input.basePercentage}%` : '—';
+    const finalText = input.overallPercentage !== null ? `${input.overallPercentage}%` : '—';
+    drawCentered(doc, `Audit score ${baseText}  +  bonus ${input.bonusTotal}%  =  final score ${finalText}`, bonusY + 6, 'helvetica', 'bold', 10, INK);
+
+    const statusY = totalY + 34;
     drawCentered(doc, passed ? 'demonstrated exceptional performance,' : 'did not yet meet the required standard,', statusY, 'helvetica', 'normal', 11);
     drawMixedCentered(doc, [
         { text: 'earning a status of ' },

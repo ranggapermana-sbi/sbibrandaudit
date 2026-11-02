@@ -4,6 +4,7 @@ import { supabase, HOTELS_URL, HOTELS_KEY } from '../lib/supabase';
 import { apiCache } from '../lib/cache';
 import { withoutExcludedHotels } from '../lib/hotelExclusion';
 import { buildCertificateInput, downloadHotelCertificate } from '../lib/certificate';
+import { BONUS_RULES, bonusRuleForCategory, bonusCategoryAppliesTo } from '../lib/bonusRules';
 
 import { Department, Hotel, AuditBatch, AuditCategory, AuditItem, AuditGroup } from '../types';
 import { DEFAULT_DEPARTMENTS, DEFAULT_CATEGORIES, DEFAULT_HOTELS, DEFAULT_BATCHES, DEFAULT_GROUPS, DEFAULT_OFFLINE_ITEMS, HARDCODED_TEST_HOTELS } from '../lib/constants';
@@ -2599,50 +2600,77 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                     });
                 });
 
-                // Zero-point (bonus) items have no points to earn: each one is a pass (score above 0) or a fail (score 0)
-                const categoryTotals = new Map<string, { earned: number; max: number; bonusPassed: number; bonusFailed: number }>();
+                // Scored items with points feed the audit percentage. Items in BONUS categories are not scored by points:
+                // a passed item (score above 0) adds its department's bonus rate on top of the audit percentage.
+                const categoryTotals = new Map<string, { earned: number; max: number }>();
+                const bonusCategories = new Map<string, { passed: number; failed: number }>();
+                const bonusPassedByDepartment = new Map<string, number>();
                 perItem.forEach((value, itemKey) => {
                     if (value.isNa || value.score === null) return;
                     const item = itemById.get(itemKey);
                     if (!item) return;
-                    const maxPts = item.points ?? 5;
-                    const earned = value.score > 0 ? Math.min(value.score, maxPts) : 0;
                     const catKey = String(item.categoryId);
-                    const totals = categoryTotals.get(catKey) ?? { earned: 0, max: 0, bonusPassed: 0, bonusFailed: 0 };
-                    if (maxPts === 0) {
-                        if (value.score > 0) totals.bonusPassed += 1;
-                        else totals.bonusFailed += 1;
-                    } else {
-                        totals.earned += earned;
-                        totals.max += maxPts;
+                    const catName = categoryNameById.get(catKey) || '';
+
+                    const bonusRule = bonusRuleForCategory(catName);
+                    if (bonusRule) {
+                        if (!bonusCategoryAppliesTo(catName, hotel.brandClass || '')) return;
+                        const stats = bonusCategories.get(catKey) ?? { passed: 0, failed: 0 };
+                        if (value.score > 0) {
+                            stats.passed += 1;
+                            bonusPassedByDepartment.set(bonusRule.department, (bonusPassedByDepartment.get(bonusRule.department) ?? 0) + 1);
+                        } else {
+                            stats.failed += 1;
+                        }
+                        bonusCategories.set(catKey, stats);
+                        return;
                     }
+
+                    const maxPts = item.points ?? 5;
+                    if (maxPts === 0) return;
+                    const earned = value.score > 0 ? Math.min(value.score, maxPts) : 0;
+                    const totals = categoryTotals.get(catKey) ?? { earned: 0, max: 0 };
+                    totals.earned += earned;
+                    totals.max += maxPts;
                     categoryTotals.set(catKey, totals);
                 });
 
-                const categories = Array.from(categoryTotals.entries())
-                    .map(([catId, totals]) => {
-                        const isBonus = totals.max === 0;
-                        const bonusStatus: 'passed' | 'failed' | null = isBonus
-                            ? (totals.bonusFailed === 0 ? 'passed' : 'failed')
-                            : null;
-                        return {
-                            id: catId,
-                            name: categoryNameById.get(catId) || 'Uncategorised',
-                            departmentId: categoryDepartmentById.get(catId) || '',
-                            earned: totals.earned,
-                            max: totals.max,
-                            isBonus,
-                            bonusStatus,
-                            percentage: isBonus
-                                ? (bonusStatus === 'passed' ? 100 : 0)
-                                : (totals.max > 0 ? Math.round((totals.earned / totals.max) * 100) : 0)
-                        };
-                    })
-                    .sort((a, b) => a.name.localeCompare(b.name));
+                const scoredCategories = Array.from(categoryTotals.entries()).map(([catId, totals]) => ({
+                    id: catId,
+                    name: categoryNameById.get(catId) || 'Uncategorised',
+                    departmentId: categoryDepartmentById.get(catId) || '',
+                    earned: totals.earned,
+                    max: totals.max,
+                    isBonus: false,
+                    bonusStatus: null as 'passed' | 'failed' | null,
+                    percentage: totals.max > 0 ? Math.round((totals.earned / totals.max) * 100) : 0,
+                    bonusPoints: 0
+                }));
+                // Bonus categories are listed in the breakdown as passed when no applicable item failed
+                const bonusCategoryRows = Array.from(bonusCategories.entries()).map(([catId, stats]) => ({
+                    id: catId,
+                    name: categoryNameById.get(catId) || 'Bonus',
+                    departmentId: categoryDepartmentById.get(catId) || '',
+                    earned: 0,
+                    max: 0,
+                    isBonus: true,
+                    bonusStatus: (stats.failed === 0 ? 'passed' : 'failed') as 'passed' | 'failed',
+                    percentage: stats.failed === 0 ? 100 : 0,
+                    // Bonus this category adds: passed items times the department rate
+                    bonusPoints: stats.passed * (bonusRuleForCategory(categoryNameById.get(catId) || '')?.rate ?? 0)
+                }));
+                const categories = [...scoredCategories, ...bonusCategoryRows].sort((a, b) => a.name.localeCompare(b.name));
 
-                const totalEarned = categories.reduce((sum, c) => sum + c.earned, 0);
-                const totalMax = categories.reduce((sum, c) => sum + c.max, 0);
-                const percentage = totalMax > 0 ? Math.round((totalEarned / totalMax) * 100) : null;
+                const bonusRows = BONUS_RULES.map(rule => {
+                    const passed = bonusPassedByDepartment.get(rule.department) ?? 0;
+                    return { label: rule.department, passed, rate: rule.rate, points: passed * rule.rate };
+                });
+                const bonusTotal = bonusRows.reduce((sum, row) => sum + row.points, 0);
+
+                const totalEarned = scoredCategories.reduce((sum, c) => sum + c.earned, 0);
+                const totalMax = scoredCategories.reduce((sum, c) => sum + c.max, 0);
+                const basePercentage = totalMax > 0 ? Math.round((totalEarned / totalMax) * 100) : null;
+                const percentage = basePercentage === null ? null : Math.min(100, basePercentage + bonusTotal);
                 const status: 'passed' | 'failed' | 'not_audited' =
                     percentage === null ? 'not_audited' : percentage >= AUDIT_PASS_THRESHOLD ? 'passed' : 'failed';
 
@@ -2651,6 +2679,9 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                     name: hotel.name,
                     code: hotel.code || '',
                     percentage,
+                    basePercentage,
+                    bonusRows,
+                    bonusTotal,
                     status,
                     categories
                 };
@@ -2663,13 +2694,21 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         code: string;
         status: 'passed' | 'failed' | 'not_audited';
         percentage: number | null;
+        basePercentage: number | null;
+        bonusRows: { label: string; passed: number; rate: number; points: number }[];
+        bonusTotal: number;
         categories: { departmentId: string; earned: number; max: number; isBonus: boolean }[];
     }) => {
         try {
             const input = buildCertificateInput(
                 { name: result.name, code: result.code },
-                result.status,
-                result.percentage,
+                {
+                    status: result.status,
+                    percentage: result.percentage,
+                    basePercentage: result.basePercentage,
+                    bonusRows: result.bonusRows,
+                    bonusTotal: result.bonusTotal
+                },
                 result.categories,
                 departments
             );
@@ -9343,6 +9382,11 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                             <div className="mt-2 flex items-center gap-3">
                                                 {statusBadge(selectedResult.status)}
                                                 <span className="text-2xl font-black text-slate-900">{selectedResult.percentage !== null ? `${selectedResult.percentage}%` : '—'}</span>
+                                                {selectedResult.bonusTotal > 0 && (
+                                                    <span className="text-xs font-bold text-emerald-700">
+                                                        incl. +{selectedResult.bonusTotal}% bonus ({selectedResult.basePercentage}% audit)
+                                                    </span>
+                                                )}
                                             </div>
                                         </div>
                                         <div className="flex flex-wrap items-center gap-4">
@@ -9441,7 +9485,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                                                 <span>
                                                                                     {cat.isBonus ? (
                                                                                         <span className={cat.bonusStatus === 'passed' ? 'text-emerald-700' : 'text-rose-700'}>
-                                                                                            {cat.bonusStatus === 'passed' ? 'Passed' : 'Failed'} <span className="text-slate-400 font-semibold">(bonus, no points)</span>
+                                                                                            {cat.bonusStatus === 'passed' ? 'Passed' : 'Failed'} <span className="text-slate-400 font-semibold">(bonus +{cat.bonusPoints}%)</span>
                                                                                         </span>
                                                                                     ) : (
                                                                                         <>{cat.percentage}% <span className="text-slate-400 font-semibold">({cat.earned}/{cat.max} pts)</span></>
