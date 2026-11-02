@@ -147,7 +147,7 @@ const getAlignedMainUrl = (rawUrl: string, key: string): string => {
 const MAIN_URL = getAlignedMainUrl(MAIN_URL_RAW, MAIN_KEY);
 
 export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { userProfile: any, onBack: () => void, onLogout: () => void }) {
-    const [subView, setSubView] = useState<'dashboard' | 'departments' | 'hotels' | 'batches' | 'categories' | 'items' | 'groups' | 'users' | 'access' | 'inspection' | 'inspection_v2' | 'auditor_assignment' | 'progress_report'>('dashboard');
+    const [subView, setSubView] = useState<'dashboard' | 'departments' | 'hotels' | 'batches' | 'categories' | 'items' | 'groups' | 'users' | 'access' | 'inspection' | 'inspection_v2' | 'auditor_assignment' | 'progress_report' | 'audit_results'>('dashboard');
     const [progressRegionFilter, setProgressRegionFilter] = useState<string>('');
     const [progressCountryFilter, setProgressCountryFilter] = useState<string>('');
     const [progressBrandFilter, setProgressBrandFilter] = useState<string>('');
@@ -383,7 +383,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             // 4. Update local states so that UI updates instantly
             setAllSubmissions(prev => prev.filter(sub => String(sub.hotel_id).toLowerCase() !== String(hId).toLowerCase()));
             // Reload from the database so the report shows what was actually deleted, not the local guess
-            fetchProgressSubmissions();
+            fetchProgressSubmissions(true);
             fetchAllSubmissions();
             setFinalizedStatuses(prev => {
                 const updated = { ...prev };
@@ -567,7 +567,8 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
             // Prepare new entries based on normalized keys
             const subviewMap: Record<string, string> = {
                 'Dashboard': 'dashboard',
-                'Audit Report & Inspection': 'inspection', 
+                'Audit Report & Inspection': 'inspection',
+                'Audit Results': 'audit_results',
                 'Recent Activity': 'dashboard',
                 'Hotels': 'hotels',
                 'Departments': 'departments',
@@ -1233,22 +1234,44 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         }
     }, []);
 
-    // Progress report input. Only the columns the report reads: full rows carry embedded images in `value`,
-    // which makes each page tens of megabytes and lets transfers fail. A failed load keeps the previous data.
+    // Progress report and audit results input. Only the columns they read: full rows carry embedded images in `value`,
+    // which makes each page tens of megabytes. The first load is full; later syncs download only rows changed since the
+    // last sync. A full reload runs every PROGRESS_FULL_RELOAD_MS, because deleted rows are only removed by a full load.
     const [progressSubmissions, setProgressSubmissions] = useState<any[]>([]);
+    const [progressDataLoaded, setProgressDataLoaded] = useState(false);
+    const [progressDataLoading, setProgressDataLoading] = useState(false);
+    const [progressDataError, setProgressDataError] = useState<string | null>(null);
+    const progressRowsRef = useRef<Map<string, any>>(new Map());
+    const progressSyncRef = useRef<{ lastSyncedAt: string | null; lastFullLoadAt: number }>({ lastSyncedAt: null, lastFullLoadAt: 0 });
+    const PROGRESS_FULL_RELOAD_MS = 10 * 60 * 1000;
+    // Re-read slightly before the last sync point, so rows written during the previous request are not missed
+    const PROGRESS_SYNC_OVERLAP_MS = 60 * 1000;
 
-    const fetchProgressSubmissions = useCallback(async () => {
+    const fetchProgressSubmissions = useCallback(async (forceFull = false) => {
         const pageSize = 1000;
         const maxAttempts = 3;
-        const fetched: any[] = [];
+        const sync = progressSyncRef.current;
+        const isFullLoad = forceFull || !sync.lastSyncedAt || Date.now() - sync.lastFullLoadAt > PROGRESS_FULL_RELOAD_MS;
+        const since = isFullLoad || !sync.lastSyncedAt
+            ? null
+            : new Date(new Date(sync.lastSyncedAt).getTime() - PROGRESS_SYNC_OVERLAP_MS).toISOString();
+        const syncStartedAt = new Date().toISOString();
+        const changed: any[] = [];
+        let needsFullRetry = false;
+
+        setProgressDataLoading(true);
         try {
             for (let from = 0; from < 50000; from += pageSize) {
                 let page: any[] | null = null;
                 let lastError: any = null;
                 for (let attempt = 1; attempt <= maxAttempts && page === null; attempt++) {
-                    const { data, error } = await supabase
+                    let query = supabase
                         .from('audit_submissions')
-                        .select('hotel_id,item_id,score,is_na')
+                        .select(since ? 'hotel_id,item_id,score,is_na,updated_at' : 'hotel_id,item_id,score,is_na');
+                    if (since) {
+                        query = query.gt('updated_at', since);
+                    }
+                    const { data, error } = await query
                         .order('hotel_id', { ascending: true })
                         .order('item_id', { ascending: true })
                         .range(from, from + pageSize - 1);
@@ -1261,21 +1284,45 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 if (page === null) {
                     throw lastError;
                 }
-                fetched.push(...page);
+                changed.push(...page);
                 if (page.length < pageSize) break;
             }
-            setProgressSubmissions(fetched);
+
+            if (isFullLoad) {
+                progressRowsRef.current = new Map();
+            }
+            changed.forEach((row: any) => progressRowsRef.current.set(`${row.hotel_id}|${row.item_id}`, row));
+            setProgressSubmissions(Array.from(progressRowsRef.current.values()));
+            progressSyncRef.current = {
+                lastSyncedAt: syncStartedAt,
+                lastFullLoadAt: isFullLoad ? Date.now() : sync.lastFullLoadAt
+            };
+            setProgressDataError(null);
+            setProgressDataLoaded(true);
         } catch (e: any) {
             console.error("Error fetching progress submissions:", e);
-            setSupabaseErrorMsg(`Audit progress data not loaded: ${e?.message || 'request failed'}. Showing last loaded values.`);
+            if (since) {
+                // The incremental sync failed (for example, the updated_at column is missing): retry as a full load
+                needsFullRetry = true;
+            } else {
+                const message = e?.message || 'request failed';
+                setProgressDataError(message);
+                setSupabaseErrorMsg(`Audit progress data not loaded: ${message}. Showing last loaded values.`);
+            }
+        } finally {
+            setProgressDataLoading(false);
+        }
+
+        if (needsFullRetry) {
+            return fetchProgressSubmissions(true);
         }
     }, []);
 
     useEffect(() => {
-        if (subView !== 'inspection' && subView !== 'progress_report') return;
+        if (subView !== 'inspection' && subView !== 'progress_report' && subView !== 'audit_results') return;
 
         // The progress report only needs the light progress columns; inspection still needs full rows
-        const refreshSubmissions = subView === 'progress_report' ? fetchProgressSubmissions : fetchAllSubmissions;
+        const refreshSubmissions = subView === 'inspection' ? fetchAllSubmissions : fetchProgressSubmissions;
         refreshSubmissions();
 
         const channel = supabase
@@ -1284,14 +1331,22 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 event: '*',
                 schema: 'public',
                 table: 'audit_submissions'
-            }, () => {
-                refreshSubmissions();
+            }, (payload: any) => {
+                // Deleted rows can only be removed by a full reload; inserts and updates sync incrementally
+                if (payload?.eventType === 'DELETE' && subView !== 'inspection') {
+                    fetchProgressSubmissions(true);
+                } else {
+                    refreshSubmissions();
+                }
             })
             .subscribe();
 
-        // Background fallback polling interval set to 120 seconds (real-time channels handle instant sync)
+        // Background fallback polling interval set to 120 seconds (real-time channels handle instant sync).
+        // Skipped while the tab is hidden, so a background tab does not download data.
         const interval = setInterval(() => {
-            refreshSubmissions();
+            if (!document.hidden) {
+                refreshSubmissions();
+            }
         }, 120000);
 
         return () => {
@@ -2244,7 +2299,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         if (subView === 'hotels' || subView === 'progress_report' || subView === 'inspection') {
             fetchFinalizedStatuses();
         }
-        if (subView === 'progress_report') {
+        if (subView === 'progress_report' || subView === 'audit_results') {
             // Force refresh: the report must not use cached reference data (hotels, groups, items, categories)
             fetchHotelsFromSupabase(true);
             fetchDepartmentsFromSupabase();
@@ -2488,6 +2543,118 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         });
         return map;
     }, [hotels, profilesList]);
+
+    // Audit results: per hotel, points earned against maximum points for each category.
+    // Only scored, non-N/A items count. A hotel passes when its overall percentage reaches AUDIT_PASS_THRESHOLD.
+    const AUDIT_PASS_THRESHOLD = 80;
+    const [auditResultsSearch, setAuditResultsSearch] = useState('');
+    const [selectedAuditResultId, setSelectedAuditResultId] = useState<string | null>(null);
+    // Department groups in the hotel breakdown: keyed by hotel and department, true means collapsed
+    const [collapsedAuditDepartments, setCollapsedAuditDepartments] = useState<Record<string, boolean>>({});
+
+    const auditResults = useMemo(() => {
+        const itemById = new Map<string, AuditItem>();
+        items.forEach(item => itemById.set(String(item.id), item));
+        const categoryNameById = new Map<string, string>();
+        catList.forEach(cat => categoryNameById.set(String(cat.id), cat.name));
+        const categoryDepartmentById = new Map<string, string>();
+        catList.forEach(cat => categoryDepartmentById.set(String(cat.id), cat.departmentId ? String(cat.departmentId) : ''));
+
+        // Submissions per hotel key, then per item. A scored record wins over an unscored one.
+        type SubmissionValue = { score: number | null; isNa: boolean };
+        const submissionsByHotel = new Map<string, Map<string, SubmissionValue>>();
+        progressSubmissions.forEach((sub: any) => {
+            if (!sub.hotel_id || sub.item_id === undefined || sub.item_id === null) return;
+            const hKey = String(sub.hotel_id).trim().toLowerCase();
+            const value: SubmissionValue = {
+                score: sub.score !== undefined && sub.score !== null ? Number(sub.score) : null,
+                isNa: sub.is_na === true || String(sub.is_na) === 'true'
+            };
+            let perItem = submissionsByHotel.get(hKey);
+            if (!perItem) {
+                perItem = new Map<string, SubmissionValue>();
+                submissionsByHotel.set(hKey, perItem);
+            }
+            const itemKey = String(sub.item_id);
+            const existing = perItem.get(itemKey);
+            if (!existing || (existing.score === null && value.score !== null)) {
+                perItem.set(itemKey, value);
+            }
+        });
+
+        return includedHotels
+            .filter(h => h.brandClass !== 'Corporate' && h.id !== 'sbi-test' && h.id !== 'sbi-dummy')
+            .map(hotel => {
+                const idsSet = hotelAssociatedIdsMap.get(String(hotel.id));
+                const possibleIds: string[] = idsSet ? Array.from(idsSet) : [String(hotel.id).trim().toLowerCase()];
+
+                const perItem = new Map<string, SubmissionValue>();
+                possibleIds.forEach(pid => {
+                    submissionsByHotel.get(pid)?.forEach((value, itemKey) => {
+                        const existing = perItem.get(itemKey);
+                        if (!existing || (existing.score === null && value.score !== null)) {
+                            perItem.set(itemKey, value);
+                        }
+                    });
+                });
+
+                // Zero-point (bonus) items have no points to earn: each one is a pass (score above 0) or a fail (score 0)
+                const categoryTotals = new Map<string, { earned: number; max: number; bonusPassed: number; bonusFailed: number }>();
+                perItem.forEach((value, itemKey) => {
+                    if (value.isNa || value.score === null) return;
+                    const item = itemById.get(itemKey);
+                    if (!item) return;
+                    const maxPts = item.points ?? 5;
+                    const earned = value.score > 0 ? Math.min(value.score, maxPts) : 0;
+                    const catKey = String(item.categoryId);
+                    const totals = categoryTotals.get(catKey) ?? { earned: 0, max: 0, bonusPassed: 0, bonusFailed: 0 };
+                    if (maxPts === 0) {
+                        if (value.score > 0) totals.bonusPassed += 1;
+                        else totals.bonusFailed += 1;
+                    } else {
+                        totals.earned += earned;
+                        totals.max += maxPts;
+                    }
+                    categoryTotals.set(catKey, totals);
+                });
+
+                const categories = Array.from(categoryTotals.entries())
+                    .map(([catId, totals]) => {
+                        const isBonus = totals.max === 0;
+                        const bonusStatus: 'passed' | 'failed' | null = isBonus
+                            ? (totals.bonusFailed === 0 ? 'passed' : 'failed')
+                            : null;
+                        return {
+                            id: catId,
+                            name: categoryNameById.get(catId) || 'Uncategorised',
+                            departmentId: categoryDepartmentById.get(catId) || '',
+                            earned: totals.earned,
+                            max: totals.max,
+                            isBonus,
+                            bonusStatus,
+                            percentage: isBonus
+                                ? (bonusStatus === 'passed' ? 100 : 0)
+                                : (totals.max > 0 ? Math.round((totals.earned / totals.max) * 100) : 0)
+                        };
+                    })
+                    .sort((a, b) => a.name.localeCompare(b.name));
+
+                const totalEarned = categories.reduce((sum, c) => sum + c.earned, 0);
+                const totalMax = categories.reduce((sum, c) => sum + c.max, 0);
+                const percentage = totalMax > 0 ? Math.round((totalEarned / totalMax) * 100) : null;
+                const status: 'passed' | 'failed' | 'not_audited' =
+                    percentage === null ? 'not_audited' : percentage >= AUDIT_PASS_THRESHOLD ? 'passed' : 'failed';
+
+                return {
+                    hotelId: String(hotel.id),
+                    name: hotel.name,
+                    code: hotel.code || '',
+                    percentage,
+                    status,
+                    categories
+                };
+            });
+    }, [includedHotels, items, catList, progressSubmissions, hotelAssociatedIdsMap]);
 
     // Pre-index allSubmissions by hotel_id for O(1) submission retrieval per hotel
     const submissionsByHotelMap = useMemo(() => {
@@ -5459,6 +5626,23 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                             <ChevronRight className="text-slate-300 group-hover:text-indigo-600 group-hover:translate-x-1 transition-all" size={18} />
                                         </div>
 
+                                        {/* Audit Results */}
+                                        <div
+                                            onClick={() => { setSubView('audit_results'); setAuditResultsSearch(''); setSelectedAuditResultId(null); }}
+                                            className="flex items-center justify-between p-5 bg-white hover:bg-slate-50/80 rounded-[20px] border border-slate-150/80 cursor-pointer hover:border-emerald-200 active:scale-[0.99] transition-all duration-200 group shadow-[0_4px_24px_rgba(15,23,42,0.01)] hover:shadow-[0_8px_32px_rgba(15,23,42,0.02)]"
+                                        >
+                                            <div className="flex items-center gap-4">
+                                                <div className="w-11 h-11 rounded-2xl bg-emerald-50 text-emerald-700 flex items-center justify-center shrink-0 transition-transform duration-300 group-hover:scale-105">
+                                                    <ClipboardCheck size={20} />
+                                                </div>
+                                                <div>
+                                                    <p className="text-sm font-bold text-slate-800 tracking-tight">Audit Results</p>
+                                                    <p className="text-xs text-slate-400 mt-0.5">Passed or failed result per hotel, with category percentages</p>
+                                                </div>
+                                            </div>
+                                            <ChevronRight className="text-slate-300 group-hover:text-emerald-600 group-hover:translate-x-1 transition-all" size={18} />
+                                        </div>
+
                                         {/* Audit Inspection v2 */}
                                         <div 
                                             onClick={() => { 
@@ -5796,7 +5980,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                     <tbody className="divide-y divide-slate-100">
                                         {[
                                             { parent: 'Dashboard', children: [] },
-                                            { parent: 'Audit & Reporting', children: ['Audit Report & Inspection', 'Recent Activity'] },
+                                            { parent: 'Audit & Reporting', children: ['Audit Report & Inspection', 'Audit Results', 'Recent Activity'] },
                                             { parent: 'Manage Master Data', children: ['Hotels', 'Departments', 'Categories', 'Items', 'Groups', 'Batches'] },
                                             { parent: 'Access Right Management', children: ['User Management', 'Access Rights'] }
                                         ].map((group) => (
@@ -9100,6 +9284,281 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                             </React.Fragment>
                         )}
                     </div>
+                ) : subView === 'audit_results' ? (
+                    (() => {
+                        const statusBadge = (status: 'passed' | 'failed' | 'not_audited') => {
+                            if (status === 'passed') {
+                                return <span className="inline-flex items-center px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-black uppercase tracking-wider">Passed</span>;
+                            }
+                            if (status === 'failed') {
+                                return <span className="inline-flex items-center px-2.5 py-1 rounded-full bg-rose-50 text-rose-700 border border-rose-200 text-[10px] font-black uppercase tracking-wider">Failed</span>;
+                            }
+                            return <span className="inline-flex items-center px-2.5 py-1 rounded-full bg-slate-50 text-slate-600 border border-slate-200 text-[10px] font-black uppercase tracking-wider">Not Audited</span>;
+                        };
+
+                        const selectedResult = selectedAuditResultId ? auditResults.find(r => r.hotelId === selectedAuditResultId) : undefined;
+
+                        if (selectedResult) {
+                            return (
+                                <div className="space-y-6 animate-fadeIn">
+                                    <div>
+                                        <button
+                                            onClick={() => setSelectedAuditResultId(null)}
+                                            className="inline-flex items-center gap-1.5 text-xs font-bold text-indigo-600 bg-indigo-50/50 hover:bg-indigo-100/60 px-3.5 py-1.5 rounded-full border border-indigo-100/50 mb-3 hover:shadow-sm active:scale-95 transition-all outline-none"
+                                        >
+                                            <ArrowLeft size={12} /> Back to Audit Results
+                                        </button>
+                                        <h2 className="text-2xl font-extrabold text-slate-900 tracking-tight">{selectedResult.name}</h2>
+                                        <p className="text-xs text-slate-500 mt-1">{selectedResult.code ? `${selectedResult.code} · ` : ''}Percentage for each audit category</p>
+                                    </div>
+
+                                    <div className="bg-white p-6 rounded-[20px] border border-slate-150/80 shadow-sm flex flex-wrap items-center justify-between gap-4">
+                                        <div>
+                                            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Overall result</p>
+                                            <div className="mt-2 flex items-center gap-3">
+                                                {statusBadge(selectedResult.status)}
+                                                <span className="text-2xl font-black text-slate-900">{selectedResult.percentage !== null ? `${selectedResult.percentage}%` : '—'}</span>
+                                            </div>
+                                        </div>
+                                        <p className="text-xs text-slate-500">Pass mark: {AUDIT_PASS_THRESHOLD}%</p>
+                                    </div>
+
+                                    {selectedResult.categories.length === 0 ? (
+                                        <div className="bg-white p-6 rounded-[20px] border border-slate-150/80 shadow-sm">
+                                            <p className="text-sm text-slate-500">No scored items yet for this hotel.</p>
+                                        </div>
+                                    ) : (() => {
+                                        // Group categories by department, keeping the department name from the admin's department list
+                                        const groupMap = new Map<string, { key: string; name: string; categories: typeof selectedResult.categories }>();
+                                        selectedResult.categories.forEach(cat => {
+                                            const key = cat.departmentId || 'unassigned';
+                                            const existing = groupMap.get(key);
+                                            if (existing) {
+                                                existing.categories.push(cat);
+                                            } else {
+                                                groupMap.set(key, {
+                                                    key,
+                                                    name: departments.find(d => String(d.id) === cat.departmentId)?.name || 'Unassigned',
+                                                    categories: [cat]
+                                                });
+                                            }
+                                        });
+                                        const groups = Array.from(groupMap.values()).sort((a, b) => a.name.localeCompare(b.name));
+                                        const groupKeys = groups.map(g => `${selectedResult.hotelId}|${g.key}`);
+                                        const setAllGroups = (collapsed: boolean) => setCollapsedAuditDepartments(prev => {
+                                            const next = { ...prev };
+                                            groupKeys.forEach(k => { next[k] = collapsed; });
+                                            return next;
+                                        });
+
+                                        return (
+                                            <div className="space-y-4">
+                                                <div className="flex items-center justify-end gap-2">
+                                                    <button
+                                                        onClick={() => setAllGroups(false)}
+                                                        className="text-[10px] font-black uppercase tracking-widest text-indigo-600 hover:text-indigo-800 bg-indigo-50/60 hover:bg-indigo-100/70 px-3 py-1.5 rounded-lg border border-indigo-100/60 transition-all active:scale-95"
+                                                    >
+                                                        Expand all
+                                                    </button>
+                                                    <button
+                                                        onClick={() => setAllGroups(true)}
+                                                        className="text-[10px] font-black uppercase tracking-widest text-slate-600 hover:text-slate-800 bg-slate-50 hover:bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200/60 transition-all active:scale-95"
+                                                    >
+                                                        Collapse all
+                                                    </button>
+                                                </div>
+
+                                                {groups.map(group => {
+                                                    const groupKey = `${selectedResult.hotelId}|${group.key}`;
+                                                    const isOpen = !collapsedAuditDepartments[groupKey];
+                                                    const scoredCategories = group.categories.filter(c => !c.isBonus);
+                                                    const deptEarned = scoredCategories.reduce((sum, c) => sum + c.earned, 0);
+                                                    const deptMax = scoredCategories.reduce((sum, c) => sum + c.max, 0);
+                                                    const deptPercentage = deptMax > 0 ? Math.round((deptEarned / deptMax) * 100) : null;
+
+                                                    return (
+                                                        <div key={groupKey} className="bg-white rounded-[20px] border border-slate-150/80 shadow-sm overflow-hidden">
+                                                            <button
+                                                                onClick={() => setCollapsedAuditDepartments(prev => ({ ...prev, [groupKey]: isOpen }))}
+                                                                className="w-full flex items-center justify-between gap-4 px-6 py-4 bg-slate-50/80 hover:bg-slate-100/80 transition-colors text-left"
+                                                                aria-expanded={isOpen}
+                                                            >
+                                                                <span className="flex items-center gap-2.5">
+                                                                    <ChevronDown size={16} className={`text-slate-500 transition-transform duration-200 ${isOpen ? '' : '-rotate-90'}`} />
+                                                                    <span className="text-sm font-bold text-slate-800">{group.name}</span>
+                                                                    <span className="text-[10px] font-bold text-slate-400">
+                                                                        {group.categories.length} {group.categories.length === 1 ? 'category' : 'categories'}
+                                                                    </span>
+                                                                </span>
+                                                                <span className="text-xs font-black text-slate-700">
+                                                                    {deptPercentage !== null ? `${deptPercentage}%` : 'Bonus'}
+                                                                </span>
+                                                            </button>
+
+                                                            {isOpen && (
+                                                                <div className="p-6 space-y-5">
+                                                                    {group.categories.map(cat => (
+                                                                        <div key={cat.id} className="space-y-1.5">
+                                                                            <div className="flex items-center justify-between text-xs font-bold text-slate-700">
+                                                                                <span>{cat.name}</span>
+                                                                                <span>
+                                                                                    {cat.isBonus ? (
+                                                                                        <span className={cat.bonusStatus === 'passed' ? 'text-emerald-700' : 'text-rose-700'}>
+                                                                                            {cat.bonusStatus === 'passed' ? 'Passed' : 'Failed'} <span className="text-slate-400 font-semibold">(bonus, no points)</span>
+                                                                                        </span>
+                                                                                    ) : (
+                                                                                        <>{cat.percentage}% <span className="text-slate-400 font-semibold">({cat.earned}/{cat.max} pts)</span></>
+                                                                                    )}
+                                                                                </span>
+                                                                            </div>
+                                                                            <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden">
+                                                                                <div
+                                                                                    className={`h-full rounded-full transition-all duration-500 ${(cat.isBonus ? cat.bonusStatus === 'passed' : cat.percentage >= AUDIT_PASS_THRESHOLD) ? 'bg-emerald-500' : 'bg-rose-500'}`}
+                                                                                    style={{ width: `${cat.isBonus ? 100 : cat.percentage}%` }}
+                                                                                />
+                                                                            </div>
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        );
+                                    })()}
+                                </div>
+                            );
+                        }
+
+                        // Until the submissions and the checklist (categories and items) are loaded, results would show every hotel as Not Audited
+                        const referenceDataReady = items.length > 0 && catList.length > 0;
+                        if (!progressDataLoaded || (!referenceDataReady && isSupabaseLoading)) {
+                            const failed = !!progressDataError && !progressDataLoaded;
+                            return (
+                                <div className="space-y-6 animate-fadeIn">
+                                    <div>
+                                        <button
+                                            onClick={() => { setSubView('inspection'); setSearchQuery(''); }}
+                                            className="inline-flex items-center gap-1.5 text-xs font-bold text-indigo-600 bg-indigo-50/50 hover:bg-indigo-100/60 px-3.5 py-1.5 rounded-full border border-indigo-100/50 mb-3 hover:shadow-sm active:scale-95 transition-all outline-none"
+                                        >
+                                            <ArrowLeft size={12} /> Back to Audit Report & Inspection
+                                        </button>
+                                        <h2 className="text-2xl font-extrabold text-slate-900 tracking-tight">Audit Results</h2>
+                                    </div>
+                                    <div className="bg-white p-10 rounded-[20px] border border-slate-150/80 shadow-sm flex flex-col items-center justify-center text-center gap-3">
+                                        {failed ? (
+                                            <>
+                                                <AlertCircle size={32} className="text-rose-500" />
+                                                <p className="text-sm font-bold text-slate-800">Audit data could not be loaded</p>
+                                                <p className="text-xs text-slate-500 max-w-md">{progressDataError}</p>
+                                                <button
+                                                    onClick={() => fetchProgressSubmissions(true)}
+                                                    className="mt-2 inline-flex items-center gap-1.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 px-4 py-2 rounded-full shadow-sm active:scale-95 transition-all"
+                                                >
+                                                    <RefreshCw size={12} /> Try again
+                                                </button>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <Loader2 size={32} className="text-indigo-600 animate-spin" />
+                                                <p className="text-sm font-bold text-slate-800">Loading audit data from the database…</p>
+                                                <p className="text-xs text-slate-500">Results appear once the submissions and the checklist have loaded.</p>
+                                            </>
+                                        )}
+                                    </div>
+                                </div>
+                            );
+                        }
+
+                        const query = auditResultsSearch.trim().toLowerCase();
+                        const rows = auditResults.filter(r =>
+                            !query || r.name.toLowerCase().includes(query) || r.code.toLowerCase().includes(query)
+                        );
+                        const counts: Record<'passed' | 'failed' | 'not_audited', number> = { passed: 0, failed: 0, not_audited: 0 };
+                        auditResults.forEach(r => { counts[r.status] += 1; });
+
+                        return (
+                            <div className="space-y-6 animate-fadeIn">
+                                <div>
+                                    <button
+                                        onClick={() => { setSubView('inspection'); setSearchQuery(''); }}
+                                        className="inline-flex items-center gap-1.5 text-xs font-bold text-indigo-600 bg-indigo-50/50 hover:bg-indigo-100/60 px-3.5 py-1.5 rounded-full border border-indigo-100/50 mb-3 hover:shadow-sm active:scale-95 transition-all outline-none"
+                                    >
+                                        <ArrowLeft size={12} /> Back to Audit Report & Inspection
+                                    </button>
+                                    <h2 className="text-2xl font-extrabold text-slate-900 tracking-tight">Audit Results</h2>
+                                    <p className="text-xs text-slate-500 mt-1">
+                                        A hotel passes at {AUDIT_PASS_THRESHOLD}% or more across its audited items. Click a hotel to see the percentage for each category.
+                                        {progressDataLoading && (
+                                            <span className="ml-2 inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wider text-indigo-600">
+                                                <Loader2 size={10} className="animate-spin" /> Syncing…
+                                            </span>
+                                        )}
+                                    </p>
+                                </div>
+
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                                    <div className="bg-white p-5 rounded-[20px] border border-emerald-200/70 shadow-sm">
+                                        <p className="text-[10px] font-black uppercase tracking-widest text-emerald-600">Passed</p>
+                                        <p className="text-3xl font-black text-slate-900 mt-1">{counts.passed}</p>
+                                    </div>
+                                    <div className="bg-white p-5 rounded-[20px] border border-rose-200/70 shadow-sm">
+                                        <p className="text-[10px] font-black uppercase tracking-widest text-rose-600">Failed</p>
+                                        <p className="text-3xl font-black text-slate-900 mt-1">{counts.failed}</p>
+                                    </div>
+                                    <div className="bg-white p-5 rounded-[20px] border border-slate-200/70 shadow-sm">
+                                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Not Audited</p>
+                                        <p className="text-3xl font-black text-slate-900 mt-1">{counts.not_audited}</p>
+                                    </div>
+                                </div>
+
+                                <div className="bg-white p-4 rounded-2xl border border-slate-150/80 shadow-sm flex items-center gap-3">
+                                    <Search className="text-slate-400 shrink-0" size={18} />
+                                    <input
+                                        type="text"
+                                        value={auditResultsSearch}
+                                        onChange={(e) => setAuditResultsSearch(e.target.value)}
+                                        placeholder="Search hotels by name or code..."
+                                        className="w-full bg-transparent outline-none text-sm font-medium text-slate-700 placeholder:text-slate-400"
+                                    />
+                                </div>
+
+                                <div className="bg-white rounded-[20px] border border-slate-150/80 shadow-sm overflow-x-auto">
+                                    <table className="w-full text-left">
+                                        <thead className="bg-slate-50/80 border-b border-slate-100">
+                                            <tr>
+                                                <th className="px-6 py-3 text-[10px] font-black uppercase tracking-widest text-slate-500">Hotel</th>
+                                                <th className="px-6 py-3 text-[10px] font-black uppercase tracking-widest text-slate-500">Code</th>
+                                                <th className="px-6 py-3 text-[10px] font-black uppercase tracking-widest text-slate-500">Result</th>
+                                                <th className="px-6 py-3 text-[10px] font-black uppercase tracking-widest text-slate-500 text-right">Overall</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-slate-100">
+                                            {rows.length === 0 ? (
+                                                <tr>
+                                                    <td colSpan={4} className="px-6 py-10 text-center text-sm text-slate-400">No hotels match your search.</td>
+                                                </tr>
+                                            ) : (
+                                                rows.map(r => (
+                                                    <tr
+                                                        key={r.hotelId}
+                                                        onClick={() => setSelectedAuditResultId(r.hotelId)}
+                                                        className="cursor-pointer hover:bg-slate-50/80 transition-colors"
+                                                    >
+                                                        <td className="px-6 py-3.5 text-sm font-bold text-slate-800">{r.name}</td>
+                                                        <td className="px-6 py-3.5 text-xs font-mono font-bold text-slate-500">{r.code}</td>
+                                                        <td className="px-6 py-3.5">{statusBadge(r.status)}</td>
+                                                        <td className="px-6 py-3.5 text-sm font-black text-slate-900 text-right">{r.percentage !== null ? `${r.percentage}%` : '—'}</td>
+                                                    </tr>
+                                                ))
+                                            )}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        );
+                    })()
                 ) : subView === 'progress_report' ? (
                     <div className="space-y-6 animate-fadeIn">
                         {/* BACK BUTTON & HEADER */}
