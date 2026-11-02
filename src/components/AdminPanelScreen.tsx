@@ -3,6 +3,7 @@ import { ArrowLeft, CheckCircle, Clock, Building, BarChart3, ChevronRight, Chevr
 import { supabase, HOTELS_URL, HOTELS_KEY } from '../lib/supabase';
 import { apiCache } from '../lib/cache';
 import { withoutExcludedHotels } from '../lib/hotelExclusion';
+import { buildCertificateInput, downloadHotelCertificate } from '../lib/certificate';
 
 import { Department, Hotel, AuditBatch, AuditCategory, AuditItem, AuditGroup } from '../types';
 import { DEFAULT_DEPARTMENTS, DEFAULT_CATEGORIES, DEFAULT_HOTELS, DEFAULT_BATCHES, DEFAULT_GROUPS, DEFAULT_OFFLINE_ITEMS, HARDCODED_TEST_HOTELS } from '../lib/constants';
@@ -2549,7 +2550,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     const AUDIT_PASS_THRESHOLD = 80;
     const [auditResultsSearch, setAuditResultsSearch] = useState('');
     const [selectedAuditResultId, setSelectedAuditResultId] = useState<string | null>(null);
-    // Department groups in the hotel breakdown: keyed by hotel and department, true means collapsed
+    // Department groups in the hotel breakdown: keyed by hotel and department. false means expanded; missing means collapsed (the default)
     const [collapsedAuditDepartments, setCollapsedAuditDepartments] = useState<Record<string, boolean>>({});
 
     const auditResults = useMemo(() => {
@@ -2655,6 +2656,30 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 };
             });
     }, [includedHotels, items, catList, progressSubmissions, hotelAssociatedIdsMap]);
+
+    // Builds and downloads the Brand Excellence certificate for one hotel's audit result
+    const handleDownloadCertificate = async (result: {
+        name: string;
+        code: string;
+        status: 'passed' | 'failed' | 'not_audited';
+        percentage: number | null;
+        categories: { departmentId: string; earned: number; max: number; isBonus: boolean }[];
+    }) => {
+        try {
+            const input = buildCertificateInput(
+                { name: result.name, code: result.code },
+                result.status,
+                result.percentage,
+                result.categories,
+                departments
+            );
+            await downloadHotelCertificate(input);
+        } catch (err) {
+            console.error("Error creating certificate:", err);
+            setToastMessage('Could not create the certificate. Please try again.');
+            setTimeout(() => setToastMessage(null), 4000);
+        }
+    };
 
     // Pre-index allSubmissions by hotel_id for O(1) submission retrieval per hotel
     const submissionsByHotelMap = useMemo(() => {
@@ -9320,7 +9345,18 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                 <span className="text-2xl font-black text-slate-900">{selectedResult.percentage !== null ? `${selectedResult.percentage}%` : '—'}</span>
                                             </div>
                                         </div>
-                                        <p className="text-xs text-slate-500">Pass mark: {AUDIT_PASS_THRESHOLD}%</p>
+                                        <div className="flex flex-wrap items-center gap-4">
+                                            <p className="text-xs text-slate-500">Pass mark: {AUDIT_PASS_THRESHOLD}%</p>
+                                            <button
+                                                onClick={() => handleDownloadCertificate(selectedResult)}
+                                                disabled={selectedResult.status === 'not_audited'}
+                                                title={selectedResult.status === 'not_audited' ? 'Available once the hotel has audited items' : 'Download the brand excellence certificate'}
+                                                className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-indigo-700 hover:text-indigo-900 bg-indigo-50 hover:bg-indigo-100/80 px-3.5 py-2 rounded-xl border border-indigo-200/60 active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100"
+                                            >
+                                                <FileText size={11} />
+                                                <span>Download Certificate</span>
+                                            </button>
+                                        </div>
                                     </div>
 
                                     {selectedResult.categories.length === 0 ? (
@@ -9370,7 +9406,8 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
 
                                                 {groups.map(group => {
                                                     const groupKey = `${selectedResult.hotelId}|${group.key}`;
-                                                    const isOpen = !collapsedAuditDepartments[groupKey];
+                                                    // Departments start collapsed; only an explicit expand opens one
+                                                    const isOpen = collapsedAuditDepartments[groupKey] === false;
                                                     const scoredCategories = group.categories.filter(c => !c.isBonus);
                                                     const deptEarned = scoredCategories.reduce((sum, c) => sum + c.earned, 0);
                                                     const deptMax = scoredCategories.reduce((sum, c) => sum + c.max, 0);
@@ -9532,12 +9569,13 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                 <th className="px-6 py-3 text-[10px] font-black uppercase tracking-widest text-slate-500">Code</th>
                                                 <th className="px-6 py-3 text-[10px] font-black uppercase tracking-widest text-slate-500">Result</th>
                                                 <th className="px-6 py-3 text-[10px] font-black uppercase tracking-widest text-slate-500 text-right">Overall</th>
+                                                <th className="px-6 py-3 text-[10px] font-black uppercase tracking-widest text-slate-500 text-right">Certificate</th>
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-slate-100">
                                             {rows.length === 0 ? (
                                                 <tr>
-                                                    <td colSpan={4} className="px-6 py-10 text-center text-sm text-slate-400">No hotels match your search.</td>
+                                                    <td colSpan={5} className="px-6 py-10 text-center text-sm text-slate-400">No hotels match your search.</td>
                                                 </tr>
                                             ) : (
                                                 rows.map(r => (
@@ -9550,6 +9588,17 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                                                         <td className="px-6 py-3.5 text-xs font-mono font-bold text-slate-500">{r.code}</td>
                                                         <td className="px-6 py-3.5">{statusBadge(r.status)}</td>
                                                         <td className="px-6 py-3.5 text-sm font-black text-slate-900 text-right">{r.percentage !== null ? `${r.percentage}%` : '—'}</td>
+                                                        <td className="px-6 py-3.5 text-right">
+                                                            <button
+                                                                onClick={(e) => { e.stopPropagation(); handleDownloadCertificate(r); }}
+                                                                disabled={r.status === 'not_audited'}
+                                                                title={r.status === 'not_audited' ? 'Available once the hotel has audited items' : 'Download the brand excellence certificate'}
+                                                                className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-indigo-700 hover:text-indigo-900 bg-indigo-50 hover:bg-indigo-100/80 px-3 py-2 rounded-xl border border-indigo-200/60 active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100"
+                                                            >
+                                                                <FileText size={11} />
+                                                                <span>Certificate</span>
+                                                            </button>
+                                                        </td>
                                                     </tr>
                                                 ))
                                             )}
