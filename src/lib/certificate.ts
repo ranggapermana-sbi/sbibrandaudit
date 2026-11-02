@@ -19,6 +19,7 @@ export interface CertificateCategoryScore {
     earned: number;
     max: number;
     percentage: number | null;
+    bonusPoints: number;
 }
 
 export interface CertificateBonusRow {
@@ -80,12 +81,14 @@ export const buildCertificateInput = (
             weight: def.weight,
             earned,
             max,
-            percentage: max > 0 ? Math.round((earned / max) * 100) : null
+            percentage: max > 0 ? Math.round((earned / max) * 100) : null,
+            bonusPoints: result.bonusRows.find(row => row.label === def.department)?.points ?? 0
         };
     });
 
     // Weighted total out of 100: a department with no scored points contributes 0
-    const weightedTotal = categories.reduce((sum, c) => sum + (c.weight * (c.percentage ?? 0)) / 100, 0);
+    // The weighted audit score comes from the calculation, so the table and the final score use the same figure
+    const weightedTotal = result.basePercentage ?? 0;
 
     return {
         hotelName: hotel.name,
@@ -96,7 +99,7 @@ export const buildCertificateInput = (
         bonusRows: result.bonusRows,
         bonusTotal: result.bonusTotal,
         categories,
-        weightedTotal: Math.round(weightedTotal * 10) / 10
+        weightedTotal
     };
 };
 
@@ -174,12 +177,12 @@ const drawSummaryPage = (doc: jsPDF, input: CertificateInput, logo: string | nul
     drawCentered(doc, `The audit was conducted across ${input.categories.length} categories, each weighted based on its overall impact on brand health:`, 50, 'helvetica', 'normal', 9.5, MUTED);
 
     // Table
-    const x0 = 40;
-    const colWidths = [85, 40, 50, 42];
+    const x0 = 31;
+    const colWidths = [78, 36, 46, 38, 38];
     const headerY = 58;
     const headerHeight = 10;
     const rowHeight = 12;
-    const headers = ['CATEGORY', 'AUDIT WEIGHTAGE', 'HOTEL / APPLICABLE FULL SCORE', 'HOTEL % SCORE'];
+    const headers = ['CATEGORY', 'AUDIT WEIGHTAGE', 'HOTEL / APPLICABLE FULL SCORE', 'HOTEL % SCORE', 'BONUS SCORE'];
 
     const colX: number[] = [];
     colWidths.reduce((x, w, i) => { colX[i] = x; return x + w; }, x0);
@@ -215,8 +218,11 @@ const drawSummaryPage = (doc: jsPDF, input: CertificateInput, logo: string | nul
         doc.text(points, colX[2] + colWidths[2] / 2, y + 7.5, { align: 'center' });
 
         doc.setFontSize(12);
-        const pct = cat.percentage !== null ? `${cat.percentage}%` : '—';
+        // Weighted share of the total: the department's percentage multiplied by its audit weightage
+        const pct = cat.max > 0 ? `${((cat.weight * cat.earned) / cat.max).toFixed(2)}%` : '—';
         doc.text(pct, colX[3] + colWidths[3] / 2, y + 7.8, { align: 'center' });
+
+        doc.text(`+${cat.bonusPoints}%`, colX[4] + colWidths[4] / 2, y + 7.8, { align: 'center' });
     });
 
     // Total row
@@ -228,27 +234,32 @@ const drawSummaryPage = (doc: jsPDF, input: CertificateInput, logo: string | nul
     doc.setTextColor(...WHITE);
     doc.text('TOTAL SCORE', colX[0] + colWidths[0] / 2, totalY + 7, { align: 'center' });
     doc.text('100%', colX[1] + colWidths[1] / 2, totalY + 7, { align: 'center' });
-    doc.text(`${input.weightedTotal.toFixed(1)}%`, colX[3] + colWidths[3] / 2, totalY + 7, { align: 'center' });
+    doc.text(`${input.weightedTotal.toFixed(2)}%`, colX[3] + colWidths[3] / 2, totalY + 7, { align: 'center' });
+    doc.text(`+${input.bonusTotal}%`, colX[4] + colWidths[4] / 2, totalY + 7, { align: 'center' });
 
     // Status
     const passed = input.status === 'passed';
     const statusWord = passed ? 'PASSED' : 'FAILED';
     const statusColor = passed ? PASS_GREEN : FAIL_RED;
-    // Bonus addition: each passed bonus item adds its department's rate on top of the audit score
-    const bonusY = totalY + 18;
-    const bonusText = input.bonusRows
-        .map(row => `${row.label} +${row.points}% (${row.passed} passed)`)
-        .join('   |   ');
-    drawCentered(doc, `Bonus addition:  ${bonusText}`, bonusY, 'helvetica', 'normal', 8.5, MUTED);
-    const baseText = input.basePercentage !== null ? `${input.basePercentage}%` : '—';
-    const finalText = input.overallPercentage !== null ? `${input.overallPercentage}%` : '—';
-    drawCentered(doc, `Audit score ${baseText}  +  bonus ${input.bonusTotal}%  =  final score ${finalText}`, bonusY + 6, 'helvetica', 'bold', 10, INK);
+    // Final score row: weighted total plus the bonus
+    const finalY = totalY + 11;
+    doc.setFillColor(122, 84, 42);
+    doc.rect(x0, finalY, tableWidth, 11, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11);
+    doc.setTextColor(...WHITE);
+    const finalText = input.overallPercentage !== null ? input.overallPercentage.toFixed(2) : '—';
+    doc.text(`FINAL SCORE: ${finalText}%`, x0 + tableWidth / 2, finalY + 7.2, { align: 'center' });
 
     const statusY = totalY + 34;
-    drawCentered(doc, passed ? 'demonstrated exceptional performance,' : 'did not yet meet the required standard,', statusY, 'helvetica', 'normal', 11);
+    drawMixedCentered(doc, [
+        { text: input.hotelName, bold: true },
+        { text: passed ? ' demonstrated exceptional performance,' : ' did not yet meet the required standard,' }
+    ], statusY, 11);
     drawMixedCentered(doc, [
         { text: 'earning a status of ' },
-        { text: statusWord, bold: true, color: statusColor }
+        { text: statusWord, bold: true, color: statusColor },
+        { text: '.' }
     ], statusY + 7, 11);
     drawCentered(
         doc,
@@ -322,7 +333,7 @@ export const downloadHotelCertificate = async (input: CertificateInput) => {
     drawSummaryPage(summaryDoc, input, logo);
     const summaryBytes = summaryDoc.output('arraybuffer');
 
-    const scoreText = input.overallPercentage !== null ? `${input.overallPercentage}%` : '—';
+    const scoreText = input.overallPercentage !== null ? `${input.overallPercentage.toFixed(2)}%` : '—';
     const certificate = await writeAwardPage(await loadAwardTemplate(), input.hotelName, scoreText);
 
     // Keep the template's page 1 and replace its page 2 with the generated summary

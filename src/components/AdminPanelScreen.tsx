@@ -3,7 +3,7 @@ import { ArrowLeft, CheckCircle, Clock, Building, BarChart3, ChevronRight, Chevr
 import { supabase, HOTELS_URL, HOTELS_KEY } from '../lib/supabase';
 import { apiCache } from '../lib/cache';
 import { withoutExcludedHotels } from '../lib/hotelExclusion';
-import { buildCertificateInput, downloadHotelCertificate } from '../lib/certificate';
+import { buildCertificateInput, downloadHotelCertificate, CERTIFICATE_WEIGHTS } from '../lib/certificate';
 import { BONUS_RULES, bonusRuleForCategory, bonusCategoryAppliesTo } from '../lib/bonusRules';
 
 import { Department, Hotel, AuditBatch, AuditCategory, AuditItem, AuditGroup } from '../types';
@@ -2667,10 +2667,28 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                 });
                 const bonusTotal = bonusRows.reduce((sum, row) => sum + row.points, 0);
 
-                const totalEarned = scoredCategories.reduce((sum, c) => sum + c.earned, 0);
-                const totalMax = scoredCategories.reduce((sum, c) => sum + c.max, 0);
-                const basePercentage = totalMax > 0 ? Math.round((totalEarned / totalMax) * 100) : null;
-                const percentage = basePercentage === null ? null : Math.min(100, basePercentage + bonusTotal);
+                // Weighted audit score: each department's points percentage times its weightage (40/30/15/15)
+                const departmentTotals = new Map<string, { earned: number; max: number }>();
+                scoredCategories.forEach(c => {
+                    const totals = departmentTotals.get(c.departmentId) ?? { earned: 0, max: 0 };
+                    totals.earned += c.earned;
+                    totals.max += c.max;
+                    departmentTotals.set(c.departmentId, totals);
+                });
+                let weightedScore = 0;
+                let hasPoints = false;
+                CERTIFICATE_WEIGHTS.forEach(def => {
+                    const department = departments.find(d => d.name === def.department);
+                    const totals = department ? departmentTotals.get(String(department.id)) : undefined;
+                    if (totals && totals.max > 0) {
+                        hasPoints = true;
+                        weightedScore += (def.weight * totals.earned) / totals.max;
+                    }
+                });
+                const basePercentage = hasPoints ? Math.round(weightedScore * 100) / 100 : null;
+                const percentage = basePercentage === null
+                    ? null
+                    : Math.min(100, Math.round((basePercentage + bonusTotal) * 100) / 100);
                 const status: 'passed' | 'failed' | 'not_audited' =
                     percentage === null ? 'not_audited' : percentage >= AUDIT_PASS_THRESHOLD ? 'passed' : 'failed';
 
@@ -2686,7 +2704,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                     categories
                 };
             });
-    }, [includedHotels, items, catList, progressSubmissions, hotelAssociatedIdsMap]);
+    }, [includedHotels, items, catList, departments, progressSubmissions, hotelAssociatedIdsMap]);
 
     // Builds and downloads the Brand Excellence certificate for one hotel's audit result
     const handleDownloadCertificate = async (result: {
