@@ -353,7 +353,7 @@ export function useAuditInspectionV2(
 
         // Optimistic local state update
         setSubmissionsMap(prev => {
-            const existing = prev[itemId] || {};
+            const existing: Partial<AuditSubmissionV2> = prev[itemId] || {};
             const isScoreSameAsSaved = existing.saved_score !== undefined &&
                 existing.saved_score === numScore &&
                 Boolean(existing.saved_is_na) === Boolean(isNA);
@@ -384,7 +384,7 @@ export function useAuditInspectionV2(
 
         // Optimistic local state update with raw comment (preserving trailing spaces)
         setSubmissionsMap(prev => {
-            const existing = prev[itemId] || {};
+            const existing: Partial<AuditSubmissionV2> = prev[itemId] || {};
             return {
                 ...prev,
                 [itemId]: {

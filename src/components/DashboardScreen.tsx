@@ -6,7 +6,8 @@ import {
   XCircle, MinusCircle, MessageSquare, MessageSquareText, Eye, ExternalLink, ZoomIn, Copy, 
   Check, ShieldCheck, Download, AlertTriangle, Lock
 } from 'lucide-react';
-import { supabase, HOTELS_URL, HOTELS_KEY } from '../lib/supabase';
+import { supabase } from '../lib/supabase';
+import { fetchMasterHotels } from '../lib/hotelsService';
 import { apiCache } from '../lib/cache';
 
 interface DashboardProps {
@@ -314,24 +315,8 @@ export default function DashboardScreen({ onViewPending, userProfile, onProfileU
       let hotels: any[] = [];
       try {
         hotels = await apiCache.getOrFetch<any[]>('dashboard_hotels', async () => {
-          const response = await fetch(`${HOTELS_URL}hotels?select=*`, {
-            headers: {
-              'apikey': HOTELS_KEY,
-              'Authorization': `Bearer ${HOTELS_KEY}`
-            }
-          });
-          if (response.ok) {
-            const data = await response.json();
-            if (Array.isArray(data)) {
-              return data.map((item: any) => ({
-                id: item.id !== undefined && item.id !== null ? String(item.id) : '',
-                name: item.name || item.hotel_name || '',
-                location: item.location || item.city_country || '',
-                code: item.code || ''
-              }));
-            }
-          }
-          return [];
+          const rows = await fetchMasterHotels(forceRefresh);
+          return rows.map(h => ({ id: h.id, name: h.name, location: h.location, code: h.code }));
         }, { forceRefresh });
       } catch (err) {
         console.warn("Could not fetch hotels in dashboard:", err);

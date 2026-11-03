@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { supabase, HOTELS_URL, HOTELS_KEY } from '../lib/supabase';
+import { supabase } from '../lib/supabase';
+import { fetchMasterHotels } from '../lib/hotelsService';
 import { Hotel } from '../types';
 import { HARDCODED_TEST_HOTELS } from '../lib/constants';
 import { Building, Building2, Search, LogOut, ArrowRight, Sparkles, Loader2, RefreshCw } from 'lucide-react';
@@ -28,70 +29,14 @@ export default function SelectHotelScreen({ userProfile, onSelectHotel, onLogout
             setError('');
             try {
                 const fullList = await apiCache.getOrFetch<Hotel[]>('all_hotels_select', async () => {
-                    const response = await fetch(`${HOTELS_URL}hotels?select=*`, {
-                        headers: {
-                            'apikey': HOTELS_KEY,
-                            'Authorization': `Bearer ${HOTELS_KEY}`
-                        }
-                    });
+                    const mapped = await fetchMasterHotels();
 
-                    if (!response.ok) {
-                        throw new Error(`Failed to load property database: ${response.statusText}`);
-                    }
+                    // Include HQ Corporate if listed or needed
+                    const withHq: Hotel[] = mapped.some(h => h.id === 'sbi-ho')
+                        ? mapped
+                        : [{ id: 'sbi-ho', name: 'Swiss-Belhotel International', location: 'Corporate Headquarters', code: 'HQ', brandClass: 'Corporate', region: 'Asia Pacific' }, ...mapped];
 
-                    const data = await response.json();
-                    if (Array.isArray(data)) {
-                        const mapped: Hotel[] = data.map((item: any) => {
-                            const rawId = item.id !== undefined && item.id !== null ? String(item.id) : '';
-                            const fallbackId = item.hotel_id !== undefined && item.hotel_id !== null ? String(item.hotel_id) : '';
-                            const finalId = rawId || fallbackId || item.code || String(item.name || '').replace(/\s+/g, '-').toLowerCase();
-                            
-                            let country = item.country || '';
-                            const parts = (item.location || item.city_country || '').split(',');
-                            if (!country && parts.length > 1) {
-                                country = parts[parts.length - 1].trim();
-                            } else if (!country) {
-                                country = 'Indonesia';
-                            }
-
-                            let region = item.region || '';
-                            if (!region) {
-                                const countryLower = country.toLowerCase();
-                                if (countryLower.includes('bahrain') || countryLower.includes('uae') || countryLower.includes('kuwait') || countryLower.includes('saudi') || countryLower.includes('qatar') || countryLower.includes('oman') || countryLower.includes('middle east')) {
-                                    region = 'Middle East';
-                                } else {
-                                    region = 'Indonesia';
-                                }
-                            }
-
-                            return {
-                                id: finalId,
-                                name: item.name || item.hotel_name || '',
-                                location: item.location || item.city_country || 'Indonesia',
-                                code: item.code || '',
-                                brandClass: item.brandClass || item.brand_class || item.brand || 'Swiss-Belhotel',
-                                region: region,
-                                country: country,
-                                stars: Number(item.stars ?? item.star_rating) || 4
-                            };
-                        });
-
-                        // Include HQ Corporate if listed or needed
-                        if (!mapped.some(h => h.id === 'sbi-ho')) {
-                            mapped.unshift({
-                                id: 'sbi-ho',
-                                name: 'Swiss-Belhotel International',
-                                location: 'Corporate Headquarters',
-                                code: 'HQ',
-                                brandClass: 'Corporate',
-                                region: 'Asia Pacific'
-                            });
-                        }
-
-                        return [...mapped, ...HARDCODED_TEST_HOTELS];
-                    } else {
-                        throw new Error('Property query did not return a valid list.');
-                    }
+                    return [...withHq, ...HARDCODED_TEST_HOTELS];
                 });
 
                 // Filter to only those assigned to current user

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ChevronRight, FolderOpen, Loader2, CheckCircle2, Lock, Unlock, Send, Clock } from 'lucide-react';
-import { supabase, HOTELS_URL, HOTELS_KEY } from '../lib/supabase';
+import { supabase } from '../lib/supabase';
+import { fetchMasterHotels } from '../lib/hotelsService';
 import { DEFAULT_CATEGORIES, DEFAULT_OFFLINE_ITEMS } from '../lib/constants';
 import { isExcludedHotel } from '../lib/hotelExclusion';
 
@@ -33,26 +34,14 @@ export default function PendingCategoriesScreen({ onBack, onNavigate, userProfil
     useEffect(() => {
         const loadHotels = async () => {
             try {
-                const response = await fetch(`${HOTELS_URL}hotels?select=*`, {
-                    headers: {
-                        'apikey': HOTELS_KEY,
-                        'Authorization': `Bearer ${HOTELS_KEY}`
-                    }
-                });
-                if (response.ok) {
-                    const data = await response.json();
-                    if (Array.isArray(data)) {
-                        const mapped = data.filter((item: any) => !isExcludedHotel({ stars: item.stars ?? item.star_rating })).map((item: any) => {
-                            const rawId = item.id !== undefined && item.id !== null ? String(item.id) : '';
-                            const fallbackId = item.hotel_id !== undefined && item.hotel_id !== null ? String(item.hotel_id) : '';
-                            const finalId = rawId || fallbackId || item.code || String(item.name || '').replace(/\s+/g, '-').toLowerCase();
-                            return {
-                                id: finalId,
-                                name: item.name || item.hotel_name || '',
-                                location: item.location || item.city_country || '',
-                                code: item.code || ''
-                            };
-                        });
+                const data = await fetchMasterHotels();
+                if (Array.isArray(data)) {
+                        const mapped = data.filter(h => !isExcludedHotel(h)).map(h => ({
+                            id: h.id,
+                            name: h.name,
+                            location: h.location,
+                            code: h.code
+                        }));
                         const sorted = mapped.sort((a: any, b: any) => (a.name || '').localeCompare(b.name || ''));
                         setHotels(sorted);
                         if (sorted.length > 0 && (!selectedHotelId || selectedHotelId === 'demo-hotel-123')) {
@@ -61,7 +50,6 @@ export default function PendingCategoriesScreen({ onBack, onNavigate, userProfil
                                 localStorage.setItem('selected_hotel_id', sorted[0].id);
                             }
                         }
-                    }
                 }
             } catch (err) {
                 console.error("Error loading hotels:", err);
