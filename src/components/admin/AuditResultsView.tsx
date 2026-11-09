@@ -60,8 +60,26 @@ export const AuditResultsView: React.FC<AuditResultsViewProps> = (props) => {
         setPage(1);
     };
 
-    const renderSortHeader = (field: AuditSortField, label: string, alignRight: boolean) => (
-        <th className={`px-6 py-3 ${alignRight ? 'text-right' : ''}`}>
+    // Department columns in the list: each shows the department's score and its bonus
+    const DEPARTMENT_COLUMNS = [
+        { name: 'Branding & Marketing', label: 'Branding Marketing (%)' },
+        { name: 'Digital Marketing', label: 'Digital Marketing (%)' },
+        { name: 'Online Reputation', label: 'Online Reputation (%)' },
+    ];
+    const HEAD_CLASS = 'px-6 py-3 text-[10px] font-black uppercase tracking-widest text-slate-500';
+    const departmentScore = (r: AuditResult, departmentName: string): number | null => {
+        const department = props.departments.find(d => d.name === departmentName);
+        if (!department) return null;
+        const rows = r.categories.filter(c => !c.isBonus && c.departmentId === String(department.id));
+        const earned = rows.reduce((sum, c) => sum + c.earned, 0);
+        const max = rows.reduce((sum, c) => sum + c.max, 0);
+        return max > 0 ? Math.round((earned / max) * 100) : null;
+    };
+    const departmentBonus = (r: AuditResult, departmentName: string): number =>
+        r.bonusRows.find(row => row.label === departmentName)?.points ?? 0;
+
+    const renderSortHeader = (field: AuditSortField, label: string, alignRight: boolean, rowSpan?: number) => (
+        <th rowSpan={rowSpan} className={`px-6 py-3 ${alignRight ? 'text-right' : ''}`}>
             <button
                 type="button"
                 onClick={() => toggleSort(field)}
@@ -340,17 +358,31 @@ export const AuditResultsView: React.FC<AuditResultsViewProps> = (props) => {
                                     <table className="w-full text-left">
                                         <thead className="bg-slate-50/80 border-b border-slate-100">
                                             <tr>
-                                                {renderSortHeader('name', 'Hotel', false)}
-                                                {renderSortHeader('code', 'Code', false)}
-                                                {renderSortHeader('status', 'Result', false)}
-                                                {renderSortHeader('percentage', 'Overall', true)}
-                                                <th className="px-6 py-3 text-[10px] font-black uppercase tracking-widest text-slate-500 text-right">Certificate</th>
+                                                {renderSortHeader('name', 'Hotel', false, 2)}
+                                                {renderSortHeader('code', 'Code', false, 2)}
+                                                <th rowSpan={2} className={HEAD_CLASS}>Region</th>
+                                                <th rowSpan={2} className={HEAD_CLASS}>Country</th>
+                                                <th rowSpan={2} className={HEAD_CLASS}>Brand</th>
+                                                <th rowSpan={2} className={HEAD_CLASS}>Star Rating</th>
+                                                {DEPARTMENT_COLUMNS.map(d => (
+                                                    <th key={d.name} colSpan={2} className={`${HEAD_CLASS} text-center`}>{d.label}</th>
+                                                ))}
+                                                {renderSortHeader('status', 'Status', false, 2)}
+                                                <th rowSpan={2} className={`${HEAD_CLASS} text-right`}><span className="sr-only">Certificate</span></th>
+                                            </tr>
+                                            <tr>
+                                                {DEPARTMENT_COLUMNS.map(d => (
+                                                    <React.Fragment key={d.name}>
+                                                        <th className="px-6 py-2 text-[9px] font-black uppercase tracking-widest text-slate-400 text-center">Score</th>
+                                                        <th className="px-6 py-2 text-[9px] font-black uppercase tracking-widest text-slate-400 text-center">Bonus</th>
+                                                    </React.Fragment>
+                                                ))}
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-slate-100">
                                             {rows.length === 0 ? (
                                                 <tr>
-                                                    <td colSpan={5} className="px-6 py-10 text-center text-sm text-slate-400">No hotels match your search.</td>
+                                                    <td colSpan={14} className="px-6 py-10 text-center text-sm text-slate-400">No hotels match your search.</td>
                                                 </tr>
                                             ) : (
                                                 rows.map(r => (
@@ -361,8 +393,21 @@ export const AuditResultsView: React.FC<AuditResultsViewProps> = (props) => {
                                                     >
                                                         <td className="px-6 py-3.5 text-sm font-bold text-slate-800">{r.name}</td>
                                                         <td className="px-6 py-3.5 text-xs font-mono font-bold text-slate-500">{r.code}</td>
+                                                        <td className="px-6 py-3.5 text-xs font-bold text-slate-600">{r.region || '—'}</td>
+                                                        <td className="px-6 py-3.5 text-xs font-bold text-slate-600">{r.country || '—'}</td>
+                                                        <td className="px-6 py-3.5 text-xs font-bold text-slate-600">{r.brand || '—'}</td>
+                                                        <td className="px-6 py-3.5 text-xs font-bold text-slate-600">{r.stars ?? '—'}</td>
+                                                        {DEPARTMENT_COLUMNS.map(d => {
+                                                            const score = departmentScore(r, d.name);
+                                                            const bonus = departmentBonus(r, d.name);
+                                                            return (
+                                                                <React.Fragment key={d.name}>
+                                                                    <td className="px-6 py-3.5 text-sm font-black text-slate-900 text-center">{score !== null ? `${score}%` : '—'}</td>
+                                                                    <td className={`px-6 py-3.5 text-sm font-bold text-center ${bonus > 0 ? 'text-emerald-700' : 'text-slate-400'}`}>+{bonus}%</td>
+                                                                </React.Fragment>
+                                                            );
+                                                        })}
                                                         <td className="px-6 py-3.5">{statusBadge(r.status)}</td>
-                                                        <td className="px-6 py-3.5 text-sm font-black text-slate-900 text-right">{r.percentage !== null ? `${r.percentage}%` : '—'}</td>
                                                         <td className="px-6 py-3.5 text-right">
                                                             <button
                                                                 onClick={(e) => { e.stopPropagation(); handleDownloadCertificate(r); }}
@@ -371,7 +416,7 @@ export const AuditResultsView: React.FC<AuditResultsViewProps> = (props) => {
                                                                 className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-indigo-700 hover:text-indigo-900 bg-indigo-50 hover:bg-indigo-100/80 px-3 py-2 rounded-xl border border-indigo-200/60 active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100"
                                                             >
                                                                 <FileText size={11} />
-                                                                <span>Certificate</span>
+                                                                <span className="sr-only">Certificate</span>
                                                             </button>
                                                         </td>
                                                     </tr>

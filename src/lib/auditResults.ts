@@ -31,6 +31,10 @@ export interface AuditResult {
     hotelId: string;
     name: string;
     code: string;
+    region: string;
+    country: string;
+    brand: string;
+    stars: number | null;
     percentage: number | null;
     basePercentage: number | null;
     bonusRows: AuditBonusRow[];
@@ -201,6 +205,10 @@ export const computeAuditResults = (input: AuditResultsInput): AuditResult[] => 
                 hotelId: String(hotel.id),
                 name: hotel.name,
                 code: hotel.code || '',
+                region: hotel.region || '',
+                country: hotel.country || '',
+                brand: hotel.brandClass || '',
+                stars: hotel.stars ?? null,
                 percentage,
                 basePercentage,
                 bonusRows,
