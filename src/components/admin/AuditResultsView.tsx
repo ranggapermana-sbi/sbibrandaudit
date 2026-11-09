@@ -1,7 +1,20 @@
 import React from 'react';
-import { ArrowLeft, AlertCircle, Loader2, RefreshCw, Search, ChevronDown, FileText } from 'lucide-react';
+import { ArrowLeft, AlertCircle, ArrowUpDown, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, ChevronsLeft, ChevronsRight, FileText, Loader2, RefreshCw, Search } from 'lucide-react';
 import { AuditItem, AuditCategory, Department } from '../../types';
 import { AUDIT_PASS_THRESHOLD, AuditResult } from '../../lib/auditResults';
+
+type AuditSortField = 'name' | 'code' | 'status' | 'percentage';
+type AuditSortDirection = 'asc' | 'desc';
+const AUDIT_STATUS_ORDER: Record<AuditResult['status'], number> = { passed: 0, failed: 1, not_audited: 2 };
+
+const compareAuditResults = (field: AuditSortField, direction: AuditSortDirection) => (a: AuditResult, b: AuditResult): number => {
+    let result = 0;
+    if (field === 'name') result = a.name.localeCompare(b.name);
+    else if (field === 'code') result = a.code.localeCompare(b.code);
+    else if (field === 'status') result = AUDIT_STATUS_ORDER[a.status] - AUDIT_STATUS_ORDER[b.status];
+    else result = (a.percentage ?? -1) - (b.percentage ?? -1);
+    return direction === 'asc' ? result : -result;
+};
 
 export interface AuditResultsViewProps {
     auditResults: AuditResult[];
@@ -31,6 +44,36 @@ export const AuditResultsView: React.FC<AuditResultsViewProps> = (props) => {
         progressDataLoaded, progressDataLoading, progressDataError, fetchProgressSubmissions,
         handleDownloadCertificate, onBackToReport
     } = props;
+
+    const [sortField, setSortField] = React.useState<AuditSortField>('name');
+    const [sortDirection, setSortDirection] = React.useState<AuditSortDirection>('asc');
+    const [page, setPage] = React.useState(1);
+    const [pageSize, setPageSize] = React.useState(10);
+
+    const toggleSort = (field: AuditSortField) => {
+        if (field === sortField) {
+            setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+        } else {
+            setSortField(field);
+            setSortDirection('asc');
+        }
+        setPage(1);
+    };
+
+    const renderSortHeader = (field: AuditSortField, label: string, alignRight: boolean) => (
+        <th className={`px-6 py-3 ${alignRight ? 'text-right' : ''}`}>
+            <button
+                type="button"
+                onClick={() => toggleSort(field)}
+                className={`inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-slate-500 hover:text-slate-800 ${alignRight ? 'justify-end w-full' : ''}`}
+            >
+                <span>{label}</span>
+                {sortField === field
+                    ? (sortDirection === 'asc' ? <ChevronUp size={12} /> : <ChevronDown size={12} />)
+                    : <ArrowUpDown size={11} className="opacity-40" />}
+            </button>
+        </th>
+    );
 
     return (
                     (() => {
@@ -237,9 +280,13 @@ export const AuditResultsView: React.FC<AuditResultsViewProps> = (props) => {
                         }
 
                         const query = auditResultsSearch.trim().toLowerCase();
-                        const rows = auditResults.filter(r =>
+                        const filtered = auditResults.filter(r =>
                             !query || r.name.toLowerCase().includes(query) || r.code.toLowerCase().includes(query)
                         );
+                        const sorted = [...filtered].sort(compareAuditResults(sortField, sortDirection));
+                        const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize));
+                        const currentPage = Math.min(page, totalPages);
+                        const rows = sorted.slice((currentPage - 1) * pageSize, currentPage * pageSize);
                         const counts: Record<'passed' | 'failed' | 'not_audited', number> = { passed: 0, failed: 0, not_audited: 0 };
                         auditResults.forEach(r => { counts[r.status] += 1; });
 
@@ -283,7 +330,7 @@ export const AuditResultsView: React.FC<AuditResultsViewProps> = (props) => {
                                     <input
                                         type="text"
                                         value={auditResultsSearch}
-                                        onChange={(e) => setAuditResultsSearch(e.target.value)}
+                                        onChange={(e) => { setAuditResultsSearch(e.target.value); setPage(1); }}
                                         placeholder="Search hotels by name or code..."
                                         className="w-full bg-transparent outline-none text-sm font-medium text-slate-700 placeholder:text-slate-400"
                                     />
@@ -293,10 +340,10 @@ export const AuditResultsView: React.FC<AuditResultsViewProps> = (props) => {
                                     <table className="w-full text-left">
                                         <thead className="bg-slate-50/80 border-b border-slate-100">
                                             <tr>
-                                                <th className="px-6 py-3 text-[10px] font-black uppercase tracking-widest text-slate-500">Hotel</th>
-                                                <th className="px-6 py-3 text-[10px] font-black uppercase tracking-widest text-slate-500">Code</th>
-                                                <th className="px-6 py-3 text-[10px] font-black uppercase tracking-widest text-slate-500">Result</th>
-                                                <th className="px-6 py-3 text-[10px] font-black uppercase tracking-widest text-slate-500 text-right">Overall</th>
+                                                {renderSortHeader('name', 'Hotel', false)}
+                                                {renderSortHeader('code', 'Code', false)}
+                                                {renderSortHeader('status', 'Result', false)}
+                                                {renderSortHeader('percentage', 'Overall', true)}
                                                 <th className="px-6 py-3 text-[10px] font-black uppercase tracking-widest text-slate-500 text-right">Certificate</th>
                                             </tr>
                                         </thead>
@@ -332,6 +379,28 @@ export const AuditResultsView: React.FC<AuditResultsViewProps> = (props) => {
                                             )}
                                         </tbody>
                                     </table>
+                                    <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-3 border-t border-slate-100 text-xs font-bold text-slate-500">
+                                        <div className="flex items-center gap-2">
+                                            <span>Rows per page</span>
+                                            <select
+                                                value={pageSize}
+                                                onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }}
+                                                className="px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-slate-700 outline-none"
+                                            >
+                                                {[10, 25, 50, 100].map(n => <option key={n} value={n}>{n}</option>)}
+                                            </select>
+                                            <span>
+                                                {sorted.length === 0 ? 0 : (currentPage - 1) * pageSize + 1}–{Math.min(currentPage * pageSize, sorted.length)} of {sorted.length}
+                                            </span>
+                                        </div>
+                                        <div className="flex items-center gap-1">
+                                            <button type="button" onClick={() => setPage(1)} disabled={currentPage === 1} className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"><ChevronsLeft size={14} /></button>
+                                            <button type="button" onClick={() => setPage(currentPage - 1)} disabled={currentPage === 1} className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"><ChevronLeft size={14} /></button>
+                                            <span className="px-2">Page {currentPage} of {totalPages}</span>
+                                            <button type="button" onClick={() => setPage(currentPage + 1)} disabled={currentPage === totalPages} className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"><ChevronRight size={14} /></button>
+                                            <button type="button" onClick={() => setPage(totalPages)} disabled={currentPage === totalPages} className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"><ChevronsRight size={14} /></button>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         );

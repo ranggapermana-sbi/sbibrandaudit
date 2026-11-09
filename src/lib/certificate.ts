@@ -1,5 +1,6 @@
 import { jsPDF } from 'jspdf';
-import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
+import { PDFDocument, rgb } from 'pdf-lib';
+import fontkit from '@pdf-lib/fontkit';
 
 // Brand Excellence certificate, laid out after the 2026 Branding Audit certificate template.
 // Each weighted category is one of the four audit departments; its score is the department's percentage.
@@ -103,6 +104,52 @@ export const buildCertificateInput = (
     };
 };
 
+// Embedded DejaVu fonts cover Latin Extended characters (for example "Ā" in MĀUA). The built-in PDF fonts do not.
+const SANS = 'DejaVuSans';
+const SERIF = 'DejaVuSerif';
+const CERTIFICATE_FONT_FILES = {
+    sans: 'certificate/fonts/DejaVuSans.ttf',
+    sansBold: 'certificate/fonts/DejaVuSans-Bold.ttf',
+    serifBold: 'certificate/fonts/DejaVuSerif-Bold.ttf'
+};
+
+type CertificateFonts = Record<keyof typeof CERTIFICATE_FONT_FILES, Uint8Array>;
+let certificateFontsPromise: Promise<CertificateFonts> | null = null;
+
+const loadCertificateFonts = (): Promise<CertificateFonts> => {
+    if (!certificateFontsPromise) {
+        const base = (import.meta as any).env?.BASE_URL || '/';
+        certificateFontsPromise = Promise.all(
+            (Object.keys(CERTIFICATE_FONT_FILES) as (keyof CertificateFonts)[]).map(async key => {
+                const response = await fetch(`${base}${CERTIFICATE_FONT_FILES[key]}`);
+                if (!response.ok) throw new Error(`Certificate font not found (HTTP ${response.status})`);
+                return [key, new Uint8Array(await response.arrayBuffer())] as const;
+            })
+        ).then(entries => Object.fromEntries(entries) as CertificateFonts);
+        certificateFontsPromise.catch(() => { certificateFontsPromise = null; });
+    }
+    return certificateFontsPromise;
+};
+
+// jsPDF needs the font file as base64 text
+const toBase64 = (bytes: Uint8Array): string => {
+    let binary = '';
+    for (let i = 0; i < bytes.length; i += 0x8000) {
+        binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+    }
+    return btoa(binary);
+};
+
+const registerSummaryFonts = (doc: jsPDF, fonts: CertificateFonts) => {
+    doc.addFileToVFS('DejaVuSans.ttf', toBase64(fonts.sans));
+    doc.addFont('DejaVuSans.ttf', SANS, 'normal');
+    doc.addFileToVFS('DejaVuSans-Bold.ttf', toBase64(fonts.sansBold));
+    doc.addFont('DejaVuSans-Bold.ttf', SANS, 'bold');
+    doc.addFileToVFS('DejaVuSerif-Bold.ttf', toBase64(fonts.serifBold));
+    doc.addFont('DejaVuSerif-Bold.ttf', SERIF, 'bold');
+    doc.addFont('DejaVuSerif-Bold.ttf', SERIF, 'normal');
+};
+
 const PAGE_WIDTH = 297;
 const PAGE_HEIGHT = 210;
 const GOLD: [number, number, number] = [166, 124, 82];
@@ -144,7 +191,7 @@ const drawLogo = (doc: jsPDF, logo: string | null, y: number, width: number) => 
     doc.addImage(logo, 'PNG', (PAGE_WIDTH - width) / 2, y, width, height);
 };
 
-const drawCentered = (doc: jsPDF, text: string, y: number, font: 'times' | 'helvetica', style: 'normal' | 'bold' | 'italic', size: number, color: [number, number, number] = INK) => {
+const drawCentered = (doc: jsPDF, text: string, y: number, font: string, style: 'normal' | 'bold' | 'italic', size: number, color: [number, number, number] = INK) => {
     doc.setFont(font, style);
     doc.setFontSize(size);
     doc.setTextColor(...color);
@@ -155,13 +202,13 @@ const drawCentered = (doc: jsPDF, text: string, y: number, font: 'times' | 'helv
 const drawMixedCentered = (doc: jsPDF, segments: { text: string; bold?: boolean; color?: [number, number, number] }[], y: number, size: number) => {
     let total = 0;
     segments.forEach(s => {
-        doc.setFont('helvetica', s.bold ? 'bold' : 'normal');
+        doc.setFont(SANS, s.bold ? 'bold' : 'normal');
         doc.setFontSize(size);
         total += doc.getTextWidth(s.text);
     });
     let x = (PAGE_WIDTH - total) / 2;
     segments.forEach(s => {
-        doc.setFont('helvetica', s.bold ? 'bold' : 'normal');
+        doc.setFont(SANS, s.bold ? 'bold' : 'normal');
         doc.setFontSize(size);
         doc.setTextColor(...(s.color ?? INK));
         doc.text(s.text, x, y);
@@ -173,8 +220,8 @@ const drawSummaryPage = (doc: jsPDF, input: CertificateInput, logo: string | nul
     drawFrame(doc);
     drawLogo(doc, logo, 16, 50);
 
-    drawCentered(doc, 'BRANDING AUDIT SUMMARY & SCORE BREAKDOWN', 42, 'times', 'bold', 15);
-    drawCentered(doc, `The audit was conducted across ${input.categories.length} categories, each weighted based on its overall impact on brand health:`, 50, 'helvetica', 'normal', 9.5, MUTED);
+    drawCentered(doc, 'BRANDING AUDIT SUMMARY & SCORE BREAKDOWN', 42, SERIF, 'bold', 15);
+    drawCentered(doc, `The audit was conducted across ${input.categories.length} categories, each weighted based on its overall impact on brand health:`, 50, SANS, 'normal', 9.5, MUTED);
 
     // Table
     const x0 = 31;
@@ -191,7 +238,7 @@ const drawSummaryPage = (doc: jsPDF, input: CertificateInput, logo: string | nul
     doc.setFillColor(...BROWN);
     doc.rect(x0, headerY, tableWidth, headerHeight, 'F');
     headers.forEach((header, i) => {
-        doc.setFont('helvetica', 'bold');
+        doc.setFont(SANS, 'bold');
         doc.setFontSize(8.5);
         doc.setTextColor(...WHITE);
         doc.text(header, colX[i] + colWidths[i] / 2, headerY + 6.2, { align: 'center' });
@@ -204,12 +251,12 @@ const drawSummaryPage = (doc: jsPDF, input: CertificateInput, logo: string | nul
         doc.rect(x0, y, tableWidth, rowHeight);
         colX.slice(1).forEach(x => doc.line(x, y, x, y + rowHeight));
 
-        doc.setFont('helvetica', 'bold');
+        doc.setFont(SANS, 'bold');
         doc.setFontSize(8.5);
         doc.setTextColor(...INK);
         doc.text(cat.label.toUpperCase(), colX[0] + colWidths[0] / 2, y + 7, { align: 'center' });
 
-        doc.setFont('helvetica', 'normal');
+        doc.setFont(SANS, 'normal');
         doc.setFontSize(12);
         doc.text(`${cat.weight}%`, colX[1] + colWidths[1] / 2, y + 7.8, { align: 'center' });
 
@@ -229,7 +276,7 @@ const drawSummaryPage = (doc: jsPDF, input: CertificateInput, logo: string | nul
     const totalY = headerY + headerHeight + input.categories.length * rowHeight + 2;
     doc.setFillColor(...BROWN);
     doc.rect(x0, totalY, tableWidth, 11, 'F');
-    doc.setFont('helvetica', 'bold');
+    doc.setFont(SANS, 'bold');
     doc.setFontSize(10);
     doc.setTextColor(...WHITE);
     doc.text('TOTAL SCORE', colX[0] + colWidths[0] / 2, totalY + 7, { align: 'center' });
@@ -245,7 +292,7 @@ const drawSummaryPage = (doc: jsPDF, input: CertificateInput, logo: string | nul
     const finalY = totalY + 11;
     doc.setFillColor(122, 84, 42);
     doc.rect(x0, finalY, tableWidth, 11, 'F');
-    doc.setFont('helvetica', 'bold');
+    doc.setFont(SANS, 'bold');
     doc.setFontSize(11);
     doc.setTextColor(...WHITE);
     const finalText = input.overallPercentage !== null ? input.overallPercentage.toFixed(2) : '—';
@@ -267,7 +314,7 @@ const drawSummaryPage = (doc: jsPDF, input: CertificateInput, logo: string | nul
             ? 'reflecting a highly recognisable and polished appearance across all categories.'
             : 'reflecting areas for improvement across the brand categories.',
         statusY + 14,
-        'helvetica',
+        SANS,
         'normal',
         10,
         MUTED
@@ -298,7 +345,9 @@ export const writeAwardPage = async (templateBytes: ArrayBuffer, hotelName: stri
     const pdf = await PDFDocument.load(templateBytes);
     const page = pdf.getPage(0);
     const { width, height } = page.getSize();
-    const font = await pdf.embedFont(StandardFonts.TimesRomanBold);
+    pdf.registerFontkit(fontkit);
+    const fonts = await loadCertificateFonts();
+    const font = await pdf.embedFont(fonts.serifBold, { subset: true });
 
     let nameSize = 26;
     while (nameSize > 14 && font.widthOfTextAtSize(hotelName, nameSize) > AWARD_NAME_MAX_WIDTH) {
@@ -329,7 +378,9 @@ export const writeAwardPage = async (templateBytes: ArrayBuffer, hotelName: stri
 // Builds the certificate (award page from the template, summary page generated) and downloads it as a PDF
 export const downloadHotelCertificate = async (input: CertificateInput) => {
     const logo = await loadLogo();
+    const fonts = await loadCertificateFonts();
     const summaryDoc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+    registerSummaryFonts(summaryDoc, fonts);
     drawSummaryPage(summaryDoc, input, logo);
     const summaryBytes = summaryDoc.output('arraybuffer');
 
