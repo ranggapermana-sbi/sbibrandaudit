@@ -4,7 +4,7 @@ import { CERTIFICATE_WEIGHTS } from './certificate';
 
 // Audit results: per hotel, the weighted audit score from the department percentages (40/30/15/15),
 // plus the bonus from passed BONUS items, capped at 100. A hotel passes at AUDIT_PASS_THRESHOLD or more.
-export const AUDIT_PASS_THRESHOLD = 80;
+export const AUDIT_PASS_THRESHOLD = 85;
 
 // Hotel-specific pass marks, keyed by hotel code. Hotels not listed here use AUDIT_PASS_THRESHOLD.
 export const HOTEL_PASS_MARKS: Record<string, number> = {

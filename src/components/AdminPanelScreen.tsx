@@ -2425,7 +2425,6 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
 
     // Audit results: per hotel, points earned against maximum points for each category.
     // Only scored, non-N/A items count. A hotel passes when its overall percentage reaches AUDIT_PASS_THRESHOLD.
-    const AUDIT_PASS_THRESHOLD = 80;
     const [auditResultsSearch, setAuditResultsSearch] = useState('');
     const [selectedAuditResultId, setSelectedAuditResultId] = useState<string | null>(null);
     // Department groups in the hotel breakdown: keyed by hotel and department. false means expanded; missing means collapsed (the default)

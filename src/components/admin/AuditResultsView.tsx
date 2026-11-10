@@ -65,6 +65,7 @@ export const AuditResultsView: React.FC<AuditResultsViewProps> = (props) => {
         { name: 'Branding & Marketing', label: 'Branding Marketing (%)' },
         { name: 'Digital Marketing', label: 'Digital Marketing (%)' },
         { name: 'Online Reputation', label: 'Online Reputation (%)' },
+        { name: 'CRM & Loyalty', label: 'CRM & Loyalty (%)' },
     ];
     const HEAD_CLASS = 'px-6 py-3 text-[10px] font-black uppercase tracking-widest text-slate-500';
     const departmentScore = (r: AuditResult, departmentName: string): number | null => {
@@ -354,8 +355,8 @@ export const AuditResultsView: React.FC<AuditResultsViewProps> = (props) => {
                                     />
                                 </div>
 
-                                <div className="bg-white rounded-[20px] border border-slate-150/80 shadow-sm overflow-x-auto">
-                                    <table className="w-full text-left">
+                                <div className="bg-white rounded-[20px] border border-slate-150/80 shadow-sm overflow-hidden">
+                                    <table className="w-[calc(100%-2rem)] mx-4 text-left">
                                         <thead className="bg-slate-50/80 border-b border-slate-100">
                                             <tr>
                                                 {renderSortHeader('name', 'Hotel', false, 2)}
@@ -374,8 +375,8 @@ export const AuditResultsView: React.FC<AuditResultsViewProps> = (props) => {
                                             <tr>
                                                 {DEPARTMENT_COLUMNS.map(d => (
                                                     <React.Fragment key={d.name}>
-                                                        <th className="px-6 py-2 text-[9px] font-black uppercase tracking-widest text-slate-400 text-center">Score</th>
-                                                        <th className="px-6 py-2 text-[9px] font-black uppercase tracking-widest text-slate-400 text-center">Bonus</th>
+                                                        <th className="px-1.5 py-2 text-[9px] font-black uppercase tracking-widest text-slate-400 text-center">Score</th>
+                                                        <th className="px-1.5 py-2 text-[9px] font-black uppercase tracking-widest text-slate-400 text-center">Bonus</th>
                                                     </React.Fragment>
                                                 ))}
                                             </tr>
@@ -383,7 +384,7 @@ export const AuditResultsView: React.FC<AuditResultsViewProps> = (props) => {
                                         <tbody className="divide-y divide-slate-100">
                                             {rows.length === 0 ? (
                                                 <tr>
-                                                    <td colSpan={15} className="px-6 py-10 text-center text-sm text-slate-400">No hotels match your search.</td>
+                                                    <td colSpan={17} className="px-1.5 py-10 text-center text-sm text-slate-400">No hotels match your search.</td>
                                                 </tr>
                                             ) : (
                                                 rows.map(r => (
@@ -392,30 +393,30 @@ export const AuditResultsView: React.FC<AuditResultsViewProps> = (props) => {
                                                         onClick={() => setSelectedAuditResultId(r.hotelId)}
                                                         className="cursor-pointer hover:bg-slate-50/80 transition-colors"
                                                     >
-                                                        <td className="px-6 py-3.5 text-sm font-bold text-slate-800">{r.name}</td>
-                                                        <td className="px-6 py-3.5 text-xs font-mono font-bold text-slate-500">{r.code}</td>
-                                                        <td className="px-6 py-3.5 text-xs font-bold text-slate-600">{r.region || '—'}</td>
-                                                        <td className="px-6 py-3.5 text-xs font-bold text-slate-600">{r.country || '—'}</td>
-                                                        <td className="px-6 py-3.5 text-xs font-bold text-slate-600">{r.brand || '—'}</td>
-                                                        <td className="px-6 py-3.5 text-xs font-bold text-slate-600">{r.stars ?? '—'}</td>
+                                                        <td className="px-1.5 py-3.5 text-sm font-bold text-slate-800">{r.name}</td>
+                                                        <td className="px-1.5 py-3.5 text-xs font-mono font-bold text-slate-500">{r.code}</td>
+                                                        <td className="px-1.5 py-3.5 text-xs font-bold text-slate-600">{r.region || '—'}</td>
+                                                        <td className="px-1.5 py-3.5 text-xs font-bold text-slate-600">{r.country || '—'}</td>
+                                                        <td className="px-1.5 py-3.5 text-xs font-bold text-slate-600">{r.brand || '—'}</td>
+                                                        <td className="px-1.5 py-3.5 text-xs font-bold text-slate-600">{r.stars ?? '—'}</td>
                                                         {DEPARTMENT_COLUMNS.map(d => {
                                                             const score = departmentScore(r, d.name);
                                                             const bonus = departmentBonus(r, d.name);
                                                             return (
                                                                 <React.Fragment key={d.name}>
-                                                                    <td className="px-6 py-3.5 text-sm font-black text-slate-900 text-center">{score !== null ? `${score}%` : '—'}</td>
-                                                                    <td className={`px-6 py-3.5 text-sm font-bold text-center ${bonus > 0 ? 'text-emerald-700' : 'text-slate-400'}`}>+{bonus}%</td>
+                                                                    <td className="px-1.5 py-3.5 text-sm font-black text-slate-900 text-center">{score !== null ? `${score}%` : '—'}</td>
+                                                                    <td className={`px-1.5 py-3.5 text-sm font-bold text-center ${bonus > 0 ? 'text-emerald-700' : 'text-slate-400'}`}>+{bonus}%</td>
                                                                 </React.Fragment>
                                                             );
                                                         })}
-                                                        <td className="px-6 py-3.5">{statusBadge(r.status)}</td>
-                                                        <td className="px-6 py-3.5 text-sm font-black text-slate-900 text-right">{r.percentage !== null ? `${r.percentage}%` : '—'}</td>
-                                                        <td className="px-6 py-3.5 text-right">
+                                                        <td className="px-1.5 py-3.5">{statusBadge(r.status)}</td>
+                                                        <td className="px-1.5 py-3.5 text-sm font-black text-slate-900 text-right">{r.percentage !== null ? `${r.percentage}%` : '—'}</td>
+                                                        <td className="px-1.5 py-3.5 text-right">
                                                             <button
                                                                 onClick={(e) => { e.stopPropagation(); handleDownloadCertificate(r); }}
                                                                 disabled={r.status === 'not_audited'}
                                                                 title={r.status === 'not_audited' ? 'Available once the hotel has audited items' : 'Download the brand excellence certificate'}
-                                                                className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-indigo-700 hover:text-indigo-900 bg-indigo-50 hover:bg-indigo-100/80 px-3 py-2 rounded-xl border border-indigo-200/60 active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100"
+                                                                className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-indigo-700 hover:text-indigo-900 bg-indigo-50 hover:bg-indigo-100/80 px-1.5 py-2 rounded-xl border border-indigo-200/60 active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100"
                                                             >
                                                                 <FileText size={11} />
                                                                 <span className="sr-only">Certificate</span>
