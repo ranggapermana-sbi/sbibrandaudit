@@ -6,6 +6,14 @@ import { CERTIFICATE_WEIGHTS } from './certificate';
 // plus the bonus from passed BONUS items, capped at 100. A hotel passes at AUDIT_PASS_THRESHOLD or more.
 export const AUDIT_PASS_THRESHOLD = 80;
 
+// Hotel-specific pass marks, keyed by hotel code. Hotels not listed here use AUDIT_PASS_THRESHOLD.
+export const HOTEL_PASS_MARKS: Record<string, number> = {
+    SBNI: 59.5,
+    GBHB: 59.5,
+    MAOU: 59.5,
+    RISB: 59.5,
+};
+
 export type AuditStatus = 'passed' | 'failed' | 'not_audited';
 
 export interface AuditResultCategory {
@@ -39,6 +47,7 @@ export interface AuditResult {
     basePercentage: number | null;
     bonusRows: AuditBonusRow[];
     bonusTotal: number;
+    passMark: number;
     status: AuditStatus;
     categories: AuditResultCategory[];
 }
@@ -198,8 +207,9 @@ export const computeAuditResults = (input: AuditResultsInput): AuditResult[] => 
             const percentage = basePercentage === null
                 ? null
                 : Math.min(100, Math.round((basePercentage + bonusTotal) * 100) / 100);
+            const passMark = HOTEL_PASS_MARKS[(hotel.code || '').trim().toUpperCase()] ?? AUDIT_PASS_THRESHOLD;
             const status: AuditStatus =
-                percentage === null ? 'not_audited' : percentage >= AUDIT_PASS_THRESHOLD ? 'passed' : 'failed';
+                percentage === null ? 'not_audited' : percentage >= passMark ? 'passed' : 'failed';
 
             return {
                 hotelId: String(hotel.id),
@@ -213,6 +223,7 @@ export const computeAuditResults = (input: AuditResultsInput): AuditResult[] => 
                 basePercentage,
                 bonusRows,
                 bonusTotal,
+                passMark,
                 status,
                 categories
             };

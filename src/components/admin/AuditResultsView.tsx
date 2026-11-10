@@ -135,7 +135,7 @@ export const AuditResultsView: React.FC<AuditResultsViewProps> = (props) => {
                                             </div>
                                         </div>
                                         <div className="flex flex-wrap items-center gap-4">
-                                            <p className="text-xs text-slate-500">Pass mark: {AUDIT_PASS_THRESHOLD}%</p>
+                                            <p className="text-xs text-slate-500">Pass mark: {selectedResult.passMark}%</p>
                                             <button
                                                 onClick={() => handleDownloadCertificate(selectedResult)}
                                                 disabled={selectedResult.status === 'not_audited'}
@@ -368,6 +368,7 @@ export const AuditResultsView: React.FC<AuditResultsViewProps> = (props) => {
                                                     <th key={d.name} colSpan={2} className={`${HEAD_CLASS} text-center`}>{d.label}</th>
                                                 ))}
                                                 {renderSortHeader('status', 'Status', false, 2)}
+                                                {renderSortHeader('percentage', 'Final Score', true, 2)}
                                                 <th rowSpan={2} className={`${HEAD_CLASS} text-right`}><span className="sr-only">Certificate</span></th>
                                             </tr>
                                             <tr>
@@ -382,7 +383,7 @@ export const AuditResultsView: React.FC<AuditResultsViewProps> = (props) => {
                                         <tbody className="divide-y divide-slate-100">
                                             {rows.length === 0 ? (
                                                 <tr>
-                                                    <td colSpan={14} className="px-6 py-10 text-center text-sm text-slate-400">No hotels match your search.</td>
+                                                    <td colSpan={15} className="px-6 py-10 text-center text-sm text-slate-400">No hotels match your search.</td>
                                                 </tr>
                                             ) : (
                                                 rows.map(r => (
@@ -408,6 +409,7 @@ export const AuditResultsView: React.FC<AuditResultsViewProps> = (props) => {
                                                             );
                                                         })}
                                                         <td className="px-6 py-3.5">{statusBadge(r.status)}</td>
+                                                        <td className="px-6 py-3.5 text-sm font-black text-slate-900 text-right">{r.percentage !== null ? `${r.percentage}%` : '—'}</td>
                                                         <td className="px-6 py-3.5 text-right">
                                                             <button
                                                                 onClick={(e) => { e.stopPropagation(); handleDownloadCertificate(r); }}
