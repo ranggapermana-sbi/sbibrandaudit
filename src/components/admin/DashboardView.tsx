@@ -23,7 +23,7 @@ export interface DashboardViewProps {
     setSelectedAuditResultId: React.Dispatch<React.SetStateAction<string>>;
     setStatsModalCopied: React.Dispatch<React.SetStateAction<boolean>>;
     setStatsModalType: React.Dispatch<React.SetStateAction<"auditees" | "brand_leads">>;
-    setSubView: React.Dispatch<React.SetStateAction<"dashboard" | "departments" | "hotels" | "batches" | "categories" | "items" | "groups" | "users" | "access" | "inspection" | "inspection_v2" | "auditor_assignment" | "progress_report" | "audit_results">>;
+    setSubView: React.Dispatch<React.SetStateAction<"dashboard" | "departments" | "hotels" | "batches" | "categories" | "items" | "groups" | "users" | "access" | "inspection" | "inspection_v2" | "auditor_assignment" | "progress_report" | "audit_results" | "deductions">>;
     stats: { title: string; value: string; icon: React.ForwardRefExoticComponent<any>; color: string; }[];
     supabaseConnected: boolean;
     userProfile: any;
@@ -400,6 +400,23 @@ export const DashboardView: React.FC<DashboardViewProps> = (props) => {
                                                 </div>
                                             </div>
                                             <ChevronRight className="text-slate-300 group-hover:text-indigo-600 group-hover:translate-x-1 transition-all" size={18} />
+                                        </div>
+
+                                        {/* Score Deductions */}
+                                        <div
+                                            onClick={() => { setSubView('deductions'); }}
+                                            className="flex items-center justify-between p-5 bg-white hover:bg-slate-50/80 rounded-[20px] border border-slate-150/80 cursor-pointer hover:border-rose-200 active:scale-[0.99] transition-all duration-200 group shadow-[0_4px_24px_rgba(15,23,42,0.01)] hover:shadow-[0_8px_32px_rgba(15,23,42,0.02)]"
+                                        >
+                                            <div className="flex items-center gap-4">
+                                                <div className="w-11 h-11 rounded-2xl bg-rose-50 text-rose-700 flex items-center justify-center shrink-0 transition-transform duration-300 group-hover:scale-105">
+                                                    <Percent size={20} />
+                                                </div>
+                                                <div>
+                                                    <p className="text-sm font-bold text-slate-800 tracking-tight">Score Deductions</p>
+                                                    <p className="text-xs text-slate-400 mt-0.5">Record a percentage taken off a hotel's score, with the reason</p>
+                                                </div>
+                                            </div>
+                                            <ChevronRight className="text-slate-300 group-hover:text-rose-600 group-hover:translate-x-1 transition-all" size={18} />
                                         </div>
 
                                         {/* Audit Results */}

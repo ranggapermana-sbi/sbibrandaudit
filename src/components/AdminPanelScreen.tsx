@@ -9,6 +9,8 @@ import { createSubmissionSync } from '../lib/submissionSync';
 import { fetchMasterHotels } from '../lib/hotelsService';
 import { AUDIT_PASS_THRESHOLD, computeAuditResults } from '../lib/auditResults';
 import { AuditResultsView } from './admin/AuditResultsView';
+import { DeductionsView } from './admin/DeductionsView';
+import { AuditDeduction, fetchActiveDeductions } from '../lib/deductions';
 import { ProgressReportView } from './admin/ProgressReportView';
 import { InspectionV2View } from './admin/InspectionV2View';
 import { HotelsView } from './admin/HotelsView';
@@ -166,7 +168,7 @@ const getAlignedMainUrl = (rawUrl: string, key: string): string => {
 const MAIN_URL = getAlignedMainUrl(MAIN_URL_RAW, MAIN_KEY);
 
 export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { userProfile: any, onBack: () => void, onLogout: () => void }) {
-    const [subView, setSubView] = useState<'dashboard' | 'departments' | 'hotels' | 'batches' | 'categories' | 'items' | 'groups' | 'users' | 'access' | 'inspection' | 'inspection_v2' | 'auditor_assignment' | 'progress_report' | 'audit_results'>('dashboard');
+    const [subView, setSubView] = useState<'dashboard' | 'departments' | 'hotels' | 'batches' | 'categories' | 'items' | 'groups' | 'users' | 'access' | 'inspection' | 'inspection_v2' | 'auditor_assignment' | 'progress_report' | 'audit_results' | 'deductions'>('dashboard');
     const [progressRegionFilter, setProgressRegionFilter] = useState<string>('');
     const [progressCountryFilter, setProgressCountryFilter] = useState<string>('');
     const [progressBrandFilter, setProgressBrandFilter] = useState<string>('');
@@ -1226,6 +1228,21 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     }, [allSubmissionsSync]);
 
     // Progress report and audit results input. Only the columns they read: full rows carry embedded images in `value`.
+    // Active score deductions, subtracted from final scores on the results
+    const [deductions, setDeductions] = useState<AuditDeduction[]>([]);
+    const fetchDeductions = useCallback(async () => {
+        try {
+            setDeductions(await fetchActiveDeductions());
+        } catch (e) {
+            console.error("Error fetching deductions:", e);
+        }
+    }, []);
+    useEffect(() => {
+        if (subView === 'deductions' || subView === 'audit_results') {
+            fetchDeductions();
+        }
+    }, [subView, fetchDeductions]);
+
     const [progressSubmissions, setProgressSubmissions] = useState<any[]>([]);
     const [progressDataLoaded, setProgressDataLoaded] = useState(false);
     const [progressDataLoading, setProgressDataLoading] = useState(false);
@@ -2436,8 +2453,9 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         categories: catList,
         departments,
         submissions: progressSubmissions,
+        deductions,
         idsForHotel: hotel => Array.from(hotelAssociatedIdsMap.get(String(hotel.id)) ?? [])
-    }), [includedHotels, items, catList, departments, progressSubmissions, hotelAssociatedIdsMap]);
+    }), [includedHotels, items, catList, departments, progressSubmissions, deductions, hotelAssociatedIdsMap]);
 
     // Builds and downloads the Brand Excellence certificate for one hotel's audit result
     const handleDownloadCertificate = async (result: {
@@ -2448,6 +2466,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         basePercentage: number | null;
         bonusRows: { label: string; passed: number; rate: number; points: number }[];
         bonusTotal: number;
+        deductions: { percentage: number; reason: string }[];
         categories: { departmentId: string; earned: number; max: number; isBonus: boolean }[];
     }) => {
         try {
@@ -2458,7 +2477,8 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                     percentage: result.percentage,
                     basePercentage: result.basePercentage,
                     bonusRows: result.bonusRows,
-                    bonusTotal: result.bonusTotal
+                    bonusTotal: result.bonusTotal,
+                    deductions: result.deductions
                 },
                 result.categories,
                 departments
@@ -5305,6 +5325,14 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                         setToastMessage={setToastMessage}
                         userProfile={userProfile}
                         onBackToDashboard={() => { setSubView('dashboard'); setSearchQuery(''); }}
+                    />
+                ) : subView === 'deductions' ? (
+                    <DeductionsView
+                        hotels={hotels}
+                        deductions={deductions}
+                        onChanged={fetchDeductions}
+                        adminName={userProfile ? (`${userProfile.first_name || ''} ${userProfile.last_name || ''}`.trim() || userProfile.email || 'Admin') : 'Admin'}
+                        onBackToDashboard={() => { setSubView('inspection'); setSearchQuery(''); }}
                     />
                 ) : subView === 'audit_results' ? (
                     <AuditResultsView

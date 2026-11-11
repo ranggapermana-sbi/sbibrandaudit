@@ -31,6 +31,7 @@ export interface CertificateBonusRow {
 }
 
 export interface CertificateInput {
+    deductions: { percentage: number; reason: string }[];
     hotelName: string;
     hotelCode: string;
     status: 'passed' | 'failed' | 'not_audited';
@@ -44,6 +45,7 @@ export interface CertificateInput {
 }
 
 export interface CertificateResult {
+    deductions?: { percentage: number; reason: string }[];
     status: 'passed' | 'failed' | 'not_audited';
     percentage: number | null;
     basePercentage: number | null;
@@ -99,6 +101,7 @@ export const buildCertificateInput = (
         basePercentage: result.basePercentage,
         bonusRows: result.bonusRows,
         bonusTotal: result.bonusTotal,
+        deductions: result.deductions ?? [],
         categories,
         weightedTotal
     };
@@ -298,7 +301,15 @@ const drawSummaryPage = (doc: jsPDF, input: CertificateInput, logo: string | nul
     const finalText = input.overallPercentage !== null ? input.overallPercentage.toFixed(2) : '—';
     doc.text(`FINAL SCORE: ${finalText}%`, x0 + tableWidth / 2, finalY + 7.2, { align: 'center' });
 
-    const statusY = totalY + 34;
+    // Deductions and their reasons, between the final score and the status line
+    const deductionBlock = input.deductions.length > 0 ? 6 + input.deductions.length * 4.2 : 0;
+    if (input.deductions.length > 0) {
+        drawCentered(doc, 'Deductions', totalY + 25, SANS, 'bold', 8.5, INK);
+        input.deductions.forEach((d, i) => {
+            drawCentered(doc, `-${d.percentage}%  ${d.reason}`, totalY + 29.5 + i * 4.2, SANS, 'normal', 8, MUTED);
+        });
+    }
+    const statusY = totalY + 34 + deductionBlock;
     drawMixedCentered(doc, [
         { text: input.hotelName, bold: true },
         { text: passed ? ' demonstrated exceptional performance,' : ' did not yet meet the required standard,' }

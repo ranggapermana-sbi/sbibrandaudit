@@ -48,6 +48,8 @@ export interface AuditResult {
     bonusRows: AuditBonusRow[];
     bonusTotal: number;
     passMark: number;
+    deductions: { percentage: number; reason: string }[];
+    deductionTotal: number;
     status: AuditStatus;
     categories: AuditResultCategory[];
 }
@@ -67,6 +69,8 @@ export interface AuditResultsInput {
     submissions: AuditSubmissionRow[];
     // Every identifier a hotel's submissions may be stored under (id, code, name, and linked profile ids)
     idsForHotel: (hotel: Hotel) => string[];
+    // Active score deductions, subtracted from the final score
+    deductions?: { hotel_id: string; percentage: number; reason: string }[];
 }
 
 type SubmissionValue = { score: number | null; isNa: boolean };
@@ -204,9 +208,14 @@ export const computeAuditResults = (input: AuditResultsInput): AuditResult[] => 
                 }
             });
             const basePercentage = hasPoints ? Math.round(weightedScore * 100) / 100 : null;
+            const hotelDeductions = (input.deductions ?? []).filter(d => {
+                const key = String(d.hotel_id).trim().toLowerCase();
+                return key === String(hotel.id).trim().toLowerCase() || key === (hotel.code || '').trim().toLowerCase();
+            });
+            const deductionTotal = Math.round(hotelDeductions.reduce((sum, d) => sum + Number(d.percentage), 0) * 100) / 100;
             const percentage = basePercentage === null
                 ? null
-                : Math.min(100, Math.round((basePercentage + bonusTotal) * 100) / 100);
+                : Math.max(0, Math.min(100, Math.round((basePercentage + bonusTotal - deductionTotal) * 100) / 100));
             const passMark = HOTEL_PASS_MARKS[(hotel.code || '').trim().toUpperCase()] ?? AUDIT_PASS_THRESHOLD;
             const status: AuditStatus =
                 percentage === null ? 'not_audited' : percentage >= passMark ? 'passed' : 'failed';
@@ -224,6 +233,8 @@ export const computeAuditResults = (input: AuditResultsInput): AuditResult[] => 
                 bonusRows,
                 bonusTotal,
                 passMark,
+                deductions: hotelDeductions.map(d => ({ percentage: Number(d.percentage), reason: d.reason })),
+                deductionTotal,
                 status,
                 categories
             };

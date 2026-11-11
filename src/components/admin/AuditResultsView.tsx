@@ -136,7 +136,15 @@ export const AuditResultsView: React.FC<AuditResultsViewProps> = (props) => {
                                             </div>
                                         </div>
                                         <div className="flex flex-wrap items-center gap-4">
-                                            <p className="text-xs text-slate-500">Pass mark: {selectedResult.passMark}%</p>
+                                            {selectedResult.deductionTotal > 0 && (
+                                            <span
+                                                className="text-xs font-bold text-rose-700"
+                                                title={selectedResult.deductions.map(d => `-${d.percentage}%: ${d.reason}`).join('\n')}
+                                            >
+                                                -{selectedResult.deductionTotal}% deduction
+                                            </span>
+                                        )}
+                                        <p className="text-xs text-slate-500">Pass mark: {selectedResult.passMark}%</p>
                                             <button
                                                 onClick={() => handleDownloadCertificate(selectedResult)}
                                                 disabled={selectedResult.status === 'not_audited'}
@@ -364,9 +372,9 @@ export const AuditResultsView: React.FC<AuditResultsViewProps> = (props) => {
                                                 <th rowSpan={2} className={HEAD_CLASS}>Region</th>
                                                 <th rowSpan={2} className={HEAD_CLASS}>Country</th>
                                                 <th rowSpan={2} className={HEAD_CLASS}>Brand</th>
-                                                <th rowSpan={2} className={HEAD_CLASS}>Star Rating</th>
+                                                <th rowSpan={2} className={`${HEAD_CLASS} text-center`}>Star Rating</th>
                                                 {DEPARTMENT_COLUMNS.map(d => (
-                                                    <th key={d.name} colSpan={2} className={`${HEAD_CLASS} text-center`}>{d.label}</th>
+                                                    <th key={d.name} colSpan={2} className={`${HEAD_CLASS} text-center border-l border-slate-100`}>{d.label}</th>
                                                 ))}
                                                 {renderSortHeader('status', 'Status', false, 2)}
                                                 {renderSortHeader('percentage', 'Final Score', true, 2)}
@@ -375,7 +383,7 @@ export const AuditResultsView: React.FC<AuditResultsViewProps> = (props) => {
                                             <tr>
                                                 {DEPARTMENT_COLUMNS.map(d => (
                                                     <React.Fragment key={d.name}>
-                                                        <th className="px-1.5 py-2 text-[9px] font-black uppercase tracking-widest text-slate-400 text-center">Score</th>
+                                                        <th className="px-1.5 py-2 text-[9px] font-black uppercase tracking-widest text-slate-400 text-center border-l border-slate-100">Score</th>
                                                         <th className="px-1.5 py-2 text-[9px] font-black uppercase tracking-widest text-slate-400 text-center">Bonus</th>
                                                     </React.Fragment>
                                                 ))}
@@ -398,19 +406,19 @@ export const AuditResultsView: React.FC<AuditResultsViewProps> = (props) => {
                                                         <td className="px-1.5 py-3.5 text-xs font-bold text-slate-600">{r.region || '—'}</td>
                                                         <td className="px-1.5 py-3.5 text-xs font-bold text-slate-600">{r.country || '—'}</td>
                                                         <td className="px-1.5 py-3.5 text-xs font-bold text-slate-600">{r.brand || '—'}</td>
-                                                        <td className="px-1.5 py-3.5 text-xs font-bold text-slate-600">{r.stars ?? '—'}</td>
+                                                        <td className="px-1.5 py-3.5 text-xs font-bold text-slate-600 text-center tabular-nums">{r.stars ?? '—'}</td>
                                                         {DEPARTMENT_COLUMNS.map(d => {
                                                             const score = departmentScore(r, d.name);
                                                             const bonus = departmentBonus(r, d.name);
                                                             return (
                                                                 <React.Fragment key={d.name}>
-                                                                    <td className="px-1.5 py-3.5 text-sm font-black text-slate-900 text-center">{score !== null ? `${score}%` : '—'}</td>
-                                                                    <td className={`px-1.5 py-3.5 text-sm font-bold text-center ${bonus > 0 ? 'text-emerald-700' : 'text-slate-400'}`}>+{bonus}%</td>
+                                                                    <td className="px-1.5 py-3.5 text-sm font-black text-slate-900 text-center tabular-nums border-l border-slate-100">{score !== null ? `${score}%` : '—'}</td>
+                                                                    <td className={`px-1.5 py-3.5 text-sm font-bold text-center tabular-nums ${bonus > 0 ? 'text-emerald-700' : 'text-slate-400'}`}>+{bonus}%</td>
                                                                 </React.Fragment>
                                                             );
                                                         })}
                                                         <td className="px-1.5 py-3.5">{statusBadge(r.status)}</td>
-                                                        <td className="px-1.5 py-3.5 text-sm font-black text-slate-900 text-right">{r.percentage !== null ? `${r.percentage}%` : '—'}</td>
+                                                        <td className="px-1.5 py-3.5 text-sm font-black text-slate-900 text-right tabular-nums">{r.percentage !== null ? `${r.percentage}%` : '—'}</td>
                                                         <td className="px-1.5 py-3.5 text-right">
                                                             <button
                                                                 onClick={(e) => { e.stopPropagation(); handleDownloadCertificate(r); }}
