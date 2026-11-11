@@ -2,6 +2,7 @@ import React from 'react';
 import { AlertCircle, ArrowLeft, Plus, Trash2 } from 'lucide-react';
 import { Hotel } from '../../types';
 import { AuditDeduction, addDeduction, removeDeduction } from '../../lib/deductions';
+import { isExcludedHotel } from '../../lib/hotelExclusion';
 
 // Score deductions: an admin records a percentage taken off a hotel's final score, with a written reason.
 export interface DeductionsViewProps {
@@ -23,7 +24,7 @@ export const DeductionsView: React.FC<DeductionsViewProps> = ({ hotels, deductio
     const [saving, setSaving] = React.useState(false);
 
     const selectableHotels = hotels
-        .filter(h => h.id && h.id !== 'sbi-test' && h.id !== 'sbi-dummy' && h.brandClass !== 'Corporate')
+        .filter(h => h.id && h.id !== 'sbi-test' && h.id !== 'sbi-dummy' && h.brandClass !== 'Corporate' && !isExcludedHotel(h))
         .slice()
         .sort((a, b) => a.name.localeCompare(b.name));
 

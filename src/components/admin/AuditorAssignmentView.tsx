@@ -294,7 +294,7 @@ export const AuditorAssignmentView: React.FC<AuditorAssignmentViewProps> = (prop
 
                                                         {/* COUNTRY FILTER DROPDOWN */}
                                                         {(() => {
-                                                            const availableCountries = Array.from(new Set(hotels.map(h => h.country || 'Unspecified Country'))).sort();
+                                                            const availableCountries = Array.from(new Set(includedHotels.map(h => h.country || 'Unspecified Country'))).sort();
                                                             return (
                                                                 <select
                                                                     value={hotelCountryFilter}

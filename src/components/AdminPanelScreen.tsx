@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { ArrowLeft, CheckCircle, Clock, Building, BarChart3, ChevronRight, ChevronLeft, ChevronsLeft, ChevronsRight, ArrowUpDown, Plus, Trash2, Edit, Search, X, AlertCircle, MapPin, Settings2, Calendar, Star, Briefcase, ClipboardList, FileCheck, Layers, Package, Camera, ImageIcon, FileText, Hash, Type, CheckSquare, Users, ShieldCheck, Percent, GripVertical, ChevronUp, ChevronDown, Eye, User, RefreshCw, CheckCircle2, Maximize2, ExternalLink, ZoomIn, Database, Copy, Check, Lock, Unlock, Upload, UploadCloud, Loader2, Sparkles, FolderCheck, ClipboardCheck } from 'lucide-react';
 import { supabase, HOTELS_URL, HOTELS_KEY } from '../lib/supabase';
 import { apiCache } from '../lib/cache';
-import { withoutExcludedHotels } from '../lib/hotelExclusion';
+import { isExcludedHotel, withoutExcludedHotels } from '../lib/hotelExclusion';
 import { buildCertificateInput, downloadHotelCertificate, CERTIFICATE_WEIGHTS } from '../lib/certificate';
 import { BONUS_RULES, bonusRuleForCategory, bonusCategoryAppliesTo } from '../lib/bonusRules';
 import { createSubmissionSync } from '../lib/submissionSync';
@@ -1881,7 +1881,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     const handleSetAuditLockForAll = async (lock: boolean) => {
         const targetIds = Array.from(new Set(
             hotels
-                .filter(h => h.id && h.id !== 'sbi-test' && h.id !== 'sbi-dummy' && h.brandClass !== 'Corporate')
+                .filter(h => h.id && h.id !== 'sbi-test' && h.id !== 'sbi-dummy' && h.brandClass !== 'Corporate' && !isExcludedHotel(h))
                 .map(h => h.id)
         ));
         if (targetIds.length === 0) return;
