@@ -291,8 +291,40 @@ const drawSummaryPage = (doc: jsPDF, input: CertificateInput, logo: string | nul
     const passed = input.status === 'passed';
     const statusWord = passed ? 'PASSED' : 'FAILED';
     const statusColor = passed ? PASS_GREEN : FAIL_RED;
-    // Final score row: weighted total plus the bonus
-    const finalY = totalY + 11;
+    // Deductions band, directly below the TOTAL SCORE row: each deduction's percentage and its reason
+    const dedY = totalY + 11;
+    const reasonWidth = tableWidth - 30;
+    const reasonLines = input.deductions.map(d => doc.setFont(SANS, 'normal').setFontSize(8.5).splitTextToSize(d.reason, reasonWidth) as string[]);
+    const dedBand = input.deductions.length > 0
+        ? 9 + reasonLines.reduce((sum, lines) => sum + lines.length * 3.9 + 2.6, 0) + 1.5
+        : 0;
+    if (input.deductions.length > 0) {
+        doc.setFillColor(248, 242, 234);
+        doc.rect(x0, dedY, tableWidth, dedBand, 'F');
+        doc.setDrawColor(...GOLD);
+        doc.setLineWidth(0.25);
+        doc.rect(x0, dedY, tableWidth, dedBand);
+        doc.setFont(SANS, 'bold');
+        doc.setFontSize(8);
+        doc.setTextColor(...BROWN);
+        doc.text('DEDUCTIONS', x0 + 4, dedY + 5.5);
+        let rowY = dedY + 9;
+        input.deductions.forEach((d, i) => {
+            const lines = reasonLines[i];
+            doc.setFont(SANS, 'bold');
+            doc.setFontSize(9);
+            doc.setTextColor(...FAIL_RED);
+            doc.text(`-${d.percentage}%`, x0 + 4, rowY + 3.6);
+            doc.setFont(SANS, 'normal');
+            doc.setFontSize(8.5);
+            doc.setTextColor(...INK);
+            doc.text(lines, x0 + 26, rowY + 3.6);
+            rowY += lines.length * 3.9 + 2.6;
+        });
+    }
+
+    // Final score row: weighted total plus the bonus, less the deductions
+    const finalY = dedY + dedBand;
     doc.setFillColor(122, 84, 42);
     doc.rect(x0, finalY, tableWidth, 11, 'F');
     doc.setFont(SANS, 'bold');
@@ -301,15 +333,7 @@ const drawSummaryPage = (doc: jsPDF, input: CertificateInput, logo: string | nul
     const finalText = input.overallPercentage !== null ? input.overallPercentage.toFixed(2) : '—';
     doc.text(`FINAL SCORE: ${finalText}%`, x0 + tableWidth / 2, finalY + 7.2, { align: 'center' });
 
-    // Deductions and their reasons, between the final score and the status line
-    const deductionBlock = input.deductions.length > 0 ? 6 + input.deductions.length * 4.2 : 0;
-    if (input.deductions.length > 0) {
-        drawCentered(doc, 'Deductions', totalY + 25, SANS, 'bold', 8.5, INK);
-        input.deductions.forEach((d, i) => {
-            drawCentered(doc, `-${d.percentage}%  ${d.reason}`, totalY + 29.5 + i * 4.2, SANS, 'normal', 8, MUTED);
-        });
-    }
-    const statusY = totalY + 34 + deductionBlock;
+    const statusY = finalY + 23;
     drawMixedCentered(doc, [
         { text: input.hotelName, bold: true },
         { text: passed ? ' demonstrated exceptional performance,' : ' did not yet meet the required standard,' }
