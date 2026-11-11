@@ -10,6 +10,7 @@ import { fetchMasterHotels } from '../lib/hotelsService';
 import { AUDIT_PASS_THRESHOLD, computeAuditResults } from '../lib/auditResults';
 import { AuditResultsView } from './admin/AuditResultsView';
 import { DeductionsView } from './admin/DeductionsView';
+import { PassFailDashboardView } from './admin/PassFailDashboardView';
 import { AuditDeduction, fetchActiveDeductions } from '../lib/deductions';
 import { ProgressReportView } from './admin/ProgressReportView';
 import { InspectionV2View } from './admin/InspectionV2View';
@@ -168,7 +169,7 @@ const getAlignedMainUrl = (rawUrl: string, key: string): string => {
 const MAIN_URL = getAlignedMainUrl(MAIN_URL_RAW, MAIN_KEY);
 
 export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { userProfile: any, onBack: () => void, onLogout: () => void }) {
-    const [subView, setSubView] = useState<'dashboard' | 'departments' | 'hotels' | 'batches' | 'categories' | 'items' | 'groups' | 'users' | 'access' | 'inspection' | 'inspection_v2' | 'auditor_assignment' | 'progress_report' | 'audit_results' | 'deductions'>('dashboard');
+    const [subView, setSubView] = useState<'dashboard' | 'departments' | 'hotels' | 'batches' | 'categories' | 'items' | 'groups' | 'users' | 'access' | 'inspection' | 'inspection_v2' | 'auditor_assignment' | 'progress_report' | 'audit_results' | 'deductions' | 'pass_fail_dashboard'>('dashboard');
     const [progressRegionFilter, setProgressRegionFilter] = useState<string>('');
     const [progressCountryFilter, setProgressCountryFilter] = useState<string>('');
     const [progressBrandFilter, setProgressBrandFilter] = useState<string>('');
@@ -1238,7 +1239,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         }
     }, []);
     useEffect(() => {
-        if (subView === 'deductions' || subView === 'audit_results') {
+        if (subView === 'deductions' || subView === 'audit_results' || subView === 'pass_fail_dashboard') {
             fetchDeductions();
         }
     }, [subView, fetchDeductions]);
@@ -1270,7 +1271,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
     }, [progressSync]);
 
     useEffect(() => {
-        if (subView !== 'inspection' && subView !== 'progress_report' && subView !== 'audit_results') return;
+        if (subView !== 'inspection' && subView !== 'progress_report' && subView !== 'audit_results' && subView !== 'pass_fail_dashboard') return;
 
         // The progress report only needs the light progress columns; inspection still needs full rows
         const refreshSubmissions = subView === 'inspection' ? fetchAllSubmissions : fetchProgressSubmissions;
@@ -2195,7 +2196,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         if (subView === 'hotels' || subView === 'progress_report' || subView === 'inspection') {
             fetchFinalizedStatuses();
         }
-        if (subView === 'progress_report' || subView === 'audit_results') {
+        if (subView === 'progress_report' || subView === 'audit_results' || subView === 'pass_fail_dashboard') {
             // Force refresh: the report must not use cached reference data (hotels, groups, items, categories)
             fetchHotelsFromSupabase(true);
             fetchDepartmentsFromSupabase();
@@ -5052,7 +5053,7 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                         </button>
                     )}
                     <h1 className="text-xl font-bold text-slate-900 tracking-tight ml-3">
-                        {subView === 'departments' ? 'Audit Departments' : subView === 'hotels' ? 'Master Hotel List' : subView === 'batches' ? 'Audit Batch' : subView === 'categories' ? 'Audit Category' : subView === 'items' ? 'Audit Items' : subView === 'groups' ? 'Audit Groups' : subView === 'users' ? 'User Management' : subView === 'inspection_v2' ? 'Audit Inspection v2' : subView === 'inspection' ? 'Audit Inspection (v1)' : subView === 'progress_report' ? 'Audit Progress Report' : 'Admin Dashboard'}
+                        {subView === 'departments' ? 'Audit Departments' : subView === 'hotels' ? 'Master Hotel List' : subView === 'batches' ? 'Audit Batch' : subView === 'categories' ? 'Audit Category' : subView === 'items' ? 'Audit Items' : subView === 'groups' ? 'Audit Groups' : subView === 'users' ? 'User Management' : subView === 'inspection_v2' ? 'Audit Inspection v2' : subView === 'inspection' ? 'Audit Inspection (v1)' : subView === 'progress_report' ? 'Audit Progress Report' : subView === 'pass_fail_dashboard' ? 'Pass / Fail Dashboard' : 'Admin Dashboard'}
                     </h1>
                 </div>
                 <div className="flex items-center gap-3">
@@ -5333,6 +5334,13 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                         onChanged={fetchDeductions}
                         adminName={userProfile ? (`${userProfile.first_name || ''} ${userProfile.last_name || ''}`.trim() || userProfile.email || 'Admin') : 'Admin'}
                         onBackToDashboard={() => { setSubView('inspection'); setSearchQuery(''); }}
+                    />
+                ) : subView === 'pass_fail_dashboard' ? (
+                    <PassFailDashboardView
+                        auditResults={auditResults}
+                        profiles={profilesList}
+                        departments={departments}
+                        onBackToDashboard={() => { setSubView('dashboard'); setSearchQuery(''); }}
                     />
                 ) : subView === 'audit_results' ? (
                     <AuditResultsView

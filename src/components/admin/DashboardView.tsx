@@ -1,6 +1,6 @@
 import React from 'react';
 import { AuditBatch, AuditCategory, AuditGroup, Department, Hotel } from '../../types';
-import { Briefcase, Building, ChevronRight, ClipboardCheck, ClipboardList, FileCheck, Layers, Package, Percent, Settings2, ShieldCheck, Sparkles, Users } from 'lucide-react';
+import { Briefcase, Building, ChevronRight, ClipboardCheck, ClipboardList, FileCheck, Layers, Package, PieChart, Percent, Settings2, ShieldCheck, Sparkles, Users } from 'lucide-react';
 
 
 // Moved out of AdminPanelScreen (sub-view 'dashboard'). Values are passed in from the admin screen.
@@ -23,7 +23,7 @@ export interface DashboardViewProps {
     setSelectedAuditResultId: React.Dispatch<React.SetStateAction<string>>;
     setStatsModalCopied: React.Dispatch<React.SetStateAction<boolean>>;
     setStatsModalType: React.Dispatch<React.SetStateAction<"auditees" | "brand_leads">>;
-    setSubView: React.Dispatch<React.SetStateAction<"dashboard" | "departments" | "hotels" | "batches" | "categories" | "items" | "groups" | "users" | "access" | "inspection" | "inspection_v2" | "auditor_assignment" | "progress_report" | "audit_results" | "deductions">>;
+    setSubView: React.Dispatch<React.SetStateAction<"dashboard" | "departments" | "hotels" | "batches" | "categories" | "items" | "groups" | "users" | "access" | "inspection" | "inspection_v2" | "auditor_assignment" | "progress_report" | "audit_results" | "deductions" | "pass_fail_dashboard">>;
     stats: { title: string; value: string; icon: React.ForwardRefExoticComponent<any>; color: string; }[];
     supabaseConnected: boolean;
     userProfile: any;
@@ -464,6 +464,24 @@ export const DashboardView: React.FC<DashboardViewProps> = (props) => {
                                     </div>
                                 </div>
                             </section>
+
+                        {/* Pass / Fail Dashboard entry, placed above the app footer */}
+                        <button
+                            type="button"
+                            onClick={() => { setSubView('pass_fail_dashboard'); }}
+                            className="w-full flex items-center justify-between p-5 mt-6 bg-white hover:bg-slate-50/80 rounded-[20px] border border-slate-150/80 cursor-pointer hover:border-indigo-200 active:scale-[0.99] transition-[transform,background-color,border-color] duration-200 group shadow-[0_4px_24px_rgba(15,23,42,0.01)] text-left outline-none focus-visible:ring-2 focus-visible:ring-indigo-300"
+                        >
+                            <div className="flex items-center gap-4">
+                                <div className="w-11 h-11 rounded-2xl bg-indigo-50 text-indigo-700 flex items-center justify-center shrink-0 transition-transform duration-300 group-hover:scale-105">
+                                    <PieChart size={20} />
+                                </div>
+                                <div>
+                                    <p className="text-sm font-bold text-slate-800 tracking-tight">Pass / Fail Dashboard</p>
+                                    <p className="text-xs text-slate-400 mt-0.5">Audit pass and fail as pie charts by region, country, brand and Marcomm/PR</p>
+                                </div>
+                            </div>
+                            <ChevronRight className="text-slate-300 group-hover:text-indigo-600 group-hover:translate-x-1 transition-[transform,color] duration-200" size={18} />
+                        </button>
                         </>
     );
 };
