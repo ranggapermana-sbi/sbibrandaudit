@@ -296,7 +296,7 @@ const drawSummaryPage = (doc: jsPDF, input: CertificateInput, logo: string | nul
     const reasonWidth = tableWidth - 30;
     const reasonLines = input.deductions.map(d => doc.setFont(SANS, 'normal').setFontSize(8.5).splitTextToSize(d.reason, reasonWidth) as string[]);
     const dedBand = input.deductions.length > 0
-        ? 9 + reasonLines.reduce((sum, lines) => sum + lines.length * 3.9 + 2.6, 0) + 1.5
+        ? 6.6 + reasonLines.reduce((sum, lines) => sum + lines.length * 3.4 + 1.2, 0) + 1.2
         : 0;
     if (input.deductions.length > 0) {
         doc.setFillColor(248, 242, 234);
@@ -307,19 +307,19 @@ const drawSummaryPage = (doc: jsPDF, input: CertificateInput, logo: string | nul
         doc.setFont(SANS, 'bold');
         doc.setFontSize(8);
         doc.setTextColor(...BROWN);
-        doc.text('DEDUCTIONS', x0 + 4, dedY + 5.5);
-        let rowY = dedY + 9;
+        doc.text('DEDUCTIONS', x0 + 4, dedY + 4.2);
+        let rowY = dedY + 6.6;
         input.deductions.forEach((d, i) => {
             const lines = reasonLines[i];
             doc.setFont(SANS, 'bold');
             doc.setFontSize(9);
             doc.setTextColor(...FAIL_RED);
-            doc.text(`-${d.percentage}%`, x0 + 4, rowY + 3.6);
+            doc.text(`-${d.percentage}%`, x0 + 4, rowY + 2.9);
             doc.setFont(SANS, 'normal');
             doc.setFontSize(8.5);
             doc.setTextColor(...INK);
-            doc.text(lines, x0 + 26, rowY + 3.6);
-            rowY += lines.length * 3.9 + 2.6;
+            doc.text(lines, x0 + 26, rowY + 2.9);
+            rowY += lines.length * 3.4 + 1.2;
         });
     }
 
