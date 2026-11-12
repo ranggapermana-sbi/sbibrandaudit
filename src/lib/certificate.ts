@@ -419,16 +419,22 @@ export const downloadHotelCertificate = async (input: CertificateInput) => {
     drawSummaryPage(summaryDoc, input, logo);
     const summaryBytes = summaryDoc.output('arraybuffer');
 
-    const scoreText = input.overallPercentage !== null ? `${input.overallPercentage.toFixed(2)}%` : '—';
-    const certificate = await writeAwardPage(await loadAwardTemplate(), input.hotelName, scoreText);
+    // Failed hotels get only the score breakdown page; passed hotels get the award page followed by it
+    let bytes: Uint8Array;
+    if (input.status === 'failed') {
+        bytes = await (await PDFDocument.load(summaryBytes)).save();
+    } else {
+        const scoreText = input.overallPercentage !== null ? `${input.overallPercentage.toFixed(2)}%` : '—';
+        const certificate = await writeAwardPage(await loadAwardTemplate(), input.hotelName, scoreText);
 
-    // Keep the template's page 1 and replace its page 2 with the generated summary
-    const summary = await PDFDocument.load(summaryBytes);
-    const [summaryPage] = await certificate.copyPages(summary, [0]);
-    certificate.removePage(1);
-    certificate.addPage(summaryPage);
+        // Keep the template's page 1 and replace its page 2 with the generated summary
+        const summary = await PDFDocument.load(summaryBytes);
+        const [summaryPage] = await certificate.copyPages(summary, [0]);
+        certificate.removePage(1);
+        certificate.addPage(summaryPage);
 
-    const bytes = await certificate.save();
+        bytes = await certificate.save();
+    }
     const safeCode = input.hotelCode.replace(/[^A-Za-z0-9_-]/g, '') || 'hotel';
     const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
     const link = document.createElement('a');
