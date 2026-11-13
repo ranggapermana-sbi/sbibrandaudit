@@ -219,6 +219,17 @@ const drawMixedCentered = (doc: jsPDF, segments: { text: string; bold?: boolean;
     });
 };
 
+// Branding Audit Final Score Rule: the distinction for a passing final score, or null for a plain pass (85 to 85.99).
+// The score is rounded down, so 89.99 is in the 86 to 89 band and 95.99 in the 90 to 95 band.
+export const passDistinction = (score: number | null): string | null => {
+    if (score === null) return null;
+    const whole = Math.floor(score);
+    if (whole >= 96) return 'HIGH DISTINCTION';
+    if (whole >= 90) return 'DISTINCTION';
+    if (whole >= 86) return 'CREDIT';
+    return null;
+};
+
 const drawSummaryPage = (doc: jsPDF, input: CertificateInput, logo: string | null) => {
     drawFrame(doc);
     drawLogo(doc, logo, 16, 50);
@@ -289,7 +300,8 @@ const drawSummaryPage = (doc: jsPDF, input: CertificateInput, logo: string | nul
 
     // Status
     const passed = input.status === 'passed';
-    const statusWord = passed ? 'PASSED' : 'FAILED';
+    const distinction = passed ? passDistinction(input.overallPercentage) : null;
+    const statusWord = passed ? (distinction ? `PASSED WITH ${distinction}` : 'PASSED') : 'FAILED';
     const statusColor = passed ? PASS_GREEN : FAIL_RED;
     // Deductions band, directly below the TOTAL SCORE row: each deduction's percentage and its reason
     const dedY = totalY + 11;
@@ -435,11 +447,12 @@ export const downloadHotelCertificate = async (input: CertificateInput) => {
 
         bytes = await certificate.save();
     }
-    const safeCode = input.hotelCode.replace(/[^A-Za-z0-9_-]/g, '') || 'hotel';
+    // Characters Windows does not allow in file names are removed from the hotel code
+    const safeCode = input.hotelCode.replace(/[\\/:*?"<>|]/g, '').trim() || 'hotel';
     const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
     const link = document.createElement('a');
     link.href = url;
-    link.download = `Brand-Excellence-Certificate-${safeCode}.pdf`;
+    link.download = `Branding Audit ${CERTIFICATE_AUDIT_YEAR} - ${safeCode}.pdf`;
     document.body.appendChild(link);
     link.click();
     link.remove();
