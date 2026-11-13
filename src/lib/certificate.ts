@@ -463,9 +463,15 @@ export const downloadHotelCertificate = async (input: CertificateInput) => {
     const summaryBytes = summaryDoc.output('arraybuffer');
 
     // Failed hotels get only the score breakdown page; passed hotels get the award page followed by it
+    // The file name and the PDF's own title use the same text, so the viewer tab matches the download name
+    // Characters Windows does not allow in file names are removed from the hotel code
+    const safeCode = input.hotelCode.replace(/[\\/:*?"<>|]/g, '').trim() || 'hotel';
+    const title = `Branding Audit ${CERTIFICATE_AUDIT_YEAR} - ${safeCode}`;
     let bytes: Uint8Array;
     if (input.status === 'failed') {
-        bytes = await (await PDFDocument.load(summaryBytes)).save();
+        const summaryPdf = await PDFDocument.load(summaryBytes);
+        summaryPdf.setTitle(title);
+        bytes = await summaryPdf.save();
     } else {
         const scoreText = input.overallPercentage !== null ? `${input.overallPercentage.toFixed(2)}%` : '—';
         const certificate = await writeAwardPage(await loadAwardTemplate(), input.hotelName, scoreText);
@@ -476,10 +482,10 @@ export const downloadHotelCertificate = async (input: CertificateInput) => {
         certificate.removePage(1);
         certificate.addPage(summaryPage);
 
+        certificate.setTitle(title);
         bytes = await certificate.save();
     }
     // Characters Windows does not allow in file names are removed from the hotel code
-    const safeCode = input.hotelCode.replace(/[\\/:*?"<>|]/g, '').trim() || 'hotel';
     const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
     const link = document.createElement('a');
     link.href = url;
