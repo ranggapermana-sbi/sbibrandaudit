@@ -112,6 +112,8 @@ export const buildDepartmentBreakdown = (results: AuditResult[], departments: De
         const department = departments.find(d => d.name === name);
         const group: BreakdownGroup = { key: name, label: name, ...emptyCounts() };
         results.forEach(result => {
+            // Reduced scheme hotels do not take part in their excluded department, so they are left out of that pie
+            if (result.reducedExcludedDepartment === name) return;
             const score = department ? departmentScoreOf(result, String(department.id)) : null;
             if (score === null) {
                 group.notAudited += 1;

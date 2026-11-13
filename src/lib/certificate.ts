@@ -38,6 +38,11 @@ export interface CertificateInput {
     // Final score: audit percentage plus bonus, capped at 100
     overallPercentage: number | null;
     basePercentage: number | null;
+    // Reduced scheme: Digital Marketing is left out and the base (out of 70) is normalised to 100 on page 2
+    reducedScheme: boolean;
+    reducedExcludedDepartment: string | null;
+    reducedRawMax: number | null;
+    normalisedPercentage: number | null;
     bonusRows: CertificateBonusRow[];
     bonusTotal: number;
     categories: CertificateCategoryScore[];
@@ -49,6 +54,10 @@ export interface CertificateResult {
     status: 'passed' | 'failed' | 'not_audited';
     percentage: number | null;
     basePercentage: number | null;
+    reducedScheme: boolean;
+    reducedExcludedDepartment: string | null;
+    reducedRawMax: number | null;
+    normalisedPercentage: number | null;
     bonusRows: CertificateBonusRow[];
     bonusTotal: number;
 }
@@ -74,7 +83,9 @@ export const buildCertificateInput = (
 ): CertificateInput => {
     const scored = resultCategories.filter(c => !c.isBonus);
 
-    const categories: CertificateCategoryScore[] = CERTIFICATE_WEIGHTS.map(def => {
+    // Reduced scheme hotels have no row for their excluded department
+    const shownWeights = CERTIFICATE_WEIGHTS.filter(def => !(result.reducedExcludedDepartment && def.department === result.reducedExcludedDepartment));
+    const categories: CertificateCategoryScore[] = shownWeights.map(def => {
         const department = departments.find(d => d.name === def.department);
         const rows = department ? scored.filter(c => c.departmentId === String(department.id)) : [];
         const earned = rows.reduce((sum, c) => sum + c.earned, 0);
@@ -99,6 +110,10 @@ export const buildCertificateInput = (
         status: result.status,
         overallPercentage: result.percentage,
         basePercentage: result.basePercentage,
+        reducedScheme: result.reducedScheme,
+        reducedExcludedDepartment: result.reducedExcludedDepartment,
+        reducedRawMax: result.reducedRawMax,
+        normalisedPercentage: result.normalisedPercentage,
         bonusRows: result.bonusRows,
         bonusTotal: result.bonusTotal,
         deductions: result.deductions ?? [],
@@ -294,7 +309,7 @@ const drawSummaryPage = (doc: jsPDF, input: CertificateInput, logo: string | nul
     doc.setFontSize(10);
     doc.setTextColor(...WHITE);
     doc.text('TOTAL SCORE', colX[0] + colWidths[0] / 2, totalY + 7, { align: 'center' });
-    doc.text('100%', colX[1] + colWidths[1] / 2, totalY + 7, { align: 'center' });
+    doc.text(input.reducedScheme && input.reducedRawMax !== null ? `${input.reducedRawMax}%` : '100%', colX[1] + colWidths[1] / 2, totalY + 7, { align: 'center' });
     doc.text(`${input.weightedTotal.toFixed(2)}%`, colX[3] + colWidths[3] / 2, totalY + 7, { align: 'center' });
     doc.text(`+${input.bonusTotal}%`, colX[4] + colWidths[4] / 2, totalY + 7, { align: 'center' });
 
@@ -304,7 +319,23 @@ const drawSummaryPage = (doc: jsPDF, input: CertificateInput, logo: string | nul
     const statusWord = passed ? (distinction ? `PASSED WITH ${distinction}` : 'PASSED') : 'FAILED';
     const statusColor = passed ? PASS_GREEN : FAIL_RED;
     // Deductions band, directly below the TOTAL SCORE row: each deduction's percentage and its reason
-    const dedY = totalY + 11;
+    // Reduced scheme: the base (out of 70) normalised to 100, shown in its own row before the deductions
+    const normalisedRowH = input.reducedScheme ? 9 : 0;
+    if (input.reducedScheme && input.normalisedPercentage !== null) {
+        const normalisedY = totalY + 11;
+        doc.setFillColor(248, 242, 234);
+        doc.rect(x0, normalisedY, tableWidth, normalisedRowH, 'F');
+        doc.setDrawColor(...GOLD);
+        doc.setLineWidth(0.25);
+        doc.rect(x0, normalisedY, tableWidth, normalisedRowH);
+        doc.setFont(SANS, 'bold');
+        doc.setFontSize(8.5);
+        doc.setTextColor(...BROWN);
+        doc.text(`NORMALISED SCORE (BASE ÷ ${input.reducedRawMax} × 100)`, colX[0] + 4, normalisedY + 5.8);
+        doc.setTextColor(...INK);
+        doc.text(`${input.normalisedPercentage.toFixed(2)}%`, colX[3] + colWidths[3] / 2, normalisedY + 5.8, { align: 'center' });
+    }
+    const dedY = totalY + 11 + normalisedRowH;
     const reasonWidth = tableWidth - 30;
     const reasonLines = input.deductions.map(d => doc.setFont(SANS, 'normal').setFontSize(8.5).splitTextToSize(d.reason, reasonWidth) as string[]);
     const dedBand = input.deductions.length > 0

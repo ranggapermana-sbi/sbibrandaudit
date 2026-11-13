@@ -130,7 +130,7 @@ export const AuditResultsView: React.FC<AuditResultsViewProps> = (props) => {
                                                 <span className="text-2xl font-black text-slate-900">{selectedResult.percentage !== null ? `${selectedResult.percentage}%` : '—'}</span>
                                                 {selectedResult.bonusTotal > 0 && (
                                                     <span className="text-xs font-bold text-emerald-700">
-                                                        incl. +{selectedResult.bonusTotal}% bonus ({selectedResult.basePercentage}% audit)
+                                                        incl. +{selectedResult.bonusTotal}% bonus ({selectedResult.reducedScheme ? `${selectedResult.normalisedPercentage}% normalised` : `${selectedResult.basePercentage}% audit`})
                                                     </span>
                                                 )}
                                             </div>
@@ -144,7 +144,7 @@ export const AuditResultsView: React.FC<AuditResultsViewProps> = (props) => {
                                                 -{selectedResult.deductionTotal}% deduction
                                             </span>
                                         )}
-                                        <p className="text-xs text-slate-500">Pass mark: {selectedResult.passMark}%</p>
+                                        <p className="text-xs text-slate-500">Pass mark: {selectedResult.passMark}%{selectedResult.reducedScheme ? ' on the normalised score, before bonus' : ''}</p>
                                             <button
                                                 onClick={() => handleDownloadCertificate(selectedResult)}
                                                 disabled={selectedResult.status === 'not_audited'}
@@ -412,7 +412,7 @@ export const AuditResultsView: React.FC<AuditResultsViewProps> = (props) => {
                                                             const bonus = departmentBonus(r, d.name);
                                                             return (
                                                                 <React.Fragment key={d.name}>
-                                                                    <td className="px-1.5 py-3.5 text-sm font-black text-slate-900 text-center tabular-nums border-l border-slate-100">{score !== null ? `${score}%` : '—'}</td>
+                                                                    <td className="px-1.5 py-3.5 text-sm font-black text-slate-900 text-center tabular-nums border-l border-slate-100">{r.reducedExcludedDepartment === d.name ? 'N/A' : score !== null ? `${score}%` : '—'}</td>
                                                                     <td className={`px-1.5 py-3.5 text-sm font-bold text-center tabular-nums ${bonus > 0 ? 'text-emerald-700' : 'text-slate-400'}`}>+{bonus}%</td>
                                                                 </React.Fragment>
                                                             );

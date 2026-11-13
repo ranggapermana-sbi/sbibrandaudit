@@ -6,13 +6,20 @@ import { CERTIFICATE_WEIGHTS } from './certificate';
 // plus the bonus from passed BONUS items, capped at 100. A hotel passes at AUDIT_PASS_THRESHOLD or more.
 export const AUDIT_PASS_THRESHOLD = 85;
 
-// Hotel-specific pass marks, keyed by hotel code. Hotels not listed here use AUDIT_PASS_THRESHOLD.
-export const HOTEL_PASS_MARKS: Record<string, number> = {
-    SBNI: 59.5,
-    GBHB: 59.5,
-    MAOU: 59.5,
-    RISB: 59.5,
+// Reduced scheme: these hotels do not take part in Digital Marketing, so the maximum raw score is 70.
+// The base score is normalised (base ÷ 70 × 100) and must reach AUDIT_PASS_THRESHOLD before the bonus is counted.
+// The bonus is added after normalisation, and the maximum final score is 110.
+// Each reduced-scheme hotel leaves one department out: its raw maximum is 100 minus that department's weight.
+export const REDUCED_SCHEME_HOTELS: Record<string, { excludedDepartment: string; rawMax: number }> = {
+    SBNI: { excludedDepartment: 'Digital Marketing', rawMax: 70 },
+    MAOU: { excludedDepartment: 'Digital Marketing', rawMax: 70 },
+    GBHB: { excludedDepartment: 'Digital Marketing', rawMax: 70 },
+    RISB: { excludedDepartment: 'Digital Marketing', rawMax: 70 },
+    SBKT: { excludedDepartment: 'CRM & Loyalty', rawMax: 85 },
+    LHSB: { excludedDepartment: 'CRM & Loyalty', rawMax: 85 },
 };
+const REDUCED_SCHEME_FINAL_MAX = 110;
+const STANDARD_FINAL_MAX = 100;
 
 export type AuditStatus = 'passed' | 'failed' | 'not_audited';
 
@@ -45,6 +52,12 @@ export interface AuditResult {
     stars: number | null;
     percentage: number | null;
     basePercentage: number | null;
+    // Reduced scheme hotels: base score normalised to 100 (base ÷ 70 × 100), before bonus and deductions
+    reducedScheme: boolean;
+    // The department left out of a reduced-scheme hotel's score, and the raw maximum the base is normalised from
+    reducedExcludedDepartment: string | null;
+    reducedRawMax: number | null;
+    normalisedPercentage: number | null;
     bonusRows: AuditBonusRow[];
     bonusTotal: number;
     passMark: number;
@@ -197,9 +210,13 @@ export const computeAuditResults = (input: AuditResultsInput): AuditResult[] => 
                 totals.max += c.max;
                 departmentTotals.set(c.departmentId, totals);
             });
+            const reducedRule = REDUCED_SCHEME_HOTELS[(hotel.code || '').trim().toUpperCase()] ?? null;
+            const reducedScheme = reducedRule !== null;
             let weightedScore = 0;
             let hasPoints = false;
             CERTIFICATE_WEIGHTS.forEach(def => {
+                // Reduced scheme hotels leave their excluded department out of the score entirely
+                if (reducedRule && def.department === reducedRule.excludedDepartment) return;
                 const department = input.departments.find(d => d.name === def.department);
                 const totals = department ? departmentTotals.get(String(department.id)) : undefined;
                 if (totals && totals.max > 0) {
@@ -208,17 +225,30 @@ export const computeAuditResults = (input: AuditResultsInput): AuditResult[] => 
                 }
             });
             const basePercentage = hasPoints ? Math.round(weightedScore * 100) / 100 : null;
+            // Reduced scheme: the base is out of rawMax, so it is normalised to 100. Standard scheme: the base is already out of 100.
+            const normalisedPercentage = basePercentage === null
+                ? null
+                : reducedRule
+                    ? Math.round((weightedScore / reducedRule.rawMax) * 100 * 100) / 100
+                    : basePercentage;
             const hotelDeductions = (input.deductions ?? []).filter(d => {
                 const key = String(d.hotel_id).trim().toLowerCase();
                 return key === String(hotel.id).trim().toLowerCase() || key === (hotel.code || '').trim().toLowerCase();
             });
             const deductionTotal = Math.round(hotelDeductions.reduce((sum, d) => sum + Number(d.percentage), 0) * 100) / 100;
-            const percentage = basePercentage === null
+            const finalMax = reducedScheme ? REDUCED_SCHEME_FINAL_MAX : STANDARD_FINAL_MAX;
+            const percentage = normalisedPercentage === null
                 ? null
-                : Math.max(0, Math.min(100, Math.round((basePercentage + bonusTotal - deductionTotal) * 100) / 100));
-            const passMark = HOTEL_PASS_MARKS[(hotel.code || '').trim().toUpperCase()] ?? AUDIT_PASS_THRESHOLD;
+                : Math.max(0, Math.min(finalMax, Math.round((normalisedPercentage + bonusTotal - deductionTotal) * 100) / 100));
+            // The pass test is before the bonus. Reduced scheme: normalised score less deductions, against AUDIT_PASS_THRESHOLD.
+            const passScore = normalisedPercentage === null
+                ? null
+                : reducedScheme
+                    ? Math.round((normalisedPercentage - deductionTotal) * 100) / 100
+                    : percentage;
+            const passMark = AUDIT_PASS_THRESHOLD;
             const status: AuditStatus =
-                percentage === null ? 'not_audited' : percentage >= passMark ? 'passed' : 'failed';
+                passScore === null ? 'not_audited' : passScore >= passMark ? 'passed' : 'failed';
 
             return {
                 hotelId: String(hotel.id),
@@ -230,6 +260,10 @@ export const computeAuditResults = (input: AuditResultsInput): AuditResult[] => 
                 stars: hotel.stars ?? null,
                 percentage,
                 basePercentage,
+                reducedScheme,
+                reducedExcludedDepartment: reducedRule?.excludedDepartment ?? null,
+                reducedRawMax: reducedRule?.rawMax ?? null,
+                normalisedPercentage,
                 bonusRows,
                 bonusTotal,
                 passMark,

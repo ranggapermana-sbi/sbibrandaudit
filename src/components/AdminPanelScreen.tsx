@@ -2465,6 +2465,10 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
         status: 'passed' | 'failed' | 'not_audited';
         percentage: number | null;
         basePercentage: number | null;
+        reducedScheme: boolean;
+        reducedExcludedDepartment: string | null;
+        reducedRawMax: number | null;
+        normalisedPercentage: number | null;
         bonusRows: { label: string; passed: number; rate: number; points: number }[];
         bonusTotal: number;
         deductions: { percentage: number; reason: string }[];
@@ -2477,6 +2481,10 @@ export default function AdminPanelScreen({ userProfile, onBack, onLogout }: { us
                     status: result.status,
                     percentage: result.percentage,
                     basePercentage: result.basePercentage,
+                    reducedScheme: result.reducedScheme,
+                    reducedExcludedDepartment: result.reducedExcludedDepartment,
+                    reducedRawMax: result.reducedRawMax,
+                    normalisedPercentage: result.normalisedPercentage,
                     bonusRows: result.bonusRows,
                     bonusTotal: result.bonusTotal,
                     deductions: result.deductions
